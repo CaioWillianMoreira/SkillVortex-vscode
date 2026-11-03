@@ -37,7 +37,14 @@ export const projectsSchema = z.object({
     id: z.string().min(1),
     name: z.string().trim().min(1).max(60),
     sourcePath: z.string().optional(),
-    skillIds: z.array(z.string()).refine(unique)
+    skillIds: z.array(z.string()).refine(unique),
+    deployedSkills: z.array(z.object({
+      skillId: z.string(),
+      directory: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+      hash: z.string().regex(/^[a-f0-9]{64}$/),
+      sourceHash: z.string().regex(/^[a-f0-9]{64}$/)
+    })).refine(items => unique(items.map(item => item.skillId)) &&
+      unique(items.map(item => item.directory))).optional()
   })).max(10000)
 }).superRefine((data, context) => {
   if (!unique(data.projects.map(project => project.id)) ||

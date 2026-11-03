@@ -3,12 +3,13 @@ import { promises as fs } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { basename, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
-import { createVault, readVault, readContained, saveVaultData, writeSkillFile } from './vault'
+import { createVault, readVault, readContained, writeSkillFile } from './vault'
 import { initializeSql, migrateDesktop, rebuildIndex } from './database'
 import { hasErrorCode, skillSchema } from './model'
 import { readProjectMarkdown, scanProjectMarkdown } from './project-scan'
 import { createVaultBackup, listVaultBackups, restoreVaultBackup } from './backup'
 import { createDocumentedExamples, reconcileDocumentedExamples } from './documented-examples'
+import { saveProjectSkills } from './project-skills'
 
 const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready') }),
@@ -29,6 +30,7 @@ const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('scanProject') }),
   z.object({ type: z.literal('setActiveProject'), id: z.string().nullable() }),
   z.object({ type: z.literal('toggleProjectSkill'), id: z.string() }),
+  z.object({ type: z.literal('runSkill'), id: z.string() }),
   z.object({
     type: z.literal('saveSkill'), id: z.string(),
     name: z.string().trim().min(1).max(100),
@@ -128,7 +130,18 @@ export function activate(context: vscode.ExtensionContext): void {
     return { root, data: await readVault(root) }
   }
   async function persist(root: string, data: Awaited<ReturnType<typeof readVault>>): Promise<void> {
-    await saveVaultData(root, data)
+    await saveProjectSkills(root, await readVault(root), data)
+  }
+  async function chooseProjectFolder(): Promise<string | undefined> {
+    const folders = vscode.workspace.workspaceFolders ?? []
+    if (folders.length === 1 && folders[0].uri.scheme === 'file') {
+      return fs.realpath(folders[0].uri.fsPath)
+    }
+    const selected = await vscode.window.showOpenDialog({
+      canSelectFiles: false, canSelectFolders: true, canSelectMany: false,
+      openLabel: 'Selecionar projeto para usar a skill'
+    })
+    return selected?.[0] ? fs.realpath(selected[0].fsPath) : undefined
   }
   async function createBackup(): Promise<void> {
     const { root } = await currentVault()
@@ -160,7 +173,7 @@ export function activate(context: vscode.ExtensionContext): void {
       'Restaurar backup'
     )
     if (confirmation !== 'Restaurar backup') return
-    const result = await restoreVaultBackup(root, selected.backup.id)
+    const result = await restoreVaultBackup(root, selected.backup.id, persist)
     await refresh()
     if (result.warning) {
       void vscode.window.showWarningMessage(
@@ -510,14 +523,58 @@ export function activate(context: vscode.ExtensionContext): void {
       if (message.type === 'toggleProjectSkill') {
         const { root, data } = await currentVault()
         const skill = data.catalog.skills.find(item => item.id === message.id)
-        const project = data.projects.projects.find(item => item.id === data.projects.activeProject)
-        if (!skill || !project) throw new Error('Selecione um projeto e uma skill validos.')
+        if (!skill) throw new Error('Skill nao encontrada.')
         if (skill.status === 'blocked') throw new Error('Skills bloqueadas nao podem ser vinculadas.')
+        let project = data.projects.projects.find(item => item.id === data.projects.activeProject)
+        if (!project?.sourcePath) {
+          const sourcePath = await chooseProjectFolder()
+          if (!sourcePath) return
+          if (!project) {
+            project = data.projects.projects.find(item => item.sourcePath === sourcePath)
+            if (!project) {
+              let name = basename(sourcePath).slice(0, 60) || 'Projeto'
+              let suffix = 1
+              while (data.projects.projects.some(item => item.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+                name = `${basename(sourcePath).slice(0, 50)} (${suffix++})`
+              }
+              project = { id: randomBytes(16).toString('hex'), name, sourcePath, skillIds: [] }
+              data.projects.projects.push(project)
+            }
+            data.projects.activeProject = project.id
+          } else {
+            if (data.projects.projects.some(item => item.id !== project?.id && item.sourcePath === sourcePath)) {
+              throw new Error('Esta pasta ja esta associada a outro projeto. Selecione esse projeto.')
+            }
+            project.sourcePath = sourcePath
+          }
+        }
         project.skillIds = project.skillIds.includes(skill.id)
           ? project.skillIds.filter(id => id !== skill.id)
           : [...project.skillIds, skill.id]
         await persist(root, data)
         await refresh()
+      }
+      if (message.type === 'runSkill') {
+        const { data } = await currentVault()
+        const project = data.projects.projects.find(item => item.id === data.projects.activeProject)
+        if (!project?.sourcePath || !project.skillIds.includes(message.id)) {
+          throw new Error('Ative a skill no projeto antes de executa-la.')
+        }
+        const deployed = project.deployedSkills?.find(item => item.skillId === message.id)
+        if (!deployed) throw new Error('A skill ainda nao foi publicada no projeto.')
+        const projectPath = await fs.realpath(project.sourcePath)
+        const workspaceContainsProject = await Promise.all(
+          (vscode.workspace.workspaceFolders ?? [])
+            .filter(folder => folder.uri.scheme === 'file')
+            .map(async folder => await fs.realpath(folder.uri.fsPath) === projectPath)
+        )
+        if (!workspaceContainsProject.includes(true)) {
+          throw new Error('Abra no VS Code a pasta associada ao projeto antes de executar a skill.')
+        }
+        await vscode.commands.executeCommand('workbench.action.chat.open', {
+          query: `/${deployed.directory} `,
+          isPartialQuery: true
+        })
       }
       if (message.type === 'saveSkill') {
         const { root, data } = await currentVault()
@@ -545,8 +602,23 @@ export function activate(context: vscode.ExtensionContext): void {
           project.skillIds = project.skillIds.filter(id => id !== updated.id)
           if (updated.status !== 'blocked' && linked.has(project.id)) project.skillIds.push(updated.id)
         }
+        for (const project of data.projects.projects) {
+          if (project.skillIds.includes(updated.id) && !project.sourcePath) {
+            throw new Error(`Associe uma pasta ao projeto ${project.name} no Dashboard antes de vincular a skill.`)
+          }
+        }
+        const previousContent = await readContained(root, join(root, updated.filePath))
         await writeSkillFile(root, updated.filePath, message.content)
-        await persist(root, data)
+        try {
+          await persist(root, data)
+        } catch (error) {
+          try {
+            await writeSkillFile(root, updated.filePath, previousContent)
+          } catch (rollbackError) {
+            throw new AggregateError([error, rollbackError], 'Falha ao salvar a skill e restaurar o Markdown do cofre.')
+          }
+          throw error
+        }
         editingSkillId = updated.id
         await refresh(true)
       }

@@ -285,7 +285,7 @@ function App(): React.JSX.Element {
                 <Typography.Title level={2}>Biblioteca de Skills</Typography.Title>
                 <Typography.Text type="secondary">
                   Gerencie as skills disponiveis para os agentes do projeto.
-                  {activeProject ? ` Projeto ativo: ${activeProject.name}.` : ' Selecione ou crie um projeto para gerenciar vinculos.'}
+                  {activeProject ? ` Projeto ativo: ${activeProject.name}.` : ' Ative Usar no Projeto para associar a pasta aberta ou escolher um projeto.'}
                 </Typography.Text>
                 {activeProject?.sourcePath && (
                   <Typography.Paragraph className="active-project-path" type="secondary" title={activeProject.sourcePath}>
@@ -383,13 +383,28 @@ function App(): React.JSX.Element {
                         <Space className="skill-card-project">
                           <Switch
                             size="small"
+                            aria-label={`Usar ${item.name} no projeto`}
+                            title={item.status === 'blocked'
+                              ? 'Edite o status da skill para permitir seu uso no projeto.'
+                              : linked
+                                ? 'Desativar e preservar o SKILL.md no cofre.'
+                                : 'Criar .github/skills/<nome>/SKILL.md na pasta do projeto.'}
                             checked={linked}
-                            disabled={!activeProject || item.status === 'blocked'}
+                            disabled={item.status === 'blocked'}
                             onChange={() => api.postMessage({ type: 'toggleProjectSkill', id: item.id })}
                           />
                           <Typography.Text type="secondary">Usar no Projeto</Typography.Text>
                         </Space>
                         <Space className="skill-card-actions" size={4}>
+                          <Button
+                            size="small"
+                            type="link"
+                            disabled={!linked || item.status === 'blocked'}
+                            title={linked
+                              ? 'Abrir o chat do Copilot com esta skill; revise o pedido e envie.'
+                              : 'Ative a skill no projeto para executa-la.'}
+                            onClick={() => api.postMessage({ type: 'runSkill', id: item.id })}
+                          >Executar</Button>
                           <Button size="small" type="link" onClick={() => api.postMessage({ type: 'openSkill', id: item.id })}>Editar</Button>
                           <Button size="small" type="link" onClick={() => api.postMessage({ type: 'unlinkSkill', id: item.id })}>Desvincular</Button>
                           <Button size="small" danger type="link" onClick={() => api.postMessage({ type: 'deleteSkill', id: item.id })}>Excluir</Button>
@@ -512,7 +527,7 @@ function App(): React.JSX.Element {
                             >
                               <Space direction="vertical">
                                 {state.projects.projects.map(project => (
-                                  <Checkbox key={project.id} value={project.id}>
+                                  <Checkbox key={project.id} value={project.id} disabled={!project.sourcePath && !draft.projectIds.includes(project.id)}>
                                     {project.name}{project.sourcePath ? ` · ${project.sourcePath}` : ' · sem pasta associada'}
                                   </Checkbox>
                                 ))}
@@ -530,7 +545,7 @@ function App(): React.JSX.Element {
                             {draft.status === 'pending' && 'A skill aguarda revisao, mas pode ser vinculada a projetos.'}
                             {draft.status === 'blocked' && 'Skills bloqueadas nao podem ser vinculadas. Ao salvar o bloqueio, os vinculos existentes serao removidos.'}
                           </Typography.Paragraph>
-                          <Alert type="warning" showIcon message="A governanca organiza os vinculos no SkillVortex; nao impede agentes de ler arquivos acessiveis fora do aplicativo." />
+                          <Alert type="warning" showIcon message="Desativar remove o SKILL.md da descoberta automatica do Copilot e preserva o arquivo no cofre. Nao remove instrucoes ja carregadas numa conversa nem impede leitura explicita do arquivo." />
                         </div>
                       }
                     ]}

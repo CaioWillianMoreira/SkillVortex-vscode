@@ -65,6 +65,9 @@ export default function MonacoMarkdownEditor({
         options={{
           automaticLayout: true,
           readOnly,
+          // VS Code forwards webview clipboard commands through execCommand,
+          // which cannot paste into Monaco's native EditContext.
+          editContext: false,
           fontSize: 13,
           lineHeight: 21,
           minimap: { enabled: false },

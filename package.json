@@ -2,7 +2,7 @@
   "name": "skillvortex-extension",
   "displayName": "SkillVortex Extension",
   "description": "Cofre local e portatil de Markdown para projetos e agentes de IA.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "skillvortex",
   "private": true,
   "license": "UNLICENSED",
@@ -51,7 +51,7 @@
     "build": "tsc && esbuild src/extension.ts --bundle --platform=node --target=node20 --external:vscode --outfile=dist/extension.js && node scripts/build-assets.cjs && vite build --config webview/vite.config.ts",
     "test": "jest --runInBand",
     "test:host": "npm run build && node scripts/test-host.cjs",
-    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license --out release/skillvortex-extension-0.1.1.vsix"
+    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license --out release/skillvortex-extension-0.1.2.vsix"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

@@ -139,7 +139,8 @@ async function readCurrentContents(
 
 export async function restoreVaultBackup(
   root: string,
-  id: string
+  id: string,
+  save: (root: string, data: VaultData) => Promise<void> = saveVaultData
 ): Promise<{ restored: VaultBackup; recoveryPoint: VaultBackup; warning?: string }> {
   const canonicalRoot = await fs.realpath(root)
   const selected = await readBackup(canonicalRoot, id)
@@ -159,7 +160,7 @@ export async function restoreVaultBackup(
       await writeSkillFile(canonicalRoot, skill.filePath, content)
     }
     metadataWriteStarted = true
-    await saveVaultData(canonicalRoot, selected.data)
+    await save(canonicalRoot, selected.data)
   } catch (error) {
     if (metadataWriteStarted) {
       try {

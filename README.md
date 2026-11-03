@@ -93,7 +93,7 @@ npm run package
 ```
 
 Use **Extensions: Install from VSIX...** com
-`release/skillvortex-extension-0.1.1.vsix`. Nao ha Electron ou instalador desktop
+`release/skillvortex-extension-0.1.2.vsix`. Nao ha Electron ou instalador desktop
 proprio na nova versao.
 
 ## Biblioteca, projetos e editor
@@ -107,6 +107,18 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   acima de 2 MB sao recusados.
 - **Nova Categoria** e **Novo Projeto**: adicionam metadados ao catalogo. O
   projeto ativo controla os switches **Usar no Projeto** dos cards.
+- **Usar no Projeto**: o botao existente publica a skill como
+  `.github/skills/skill-<id-estavel>/SKILL.md`, com frontmatter para o GitHub
+  Copilot. Sem projeto ativo ou pasta associada, usa a unica pasta local aberta
+  no VS Code ou solicita uma pasta; cria o cadastro do projeto quando necessario.
+  **Executar** abre o chat do Copilot com o comando `/skill-<id-estavel>`
+  preenchido para a skill ativa; revise o pedido e envie no chat. A pasta
+  associada precisa estar aberta como pasta do workspace no VS Code.
+  Ao desativar, move o Markdown para `.skillvortex/disabled-skills/` no cofre,
+  preservando inclusive edicoes feitas no projeto. Reativar restaura esse arquivo.
+  O cofre deve ficar fora da pasta do projeto. Arquivos existentes e links
+  simbolicos nao sao sobrescritos. Salvar uma skill ativa sincroniza o Markdown
+  se o arquivo do projeto nao tiver sido editado; conflitos geram erro.
 - **Carregar exemplos**: apos confirmacao, cria no cofre os cards ausentes e sincroniza titulo,
   categoria, descricao, etiquetas, agentes e status dos exemplos que ja existem
   para corresponder a captura (acessibilidade, REST, arquitetura, seguranca,
@@ -117,16 +129,24 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   no projeto** mostra os Markdown encontrados antes de importar os selecionados.
 - **Biblioteca**: pesquise por texto e filtre por status, categoria e agente.
 - **Editor**: altere metadados e Markdown, confira a pre-visualizacao e ajuste
-  os projetos vinculados. Monaco fornece realce Markdown e `Ctrl+S` / `Cmd+S`
-  ou **Salvar** grava as alteracoes no cofre.
+  os projetos vinculados. Monaco fornece realce Markdown e permite colar texto
+  com `Ctrl+V` / `Cmd+V`; `Ctrl+S` / `Cmd+S` ou **Salvar** grava as alteracoes
+  no cofre.
 - **Bloqueada**: ao salvar, remove os vinculos dessa skill em todos os projetos.
 - **Desvincular**: remove a skill do catalogo e dos projetos, preservando o
   Markdown. **Excluir** remove o cadastro e, apos confirmacao, apaga o arquivo.
 
 O editor Monaco e seus workers sao empacotados localmente; a extensao nao baixa
 o editor de um CDN. A pre-visualizacao suporta GitHub Flavored Markdown sem
-permitir HTML embutido. A extensao nao injeta nem sincroniza instrucoes com
-agentes. Os vinculos e agentes sao metadados de organizacao.
+permitir HTML embutido. Skills ativadas sao publicadas para descoberta automatica
+do GitHub Copilot; os nomes de agentes no catalogo continuam sendo metadados.
+Desativar, bloquear ou desvincular uma skill retira o `SKILL.md` do projeto e
+preserva seu conteudo no cofre. Isso nao remove instrucoes ja carregadas numa
+conversa nem impede um agente de ler explicitamente arquivos acessiveis.
+Vinculos antigos sem pasta associada precisam de **Associar pasta** antes de
+serem publicados. A restauracao de backups tambem sincroniza os arquivos ativos;
+as copias desativadas permanecem no cofre, mas nao fazem parte do snapshot dos
+Markdown da biblioteca.
 
 A varredura inclui arquivos `.md` em qualquer capitalizacao e subpastas; exclui
 README, links simbolicos e diretorios `.git`, `node_modules`, `vendor`, `dist`,

@@ -77,8 +77,38 @@ export function activate(context: vscode.ExtensionContext): void {
       })
       return
     }
-    const canonical = await fs.realpath(root)
-    const data = await readVault(canonical)
+    let canonical: string
+    try {
+      canonical = await fs.realpath(root)
+    } catch (error) {
+      if (!hasErrorCode(error, 'ENOENT')) throw error
+      await context.globalState.update('vaultPath', undefined)
+      editingSkillId = null
+      await panel?.webview.postMessage({
+        type: 'state', root: null, catalog: null, projects: null,
+        editingSkillId: null, content: '', saved
+      })
+      const message = 'A pasta do cofre salvo nao foi encontrada. Use “Abrir cofre” para escolher outra pasta ou “Criar cofre” para iniciar.'
+      output.appendLine(`${message} Caminho anterior: ${root}`)
+      await panel?.webview.postMessage({ type: 'error', message })
+      return
+    }
+    let data: Awaited<ReturnType<typeof readVault>>
+    try {
+      data = await readVault(canonical)
+    } catch (error) {
+      if (!hasErrorCode(error, 'ENOENT')) throw error
+      await context.globalState.update('vaultPath', undefined)
+      editingSkillId = null
+      await panel?.webview.postMessage({
+        type: 'state', root: null, catalog: null, projects: null,
+        editingSkillId: null, content: '', saved
+      })
+      const message = 'A pasta selecionada nao contem os arquivos de cofre esperados (.skillvortex/catalogo.json e projetos.json). Use “Abrir cofre” para escolher um cofre valido ou “Criar cofre” para iniciar.'
+      output.appendLine(`${message} Caminho: ${canonical}`)
+      await panel?.webview.postMessage({ type: 'error', message })
+      return
+    }
     await rebuildIndex(await sql(), context.globalStorageUri.fsPath, canonical, data)
     const skill = editingSkillId
       ? data.catalog.skills.find(item => item.id === editingSkillId)

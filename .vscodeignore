@@ -1,0 +1,12 @@
+src/**
+webview/**
+tests/**
+node_modules/**
+scripts/**
+tsconfig.json
+jest.config.cjs
+package-lock.json
+.gitignore
+.vscode/**
+.vscode-test/**
+release/**

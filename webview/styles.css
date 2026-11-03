@@ -1,0 +1,8 @@
+body { margin: 0; background: #0a0a0a; color: #eee; }
+main { padding: 24px; max-width: 1800px; margin: auto; }
+header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+header span { color: #ff4d4f; }
+.ant-space + .ant-typography, .ant-alert { margin-top: 16px; }
+.ant-card { height: 100%; }
+.ant-card-head-title { white-space: normal !important; }
+.ant-card .ant-typography { overflow-wrap: anywhere; }

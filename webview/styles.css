@@ -9,6 +9,38 @@ body {
   color: #eee;
 }
 
+#runtime-fallback {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 28px;
+  background: #111;
+  color: #eee;
+  text-align: center;
+}
+
+#runtime-fallback span {
+  color: #aaa;
+}
+
+#runtime-fallback button {
+  display: none;
+  padding: 8px 14px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: #222;
+  color: #eee;
+  cursor: pointer;
+}
+
+#runtime-fallback.has-error button {
+  display: inline-block;
+}
+
 main {
   max-width: 1800px;
   margin: auto;
@@ -51,9 +83,97 @@ main {
   width: 135px;
 }
 
-.vault-prompt {
-  max-width: 680px;
-  margin: 48px auto;
+.welcome {
+  max-width: 1320px;
+  margin: 28px auto;
+}
+
+.welcome-hero.ant-card {
+  border-color: #3a2525;
+  background: radial-gradient(ellipse at 85% 20%, #32191a 0, #171717 54%);
+}
+
+.welcome-hero .ant-card-body {
+  padding: clamp(24px, 5vw, 56px);
+}
+
+.welcome-eyebrow {
+  color: #ff7875;
+  letter-spacing: 0.12em;
+}
+
+.welcome-hero h1.ant-typography {
+  max-width: 760px;
+  margin: 12px 0;
+  font-size: clamp(30px, 5vw, 48px);
+}
+
+.welcome-hero .ant-typography-secondary {
+  max-width: 760px;
+  font-size: 15px;
+}
+
+.welcome-actions {
+  margin-top: 12px;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0 34px;
+}
+
+.feature-grid .ant-card {
+  min-height: 120px;
+}
+
+.feature-grid .ant-card-body {
+  padding: 18px;
+}
+
+.feature-grid h5.ant-typography {
+  margin: 0 0 8px;
+}
+
+.screen-previews-heading {
+  margin-bottom: 14px;
+}
+
+.screen-previews-heading h3.ant-typography {
+  margin-bottom: 4px;
+}
+
+.screen-preview-card.ant-card {
+  overflow: hidden;
+}
+
+.screen-preview-card .ant-card-cover {
+  margin: 0;
+  overflow: hidden;
+  background: #101010;
+}
+
+.screen-preview-card .ant-card-cover img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1229 / 768;
+  object-fit: cover;
+  object-position: top;
+}
+
+.screen-preview-card .ant-card-body {
+  padding: 14px 18px 18px;
+}
+
+.screen-preview-card h5.ant-typography {
+  margin: 0 0 5px;
+}
+
+@media (max-width: 760px) {
+  .feature-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .feedback {

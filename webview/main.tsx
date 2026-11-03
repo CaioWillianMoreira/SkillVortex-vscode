@@ -7,6 +7,8 @@ import {
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Catalog, Projects, Skill } from '../src/model'
+import dashboardPreview from './assets/dashboard-preview.png'
+import editorPreview from './assets/editor-preview.png'
 import './styles.css'
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void }
@@ -67,6 +69,7 @@ function App(): React.JSX.Element {
         setSaving(false)
       }
     }
+    document.getElementById('runtime-fallback')?.remove()
     window.addEventListener('message', handler)
     api.postMessage({ type: 'ready' })
     return () => window.removeEventListener('message', handler)
@@ -218,17 +221,48 @@ function App(): React.JSX.Element {
         </header>
 
         {!state.root && (
-          <Card className="vault-prompt">
-            <Typography.Title level={3}>Sua biblioteca local de Markdown</Typography.Title>
-            <Typography.Paragraph type="secondary">
-              Crie ou abra um cofre para organizar skills, projetos e estados de governanca.
-            </Typography.Paragraph>
-            <Space wrap>
-              <Button type="primary" onClick={() => api.postMessage({ type: 'createVault' })}>Criar cofre</Button>
-              <Button onClick={() => api.postMessage({ type: 'openVault' })}>Abrir cofre</Button>
-              <Button onClick={() => api.postMessage({ type: 'migrateDesktop' })}>Importar desktop</Button>
-            </Space>
-          </Card>
+          <section className="welcome">
+            <Card className="welcome-hero">
+              <Typography.Text className="welcome-eyebrow">BIBLIOTECA LOCAL DE MARKDOWN</Typography.Text>
+              <Typography.Title level={1}>Suas skills de IA, organizadas.</Typography.Title>
+              <Typography.Paragraph type="secondary">
+                Crie um cofre para catalogar, editar e acompanhar a governanca das suas instrucoes Markdown.
+                Seus arquivos permanecem locais; nada e enviado automaticamente aos agentes.
+              </Typography.Paragraph>
+              <Space wrap className="welcome-actions">
+                <Button type="primary" size="large" onClick={() => api.postMessage({ type: 'createVault' })}>
+                  Criar cofre
+                </Button>
+                <Button size="large" onClick={() => api.postMessage({ type: 'openVault' })}>Abrir cofre</Button>
+                <Button size="large" onClick={() => api.postMessage({ type: 'migrateDesktop' })}>Importar do desktop</Button>
+              </Space>
+            </Card>
+            <section className="feature-grid" aria-label="Funcionalidades">
+              <Card><Typography.Title level={5}>Biblioteca e projetos</Typography.Title><Typography.Text type="secondary">Busque, filtre e vincule skills Markdown a projetos locais.</Typography.Text></Card>
+              <Card><Typography.Title level={5}>Editor e visualizacao</Typography.Title><Typography.Text type="secondary">Edite com Monaco e confira a previa Markdown com suporte GFM.</Typography.Text></Card>
+              <Card><Typography.Title level={5}>Governanca e backup</Typography.Title><Typography.Text type="secondary">Organize estados de revisao e restaure backups do cofre.</Typography.Text></Card>
+            </section>
+            <section className="screen-previews">
+              <div className="screen-previews-heading">
+                <Typography.Title level={3}>Conheca as telas</Typography.Title>
+                <Typography.Text type="secondary">Referencias visuais do aplicativo desktop SkillVortex.</Typography.Text>
+              </div>
+              <Row gutter={[16, 16]}>
+                <Col xs={24} xl={12}>
+                  <Card className="screen-preview-card" cover={<img src={dashboardPreview} alt="Captura de referencia do dashboard e biblioteca de skills do SkillVortex desktop" />}>
+                    <Typography.Title level={5}>Dashboard · Biblioteca de Skills</Typography.Title>
+                    <Typography.Text type="secondary">Busca, filtros, categorias, estados de governanca e vinculos por projeto.</Typography.Text>
+                  </Card>
+                </Col>
+                <Col xs={24} xl={12}>
+                  <Card className="screen-preview-card" cover={<img src={editorPreview} alt="Captura de referencia do editor Markdown e governanca do SkillVortex desktop" />}>
+                    <Typography.Title level={5}>Editor · Markdown e governanca</Typography.Title>
+                    <Typography.Text type="secondary">Metadados, editor Markdown, visualizacao, projetos vinculados e revisao.</Typography.Text>
+                  </Card>
+                </Col>
+              </Row>
+            </section>
+          </section>
         )}
 
         {error && <Alert className="feedback" type="error" showIcon message={error} closable onClose={() => setError('')} />}

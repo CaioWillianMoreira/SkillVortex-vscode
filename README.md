@@ -22,6 +22,8 @@ permanece intacto em sua pasta e repositorio.
 - Gravacao validada dos metadados e do Markdown no cofre.
 - Criacao de backups locais completos e restauracao confirmada, com ponto de
   recuperacao automatico do estado anterior.
+- Tela inicial com acesso direto para criar/abrir o cofre, resumo dos recursos e
+  capturas de referencia das telas desktop de dashboard e editor.
 - Indice SQLite local reconstruido ao abrir/atualizar a biblioteca.
 - Repositorio Git local independente, sem commit ou publicacao automatica.
 
@@ -66,8 +68,10 @@ Abra esta pasta no VS Code e pressione **F5**, selecionando
 e execute **SkillVortex: Abrir biblioteca**.
 
 Depois de instalada, clique em **$(book) SkillVortex** na barra de status
-inferior do VS Code para abrir a tela da biblioteca diretamente. O comando da
-Paleta de Comandos continua disponivel como alternativa.
+inferior do VS Code para abrir as telas. Na tela inicial, **Criar cofre** abre
+o seletor de local e nome; **Abrir cofre** carrega um existente. A tela tambem
+mostra as funcionalidades e capturas de referencia do dashboard e editor. O
+comando da Paleta de Comandos continua disponivel como alternativa.
 
 Alternativamente:
 

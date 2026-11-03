@@ -65,6 +65,10 @@ Abra esta pasta no VS Code e pressione **F5**, selecionando
 **SkillVortex Extension**. Na janela Extension Development Host, abra a paleta
 e execute **SkillVortex: Abrir biblioteca**.
 
+Depois de instalada, clique em **$(book) SkillVortex** na barra de status
+inferior do VS Code para abrir a tela da biblioteca diretamente. O comando da
+Paleta de Comandos continua disponivel como alternativa.
+
 Alternativamente:
 
 ```sh

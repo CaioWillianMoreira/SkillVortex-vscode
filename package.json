@@ -10,7 +10,7 @@
   "categories": ["Other"],
   "icon": "resources/icon.png",
   "main": "./dist/extension.js",
-  "activationEvents": ["onCommand:skillVortex.open"],
+  "activationEvents": ["onCommand:skillVortex.open", "onStartupFinished"],
   "capabilities": {
     "untrustedWorkspaces": { "supported": false },
     "virtualWorkspaces": { "supported": false }

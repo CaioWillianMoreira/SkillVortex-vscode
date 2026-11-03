@@ -45,6 +45,12 @@ const messageSchema = z.discriminatedUnion('type', [
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('SkillVortex')
   context.subscriptions.push(output)
+  const openButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100)
+  openButton.text = '$(book) SkillVortex'
+  openButton.tooltip = 'Abrir a biblioteca do SkillVortex'
+  openButton.command = 'skillVortex.open'
+  openButton.show()
+  context.subscriptions.push(openButton)
   const sql = () => initializeSql(context.asAbsolutePath('dist/sql-wasm.wasm'))
   let panel: vscode.WebviewPanel | undefined
   let editingSkillId: string | null = null

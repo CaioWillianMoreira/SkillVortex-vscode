@@ -239,6 +239,8 @@ function App(): React.JSX.Element {
             <div className="vault-path">
               <Typography.Text type="secondary" title={state.root}>{state.root}</Typography.Text>
               <Button size="small" onClick={() => api.postMessage({ type: 'refresh' })}>Atualizar</Button>
+              <Button size="small" onClick={() => api.postMessage({ type: 'createBackup' })}>Criar backup</Button>
+              <Button size="small" onClick={() => api.postMessage({ type: 'restoreBackup' })}>Restaurar backup</Button>
               <Button size="small" onClick={() => api.postMessage({ type: 'openVault' })}>Abrir outro cofre</Button>
               <Button size="small" onClick={() => api.postMessage({ type: 'migrateDesktop' })}>Importar desktop</Button>
             </div>

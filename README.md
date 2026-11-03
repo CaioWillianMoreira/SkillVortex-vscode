@@ -20,6 +20,8 @@ permanece intacto em sua pasta e repositorio.
   dos vinculos por skill.
 - Desvinculacao do catalogo preservando o arquivo ou exclusao fisica confirmada.
 - Gravacao validada dos metadados e do Markdown no cofre.
+- Criacao de backups locais completos e restauracao confirmada, com ponto de
+  recuperacao automatico do estado anterior.
 - Indice SQLite local reconstruido ao abrir/atualizar a biblioteca.
 - Repositorio Git local independente, sem commit ou publicacao automatica.
 
@@ -112,8 +114,11 @@ com erro acima de 50.000 entradas ou 1.000 Markdown. Arquivos selecionados
 maiores que 2 MB sao recusados. Arquivos ja importados aparecem na selecao e
 sao ignorados ao importar novamente.
 
-Esta etapa ainda nao tem backup/restauracao ou monitoramento de alteracoes
-externas. Esses recursos nao sao implicados pela associacao de pasta.
+O backup cria uma copia completa do catalogo, projetos e Markdown dentro de
+`.skillvortex/backups/`. A restauracao substitui os metadados, preserva arquivos
+que nao estao no backup e cria antes um ponto de recuperacao do estado atual.
+Backups invalidos geram erro explicito. A extensao ainda nao monitora alteracoes
+externas.
 
 ## Migrar os dados do desktop
 
@@ -146,8 +151,12 @@ recusados, nao corrigidos silenciosamente.
 - O cofre pode ser copiado ou colocado em uma pasta sincronizada.
 - **Sincronizacao nao e backup** e edicao simultanea nao e suportada nesta etapa.
 - Para backup manual, termine as operacoes e copie **toda a pasta do cofre**.
-- A pasta `backups/` esta preparada, mas exportacao/restauracao automatica e
-  criptografia ainda nao foram implementadas.
+- **Criar backup** guarda uma copia local versionada do cofre. **Restaurar
+  backup** permite selecionar uma copia e confirma antes de substituir os
+  metadados; o estado atual vira um ponto de recuperacao automatico.
+- Os backups ficam dentro do proprio cofre. Copie toda a pasta para ter uma
+  copia independente; sincronizacao simultanea nao e suportada.
+- Backups nao sao criptografados e ainda nao ha politica automatica de retencao.
 - Cofre significa pasta organizada; nao significa dados criptografados.
 - Credenciais futuras devem usar `SecretStorage`, nunca catalogo ou projetos.
   Nesta etapa nao ha integracao que solicite tokens, portanto nao ha cofre de
@@ -155,8 +164,7 @@ recusados, nao corrigidos silenciosamente.
 
 ## Proximas etapas
 
-1. Journal e recuperacao de operacoes interrompidas, alem do backup/restauracao
-   versionados com previa de conflitos.
+1. Journal e recuperacao de operacoes interrompidas.
 2. Monitoramento de alteracoes externas e sincronizacao opcional com agentes,
    sempre com previa e protecao contra sobrescrita.
 

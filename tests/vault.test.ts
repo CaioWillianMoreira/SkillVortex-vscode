@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { createVault, readVault, readContained, saveVaultData, writeSkillFile } from '../src/vault'
 import { emptyVault, validateVault } from '../src/model'
 import { initializeSql, migrateDesktop, rebuildIndex } from '../src/database'
+import { createVaultBackup, listVaultBackups, restoreVaultBackup } from '../src/backup'
 
 let temporary: string
 beforeEach(async () => { temporary = await fs.mkdtemp(join(tmpdir(), 'skillvortex-extension-')) })
@@ -34,6 +35,7 @@ test('saves edited Markdown and metadata while preserving vault validation', asy
     id: 'skill-one', name: 'Skill one', category: 'Geral', description: 'Before',
     filePath: 'skills/skill-one.md', agents: [], status: 'pending', tags: ['old']
   })
+
   await writeSkillFile(root, 'skills/skill-one.md', '# Before')
   await saveVaultData(root, data)
 
@@ -48,6 +50,59 @@ test('saves edited Markdown and metadata while preserving vault validation', asy
   expect(await readVault(root)).toEqual(data)
   expect(await readContained(root, join(root, 'skills/skill-one.md'))).toBe('# After')
   await expect(writeSkillFile(root, '../outside.md', 'unsafe')).rejects.toThrow('Caminho de skill invalido')
+})
+
+test('creates a complete backup and restores it with an automatic recovery point', async () => {
+  const root = join(temporary, 'vault')
+  await createVault(root)
+  const original = await readVault(root)
+  original.catalog.skills.push({
+    id: 'skill-one', name: 'Original skill', category: 'Geral', description: 'Original',
+    filePath: 'skills/skill-one.md', agents: [], status: 'pending', tags: []
+  })
+  original.projects.projects.push({ id: 'project-one', name: 'Original project', skillIds: ['skill-one'] })
+  original.projects.activeProject = 'project-one'
+  await writeSkillFile(root, 'skills/skill-one.md', '# Original content')
+  await saveVaultData(root, original)
+  const backup = await createVaultBackup(root)
+
+  const changed = await readVault(root)
+  changed.catalog.skills[0].name = 'Changed skill'
+  changed.projects.projects[0].name = 'Changed project'
+  await writeSkillFile(root, 'skills/skill-one.md', '# Changed content')
+  await saveVaultData(root, changed)
+
+  const result = await restoreVaultBackup(root, backup.id)
+  expect(result.restored.id).toBe(backup.id)
+  expect(result.recoveryPoint.id).not.toBe(backup.id)
+  expect(await readVault(root)).toEqual(original)
+  expect(await readContained(root, join(root, 'skills/skill-one.md'))).toBe('# Original content')
+  const listed = await listVaultBackups(root)
+  expect(listed.map(item => item.id)).toContain(backup.id)
+  expect(listed.map(item => item.id)).toContain(result.recoveryPoint.id)
+})
+
+test('rejects a corrupt backup without changing the current vault', async () => {
+  const root = join(temporary, 'vault')
+  await createVault(root)
+  const backup = await createVaultBackup(root)
+  await fs.writeFile(join(root, '.skillvortex/backups', backup.id, '.skillvortex/catalogo.json'), '{')
+  const original = await readVault(root)
+  await expect(listVaultBackups(root)).rejects.toThrow('Backup invalido')
+  await expect(restoreVaultBackup(root, backup.id)).rejects.toThrow()
+  expect(await readVault(root)).toEqual(original)
+})
+
+test('refuses backup directories that escape the vault through a symlink', async () => {
+  const root = join(temporary, 'vault')
+  const outside = join(temporary, 'outside')
+  await createVault(root)
+  await fs.mkdir(outside)
+  await fs.rm(join(root, '.skillvortex/backups'), { recursive: true, force: true })
+  await fs.symlink(outside, join(root, '.skillvortex/backups'), 'dir')
+  await expect(createVaultBackup(root)).rejects.toThrow('fora do cofre')
+  await expect(listVaultBackups(root)).rejects.toThrow('fora do cofre')
+  expect(await fs.readdir(outside)).toEqual([])
 })
 
 test('restores original metadata when a multi-file save cannot be published', async () => {

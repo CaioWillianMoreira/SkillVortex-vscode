@@ -7,6 +7,7 @@ import { createVault, readVault, readContained, saveVaultData, writeSkillFile } 
 import { initializeSql, migrateDesktop, rebuildIndex } from './database'
 import { hasErrorCode, skillSchema } from './model'
 import { readProjectMarkdown, scanProjectMarkdown } from './project-scan'
+import { createVaultBackup, listVaultBackups, restoreVaultBackup } from './backup'
 
 const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready') }),
@@ -16,6 +17,8 @@ const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('createVault') }),
   z.object({ type: z.literal('openVault') }),
   z.object({ type: z.literal('migrateDesktop') }),
+  z.object({ type: z.literal('createBackup') }),
+  z.object({ type: z.literal('restoreBackup') }),
   z.object({ type: z.literal('createSkill') }),
   z.object({ type: z.literal('importMarkdown') }),
   z.object({ type: z.literal('createCategory'), name: z.string() }),
@@ -88,6 +91,48 @@ export function activate(context: vscode.ExtensionContext): void {
   }
   async function persist(root: string, data: Awaited<ReturnType<typeof readVault>>): Promise<void> {
     await saveVaultData(root, data)
+  }
+  async function createBackup(): Promise<void> {
+    const { root } = await currentVault()
+    const backup = await createVaultBackup(root)
+    void vscode.window.showInformationMessage(
+      `Backup criado: ${backup.id} (${backup.skills} skills, ${backup.projects} projetos).`
+    )
+  }
+  async function restoreBackup(): Promise<void> {
+    const { root } = await currentVault()
+    const backups = await listVaultBackups(root)
+    if (!backups.length) {
+      void vscode.window.showInformationMessage('Este cofre ainda nao tem backups.')
+      return
+    }
+    const selected = await vscode.window.showQuickPick(backups.map(backup => ({
+      label: new Date(backup.createdAt).toLocaleString(),
+      description: `${backup.skills} skills, ${backup.projects} projetos`,
+      detail: backup.id,
+      backup
+    })), { placeHolder: 'Selecione um backup para restaurar' })
+    if (!selected) return
+    const confirmation = await vscode.window.showWarningMessage(
+      `Restaurar o backup de ${new Date(selected.backup.createdAt).toLocaleString()}?`,
+      {
+        modal: true,
+        detail: `${selected.backup.skills} skills e ${selected.backup.projects} projetos substituirão os metadados atuais. Arquivos que nao fizerem parte do backup serao preservados no disco. O estado atual sera salvo automaticamente como ponto de recuperacao.`
+      },
+      'Restaurar backup'
+    )
+    if (confirmation !== 'Restaurar backup') return
+    const result = await restoreVaultBackup(root, selected.backup.id)
+    await refresh()
+    if (result.warning) {
+      void vscode.window.showWarningMessage(
+        `${result.warning} Ponto de recuperacao: ${result.recoveryPoint.id}.`
+      )
+    } else {
+      void vscode.window.showInformationMessage(
+        `Backup restaurado. Ponto de recuperacao do estado anterior: ${result.recoveryPoint.id}.`
+      )
+    }
   }
   async function createSkill(): Promise<void> {
     const { root, data } = await currentVault()
@@ -324,6 +369,8 @@ export function activate(context: vscode.ExtensionContext): void {
       if (message.type === 'createVault') await create()
       if (message.type === 'openVault') await openVault()
       if (message.type === 'migrateDesktop') await migrate()
+      if (message.type === 'createBackup') await createBackup()
+      if (message.type === 'restoreBackup') await restoreBackup()
       if (message.type === 'backToDashboard') {
         editingSkillId = null
         await refresh()

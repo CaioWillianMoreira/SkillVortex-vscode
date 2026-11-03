@@ -1,11 +1,12 @@
 import * as vscode from 'vscode'
 import { promises as fs } from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import { basename, join } from 'node:path'
+import { basename, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import { createVault, readVault, readContained, saveVaultData, writeSkillFile } from './vault'
 import { initializeSql, migrateDesktop, rebuildIndex } from './database'
-import { skillSchema } from './model'
+import { hasErrorCode, skillSchema } from './model'
+import { readProjectMarkdown, scanProjectMarkdown } from './project-scan'
 
 const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready') }),
@@ -19,6 +20,8 @@ const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('importMarkdown') }),
   z.object({ type: z.literal('createCategory'), name: z.string() }),
   z.object({ type: z.literal('createProject'), name: z.string() }),
+  z.object({ type: z.literal('setProjectFolder') }),
+  z.object({ type: z.literal('scanProject') }),
   z.object({ type: z.literal('setActiveProject'), id: z.string().nullable() }),
   z.object({ type: z.literal('toggleProjectSkill'), id: z.string() }),
   z.object({
@@ -109,28 +112,53 @@ export function activate(context: vscode.ExtensionContext): void {
       filters: { Markdown: ['md'] }, openLabel: 'Importar Markdown'
     })
     if (!selected?.length) return
+    await importFiles(selected.map(file => file.fsPath))
+  }
+  async function importFiles(filePaths: string[], projectRoot?: string): Promise<void> {
     const { root, data } = await currentVault()
+    const existingPaths = new Set(data.catalog.skills
+      .map(item => item.originPath)
+      .filter((path): path is string => Boolean(path))
+      .map(path => resolve(path)))
+    const uniqueFiles: string[] = []
+    for (const filePath of filePaths) {
+      const canonical = await fs.realpath(filePath)
+      if (!existingPaths.has(resolve(canonical)) && !uniqueFiles.includes(canonical)) {
+        uniqueFiles.push(canonical)
+      }
+    }
+    if (!uniqueFiles.length) {
+      void vscode.window.showInformationMessage('Os arquivos selecionados ja estao na biblioteca.')
+      return
+    }
+    if (data.catalog.skills.length + uniqueFiles.length > 10000) {
+      throw new Error('O catalogo nao pode ultrapassar 10.000 skills.')
+    }
     const category = data.catalog.categories.includes('Geral')
       ? 'Geral' : data.catalog.categories[0] ?? 'Geral'
     if (!data.catalog.categories.includes(category)) data.catalog.categories.push(category)
     const imported: Array<{ skill: z.infer<typeof skillSchema>; content: string }> = []
-    for (const file of selected) {
-      const stat = await fs.stat(file.fsPath)
-      if (!stat.isFile() || stat.size > 2 * 1024 * 1024) {
-        throw new Error(`O arquivo precisa ser Markdown e ter no maximo 2 MB: ${file.fsPath}`)
+    for (const filePath of uniqueFiles) {
+      if (!projectRoot) {
+        const stat = await fs.stat(filePath)
+        if (!stat.isFile() || stat.size > 2 * 1024 * 1024) {
+          throw new Error(`O arquivo precisa ser Markdown e ter no maximo 2 MB: ${filePath}`)
+        }
       }
-      const content = await fs.readFile(file.fsPath, 'utf8')
+      const content = projectRoot
+        ? await readProjectMarkdown(projectRoot, filePath)
+        : await fs.readFile(filePath, 'utf8')
       if (Buffer.byteLength(content) > 2 * 1024 * 1024) {
-        throw new Error(`Markdown excede o limite de 2 MB: ${file.fsPath}`)
+        throw new Error(`Markdown excede o limite de 2 MB: ${filePath}`)
       }
-      const title = content.match(/^#\s+(.+)$/m)?.[1]?.trim() || basename(file.fsPath, '.md')
+      const title = content.match(/^#\s+(.+)$/m)?.[1]?.trim() || basename(filePath, '.md')
       const description = content.split(/\r?\n/).map(line => line.trim())
         .find(line => line && !line.startsWith('#'))?.slice(0, 1000) ?? ''
       imported.push({
         skill: {
           id: randomBytes(16).toString('hex'), name: title.slice(0, 100) || 'Markdown importado',
           category, description, filePath: `skills/${randomBytes(16).toString('hex')}.md`,
-          originPath: file.fsPath, agents: [], status: 'pending', tags: []
+          originPath: filePath, agents: [], status: 'pending', tags: []
         },
         content
       })
@@ -142,6 +170,68 @@ export function activate(context: vscode.ExtensionContext): void {
     await persist(root, data)
     editingSkillId = imported[0].skill.id
     await refresh()
+  }
+  async function setProjectFolder(): Promise<void> {
+    const { root, data } = await currentVault()
+    const project = data.projects.projects.find(item => item.id === data.projects.activeProject)
+    if (!project) throw new Error('Crie ou selecione um projeto antes de associar uma pasta.')
+    const selected = await vscode.window.showOpenDialog({
+      canSelectFiles: false,
+      canSelectFolders: true,
+      canSelectMany: false,
+      defaultUri: project.sourcePath ? vscode.Uri.file(project.sourcePath) : undefined,
+      openLabel: 'Associar pasta ao projeto'
+    })
+    if (!selected?.[0]) return
+    const sourcePath = await fs.realpath(selected[0].fsPath)
+    let duplicate: typeof project | undefined
+    for (const item of data.projects.projects) {
+      if (item.id === project.id || !item.sourcePath) continue
+      try {
+        if (await fs.realpath(item.sourcePath) === sourcePath) {
+          duplicate = item
+          break
+        }
+      } catch (error) {
+        if (!hasErrorCode(error, 'ENOENT')) throw error
+      }
+    }
+    if (duplicate) throw new Error(`Esta pasta ja esta associada ao projeto ${duplicate.name}.`)
+    project.sourcePath = sourcePath
+    await persist(root, data)
+    await refresh()
+  }
+  async function scanActiveProject(): Promise<void> {
+    const { root, data } = await currentVault()
+    const project = data.projects.projects.find(item => item.id === data.projects.activeProject)
+    if (!project) throw new Error('Crie ou selecione um projeto antes de buscar Markdown.')
+    if (!project.sourcePath) throw new Error('Associe uma pasta ao projeto antes de buscar Markdown.')
+    const files = await scanProjectMarkdown(project.sourcePath)
+    if (!files.length) {
+      void vscode.window.showInformationMessage('Nenhum arquivo Markdown encontrado para importar.')
+      return
+    }
+    const existing = new Set(data.catalog.skills.map(item => item.originPath)
+      .filter((path): path is string => Boolean(path))
+      .map(path => resolve(path)))
+    const selected = await vscode.window.showQuickPick(files.map(file => ({
+      label: basename(file),
+      description: relative(project.sourcePath!, file),
+      detail: existing.has(resolve(file)) ? 'Ja importado na biblioteca' : file,
+      picked: !existing.has(resolve(file)),
+      file
+    })), {
+      canPickMany: true,
+      placeHolder: `Selecione Markdown para importar (${files.length} encontrados; README excluidos)`
+    })
+    if (!selected?.length) return
+    const fresh = selected.filter(item => !existing.has(resolve(item.file)))
+    if (!fresh.length) {
+      void vscode.window.showInformationMessage('Os arquivos selecionados ja estao na biblioteca.')
+      return
+    }
+    await importFiles(fresh.map(item => item.file), project.sourcePath)
+    void vscode.window.showInformationMessage(`${fresh.length} Markdown importado(s) de ${project.name}.`)
   }
   async function chooseDestination(): Promise<string | undefined> {
     const parent = await vscode.window.showOpenDialog({
@@ -223,6 +313,8 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       if (message.type === 'createSkill') await createSkill()
       if (message.type === 'importMarkdown') await importMarkdown()
+      if (message.type === 'setProjectFolder') await setProjectFolder()
+      if (message.type === 'scanProject') await scanActiveProject()
       if (message.type === 'createCategory') {
         const { root, data } = await currentVault()
         const name = message.name.trim()

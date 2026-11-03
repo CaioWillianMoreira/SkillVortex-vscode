@@ -86,6 +86,14 @@ main {
   margin: 0 0 4px;
 }
 
+.active-project-path.ant-typography {
+  max-width: min(900px, 70vw);
+  margin: 6px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .filters {
   display: flex;
   align-items: center;

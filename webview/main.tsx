@@ -136,14 +136,29 @@ function App(): React.JSX.Element {
         <header className="topbar">
           <Typography.Title className="brand" level={3}>Skill<span>Vortex</span></Typography.Title>
           {state.catalog && state.projects && !state.editingSkillId && (
-            <Select
-              className="project-select"
-              aria-label="Projeto ativo"
-              value={state.projects.activeProject ?? undefined}
-              placeholder="Selecione um projeto"
-              options={state.projects.projects.map(project => ({ value: project.id, label: `Projeto: ${project.name}` }))}
-              onChange={id => api.postMessage({ type: 'setActiveProject', id })}
-            />
+            <>
+              <Select
+                className="project-select"
+                aria-label="Projeto ativo"
+                value={state.projects.activeProject ?? undefined}
+                placeholder="Selecione um projeto"
+                options={state.projects.projects.map(project => ({ value: project.id, label: `Projeto: ${project.name}` }))}
+                onChange={id => api.postMessage({ type: 'setActiveProject', id })}
+              />
+              {activeProject && (
+                <Space wrap>
+                  <Button onClick={() => api.postMessage({ type: 'setProjectFolder' })}>
+                    {activeProject.sourcePath ? 'Alterar pasta' : 'Associar pasta'}
+                  </Button>
+                  <Button
+                    disabled={!activeProject.sourcePath}
+                    onClick={() => api.postMessage({ type: 'scanProject' })}
+                  >
+                    Buscar skills no projeto
+                  </Button>
+                </Space>
+              )}
+            </>
           )}
           {!state.editingSkillId && (
             <Input
@@ -215,6 +230,11 @@ function App(): React.JSX.Element {
                   Gerencie as skills disponiveis para os agentes do projeto.
                   {activeProject ? ` Projeto ativo: ${activeProject.name}.` : ' Selecione ou crie um projeto para gerenciar vinculos.'}
                 </Typography.Text>
+                {activeProject?.sourcePath && (
+                  <Typography.Paragraph className="active-project-path" type="secondary" title={activeProject.sourcePath}>
+                    Pasta do projeto: {activeProject.sourcePath}
+                  </Typography.Paragraph>
+                )}
               </div>
               <Tag>{skills.length} {skills.length === 1 ? 'skill' : 'skills'}</Tag>
             </section>

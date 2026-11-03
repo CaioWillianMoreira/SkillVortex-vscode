@@ -12,6 +12,8 @@ permanece intacto em sua pasta e repositorio.
 - Importacao explicita do banco SQLite do desktop para um **cofre novo**.
 - Preservacao de IDs, categorias, tags, agentes, status e vinculos dos projetos.
 - Criacao e importacao de skills Markdown para o cofre.
+- Associacao de pastas locais aos projetos e varredura recursiva com selecao
+  previa dos Markdown encontrados.
 - Editor integrado com titulo, descricao, categoria, tags, agentes, governanca,
   conteudo Markdown, pre-visualizacao e selecao dos projetos vinculados.
 - Criacao de categorias e projetos, selecao do projeto ativo e gerenciamento
@@ -88,6 +90,8 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   acima de 2 MB sao recusados.
 - **Nova Categoria** e **Novo Projeto**: adicionam metadados ao catalogo. O
   projeto ativo controla os switches **Usar no Projeto** dos cards.
+- **Associar pasta** vincula uma pasta local ao projeto ativo. **Buscar skills
+  no projeto** mostra os Markdown encontrados antes de importar os selecionados.
 - **Biblioteca**: pesquise por texto e filtre por status, categoria e agente.
 - **Editor**: altere metadados e Markdown, confira a pre-visualizacao e ajuste
   os projetos vinculados. Salve para gravar no cofre.
@@ -99,11 +103,15 @@ O editor integrado renderiza a pre-visualizacao sem permitir HTML embutido no
 Markdown. A extensao nao injeta nem sincroniza instrucoes com agentes. Os
 vinculos e agentes sao metadados de organizacao.
 
-Esta etapa ainda nao tem varredura recursiva de uma pasta de projeto, selecao
-de varios Markdown encontrados automaticamente, associacao/reatribuicao de
-caminhos de projeto, backup/restauracao, monitoramento de alteracoes externas
-ou sincronizacao com agentes. Esses fluxos nao sao implicados pela criacao de
-projetos nem pela importacao manual de arquivos.
+A varredura inclui arquivos `.md` em qualquer capitalizacao e subpastas; exclui
+README, links simbolicos e diretorios `.git`, `node_modules`, `vendor`, `dist`,
+`out`, `build`, `release`, `.next`, `.venv`, `venv` e `coverage`. A busca para
+com erro acima de 50.000 entradas ou 1.000 Markdown. Arquivos selecionados
+maiores que 2 MB sao recusados. Arquivos ja importados aparecem na selecao e
+sao ignorados ao importar novamente.
+
+Esta etapa ainda nao tem backup/restauracao ou monitoramento de alteracoes
+externas. Esses recursos nao sao implicados pela associacao de pasta.
 
 ## Migrar os dados do desktop
 
@@ -145,12 +153,9 @@ recusados, nao corrigidos silenciosamente.
 
 ## Proximas etapas
 
-1. Varredura recursiva de Markdown em pastas de projeto, com limites e selecao
-   previa dos arquivos antes da importacao em lote.
-2. Associacao e reatribuicao de pastas para projetos, com remapeamento seguro.
-3. Journal e recuperacao de operacoes interrompidas, alem do backup/restauracao
+1. Journal e recuperacao de operacoes interrompidas, alem do backup/restauracao
    versionados com previa de conflitos.
-4. Monitoramento de alteracoes externas e sincronizacao opcional com agentes,
+2. Monitoramento de alteracoes externas e sincronizacao opcional com agentes,
    sempre com previa e protecao contra sobrescrita.
 
 A extensao exige ambiente local e confiavel. Remoto, VS Code Web e workspaces

@@ -1,8 +1,352 @@
-body { margin: 0; background: #0a0a0a; color: #eee; }
-main { padding: 24px; max-width: 1800px; margin: auto; }
-header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-header span { color: #ff4d4f; }
-.ant-space + .ant-typography, .ant-alert { margin-top: 16px; }
-.ant-card { height: 100%; }
-.ant-card-head-title { white-space: normal !important; }
-.ant-card .ant-typography { overflow-wrap: anywhere; }
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-width: 360px;
+  background: #0a0a0a;
+  color: #eee;
+}
+
+main {
+  max-width: 1800px;
+  margin: auto;
+  padding: 18px 24px 32px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #282828;
+}
+
+.brand.ant-typography {
+  flex: 0 0 auto;
+  margin: 0 12px 0 0;
+  font-size: 22px;
+}
+
+.brand span {
+  color: #ff4d4f;
+}
+
+.project-select {
+  width: 190px;
+  flex: 0 0 auto;
+}
+
+.search-input {
+  width: min(390px, 30vw);
+}
+
+.toolbar-spacer {
+  flex: 1;
+}
+
+.inline-create-input {
+  width: 135px;
+}
+
+.vault-prompt {
+  max-width: 680px;
+  margin: 48px auto;
+}
+
+.feedback {
+  margin-top: 16px;
+}
+
+.vault-path {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 24px;
+}
+
+.vault-path .ant-typography {
+  overflow: hidden;
+  flex: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.library-heading h2.ant-typography {
+  margin: 0 0 4px;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.filter-select {
+  width: 160px;
+}
+
+.skill-card.ant-card {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+  flex-direction: column;
+  background: #1b1b1b;
+}
+
+.skill-card .ant-card-body {
+  display: flex;
+  height: 100%;
+  flex: 1;
+  flex-direction: column;
+  padding: 14px;
+}
+
+.skill-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+}
+
+.skill-card-heading h5.ant-typography {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+}
+
+.skill-card-heading .ant-tag {
+  flex: 0 0 auto;
+}
+
+.skill-tags {
+  min-height: 28px;
+  margin-top: 8px;
+}
+
+.skill-description.ant-typography {
+  min-height: 52px;
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}
+
+.skill-file {
+  display: flex;
+  min-height: 50px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  margin-top: auto;
+  padding: 8px;
+  border: 1px solid #303030;
+  border-radius: 6px;
+  background: #111;
+}
+
+.skill-file > .ant-typography {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-file .ant-tag {
+  margin-inline-end: 0;
+}
+
+.skill-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px -2px -4px;
+  padding-top: 10px;
+  border-top: 1px solid #2b2b2b;
+}
+
+.skill-card-footer .ant-typography {
+  font-size: 12px;
+}
+
+.skill-card-footer .ant-btn {
+  padding-inline: 5px;
+  font-size: 12px;
+}
+
+.empty-library {
+  margin: 56px 0;
+}
+
+.editor {
+  padding-top: 18px;
+}
+
+.editor-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.editor-heading h3.ant-typography {
+  margin: 0 0 3px;
+}
+
+.metadata-card {
+  margin-bottom: 16px;
+}
+
+.metadata-card label {
+  display: block;
+  margin-bottom: 5px;
+  color: #aaa;
+  font-size: 12px;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.editor-workspace {
+  min-height: 540px;
+}
+
+.editor-workspace > .ant-col {
+  display: flex;
+}
+
+.markdown-editor-card,
+.editor-panel {
+  width: 100%;
+  min-height: 540px;
+}
+
+.markdown-editor-card .ant-card-body {
+  height: calc(100% - 57px);
+  padding: 0;
+}
+
+.markdown-source.ant-input {
+  height: 100%;
+  min-height: 480px;
+  resize: vertical;
+  border: 0;
+  border-radius: 0 0 8px 8px;
+  background: #1f1f1f;
+  font-family: var(--vscode-editor-font-family, "SFMono-Regular", Consolas, monospace);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.editor-panel .ant-card-body {
+  height: 100%;
+  padding: 0 16px;
+}
+
+.editor-panel .ant-tabs {
+  height: 100%;
+}
+
+.editor-panel .ant-tabs-content {
+  min-height: 450px;
+}
+
+.markdown-preview {
+  max-width: 900px;
+  padding: 12px 4px 28px;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3 {
+  padding-bottom: 8px;
+  border-bottom: 1px solid #303030;
+}
+
+.markdown-preview pre,
+.markdown-preview code {
+  font-family: var(--vscode-editor-font-family, "SFMono-Regular", Consolas, monospace);
+}
+
+.markdown-preview pre {
+  overflow: auto;
+  padding: 12px;
+  border-radius: 6px;
+  background: #202020;
+}
+
+.markdown-preview blockquote {
+  margin-inline: 0;
+  padding-left: 12px;
+  border-left: 3px solid #ff4d4f;
+  color: #aaa;
+}
+
+.project-checklist {
+  padding: 12px 4px;
+}
+
+.project-checklist .ant-checkbox-wrapper {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.governance-panel {
+  max-width: 720px;
+  padding: 12px 4px;
+}
+
+@media (max-width: 900px) {
+  .topbar,
+  .filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .search-input,
+  .project-select {
+    width: 100%;
+  }
+
+  .toolbar-spacer {
+    display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  main {
+    padding: 12px;
+  }
+
+  .vault-path {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .vault-path .ant-typography {
+    width: 100%;
+  }
+
+  .library-heading {
+    align-items: flex-start;
+  }
+
+  .skill-card-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

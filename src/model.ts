@@ -5,7 +5,7 @@ export function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code
 }
 const names = z.array(z.string().trim().min(1).max(60)).refine(unique)
-const skill = z.object({
+export const skillSchema = z.object({
   id: z.string().min(1).max(200),
   name: z.string().trim().min(1).max(100),
   category: z.string().trim().min(1).max(60),
@@ -16,10 +16,11 @@ const skill = z.object({
   tags: z.array(z.string()),
   originPath: z.string().optional()
 })
+export type Skill = z.infer<typeof skillSchema>
 export const catalogSchema = z.object({
   version: z.literal(1),
   categories: names,
-  skills: z.array(skill).max(10000)
+  skills: z.array(skillSchema).max(10000)
 }).superRefine((catalog, context) => {
   if (!unique(catalog.skills.map(item => item.id)) ||
       !unique(catalog.skills.map(item => item.filePath))) {

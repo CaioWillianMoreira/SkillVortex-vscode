@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import { beforeEach, afterEach, test, expect } from '@jest/globals'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createVault, readVault, readContained } from '../src/vault'
+import { createVault, readVault, readContained, saveVaultData, writeSkillFile } from '../src/vault'
 import { emptyVault, validateVault } from '../src/model'
 import { initializeSql, migrateDesktop, rebuildIndex } from '../src/database'
 
@@ -24,6 +24,41 @@ test('never overwrites an existing destination', async () => {
   await fs.writeFile(join(root, 'keep.txt'), 'original')
   await expect(createVault(root)).rejects.toThrow('Nada foi sobrescrito')
   expect(await fs.readFile(join(root, 'keep.txt'), 'utf8')).toBe('original')
+})
+
+test('saves edited Markdown and metadata while preserving vault validation', async () => {
+  const root = join(temporary, 'vault')
+  await createVault(root)
+  const data = await readVault(root)
+  data.catalog.skills.push({
+    id: 'skill-one', name: 'Skill one', category: 'Geral', description: 'Before',
+    filePath: 'skills/skill-one.md', agents: [], status: 'pending', tags: ['old']
+  })
+  await writeSkillFile(root, 'skills/skill-one.md', '# Before')
+  await saveVaultData(root, data)
+
+  data.catalog.skills[0].name = 'Updated skill'
+  data.catalog.skills[0].description = 'After'
+  data.catalog.skills[0].tags = ['updated']
+  data.projects.projects.push({ id: 'project-one', name: 'Project', skillIds: ['skill-one'] })
+  data.projects.activeProject = 'project-one'
+  await writeSkillFile(root, 'skills/skill-one.md', '# After')
+  await saveVaultData(root, data)
+
+  expect(await readVault(root)).toEqual(data)
+  expect(await readContained(root, join(root, 'skills/skill-one.md'))).toBe('# After')
+  await expect(writeSkillFile(root, '../outside.md', 'unsafe')).rejects.toThrow('Caminho de skill invalido')
+})
+
+test('restores original metadata when a multi-file save cannot be published', async () => {
+  const root = join(temporary, 'vault')
+  await createVault(root)
+  const original = await fs.readFile(join(root, '.skillvortex/catalogo.json'), 'utf8')
+  await fs.unlink(join(root, '.skillvortex/projetos.json'))
+  const data = await readVault(root).catch(() => emptyVault())
+  await expect(saveVaultData(root, data)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await fs.readFile(join(root, '.skillvortex/catalogo.json'), 'utf8')).toBe(original)
+  expect((await fs.readdir(join(root, '.skillvortex'))).sort()).toEqual(['backups', 'catalogo.json'])
 })
 
 test('failed import cleans only its newly created destination', async () => {

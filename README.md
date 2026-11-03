@@ -4,13 +4,20 @@ Extensao independente do VS Code para organizar Markdown em um cofre portatil.
 Esta e a **etapa 1 da migracao** do SkillVortex desktop. O aplicativo antigo
 permanece intacto em sua pasta e repositorio.
 
-## Implementado nesta etapa
+## Funcionalidades implementadas
 
-- Biblioteca React + Ant Design em Webview, tema escuro e busca textual.
+- Dashboard React + Ant Design em Webview, tema escuro, busca, filtros de status,
+  categoria e agente, e cards responsivos de skills.
 - Criacao e abertura de cofres locais, com validacao de metadados.
 - Importacao explicita do banco SQLite do desktop para um **cofre novo**.
 - Preservacao de IDs, categorias, tags, agentes, status e vinculos dos projetos.
-- Abertura de Markdown no editor nativo do VS Code.
+- Criacao e importacao de skills Markdown para o cofre.
+- Editor integrado com titulo, descricao, categoria, tags, agentes, governanca,
+  conteudo Markdown, pre-visualizacao e selecao dos projetos vinculados.
+- Criacao de categorias e projetos, selecao do projeto ativo e gerenciamento
+  dos vinculos por skill.
+- Desvinculacao do catalogo preservando o arquivo ou exclusao fisica confirmada.
+- Gravacao validada dos metadados e do Markdown no cofre.
 - Indice SQLite local reconstruido ao abrir/atualizar a biblioteca.
 - Repositorio Git local independente, sem commit ou publicacao automatica.
 
@@ -70,19 +77,33 @@ Use **Extensions: Install from VSIX...** com
 `release/skillvortex-extension-0.1.0.vsix`. Nao ha Electron ou instalador desktop
 proprio na nova versao.
 
-## Criar ou abrir um cofre
+## Biblioteca, projetos e editor
 
-Use os botoes da Webview ou os comandos:
+Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
 
 - **SkillVortex: Criar cofre**: selecione uma pasta pai e um nome novo.
 - **SkillVortex: Abrir cofre**: selecione uma pasta com os dois JSON validos.
-- **Atualizar**: releia os metadados e reconstrua o indice.
-- **Editar Markdown**: abre o arquivo no editor nativo; salve com Ctrl+S/Cmd+S.
+- **Nova Skill**: cria um Markdown no cofre e abre o editor integrado.
+- **Importar .md**: copia arquivos Markdown selecionados para o cofre; arquivos
+  acima de 2 MB sao recusados.
+- **Nova Categoria** e **Novo Projeto**: adicionam metadados ao catalogo. O
+  projeto ativo controla os switches **Usar no Projeto** dos cards.
+- **Biblioteca**: pesquise por texto e filtre por status, categoria e agente.
+- **Editor**: altere metadados e Markdown, confira a pre-visualizacao e ajuste
+  os projetos vinculados. Salve para gravar no cofre.
+- **Bloqueada**: ao salvar, remove os vinculos dessa skill em todos os projetos.
+- **Desvincular**: remove a skill do catalogo e dos projetos, preservando o
+  Markdown. **Excluir** remove o cadastro e, apos confirmacao, apaga o arquivo.
 
-Nesta etapa nao ha cadastro manual ou edicao de metadados pela Webview:
-um cofre novo comeca vazio. Use a importacao do desktop para trazer a biblioteca.
-Projetos importados sao preservados nos JSON, mas ainda nao ha seletor ou
-edicao de vinculos na tela.
+O editor integrado renderiza a pre-visualizacao sem permitir HTML embutido no
+Markdown. A extensao nao injeta nem sincroniza instrucoes com agentes. Os
+vinculos e agentes sao metadados de organizacao.
+
+Esta etapa ainda nao tem varredura recursiva de uma pasta de projeto, selecao
+de varios Markdown encontrados automaticamente, associacao/reatribuicao de
+caminhos de projeto, backup/restauracao, monitoramento de alteracoes externas
+ou sincronizacao com agentes. Esses fluxos nao sao implicados pela criacao de
+projetos nem pela importacao manual de arquivos.
 
 ## Migrar os dados do desktop
 
@@ -124,11 +145,13 @@ recusados, nao corrigidos silenciosamente.
 
 ## Proximas etapas
 
-1. CRUD de skills, categorias e projetos; filtros e vinculos.
-2. Gravacao serializada, journal e recuperacao das alteracoes do cofre.
-3. Backup/restauracao versionados com previa de conflitos e criptografia opcional.
-4. Monitoramento de arquivos e remapeamento de projetos.
-5. Sincronizacao com agentes, com previa e protecao contra sobrescrita.
+1. Varredura recursiva de Markdown em pastas de projeto, com limites e selecao
+   previa dos arquivos antes da importacao em lote.
+2. Associacao e reatribuicao de pastas para projetos, com remapeamento seguro.
+3. Journal e recuperacao de operacoes interrompidas, alem do backup/restauracao
+   versionados com previa de conflitos.
+4. Monitoramento de alteracoes externas e sincronizacao opcional com agentes,
+   sempre com previa e protecao contra sobrescrita.
 
 A extensao exige ambiente local e confiavel. Remoto, VS Code Web e workspaces
 virtuais nao sao suportados nesta primeira etapa.

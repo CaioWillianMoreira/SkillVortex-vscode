@@ -14,8 +14,8 @@ permanece intacto em sua pasta e repositorio.
 - Criacao e importacao de skills Markdown para o cofre.
 - Associacao de pastas locais aos projetos e varredura recursiva com selecao
   previa dos Markdown encontrados.
-- Editor integrado com titulo, descricao, categoria, tags, agentes, governanca,
-  conteudo Markdown, pre-visualizacao e selecao dos projetos vinculados.
+- Editor integrado com Monaco local, titulo, descricao, categoria, tags, agentes,
+  governanca, conteudo Markdown, pre-visualizacao GFM e projetos vinculados.
 - Criacao de categorias e projetos, selecao do projeto ativo e gerenciamento
   dos vinculos por skill.
 - Desvinculacao do catalogo preservando o arquivo ou exclusao fisica confirmada.
@@ -94,14 +94,16 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   no projeto** mostra os Markdown encontrados antes de importar os selecionados.
 - **Biblioteca**: pesquise por texto e filtre por status, categoria e agente.
 - **Editor**: altere metadados e Markdown, confira a pre-visualizacao e ajuste
-  os projetos vinculados. Salve para gravar no cofre.
+  os projetos vinculados. Monaco fornece realce Markdown e `Ctrl+S` / `Cmd+S`
+  ou **Salvar** grava as alteracoes no cofre.
 - **Bloqueada**: ao salvar, remove os vinculos dessa skill em todos os projetos.
 - **Desvincular**: remove a skill do catalogo e dos projetos, preservando o
   Markdown. **Excluir** remove o cadastro e, apos confirmacao, apaga o arquivo.
 
-O editor integrado renderiza a pre-visualizacao sem permitir HTML embutido no
-Markdown. A extensao nao injeta nem sincroniza instrucoes com agentes. Os
-vinculos e agentes sao metadados de organizacao.
+O editor Monaco e seus workers sao empacotados localmente; a extensao nao baixa
+o editor de um CDN. A pre-visualizacao suporta GitHub Flavored Markdown sem
+permitir HTML embutido. A extensao nao injeta nem sincroniza instrucoes com
+agentes. Os vinculos e agentes sao metadados de organizacao.
 
 A varredura inclui arquivos `.md` em qualquer capitalizacao e subpastas; exclui
 README, links simbolicos e diretorios `.git`, `node_modules`, `vendor`, `dist`,

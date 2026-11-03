@@ -7,7 +7,12 @@ export default defineConfig({
     outDir: resolve(__dirname, '../dist/webview'),
     emptyOutDir: true,
     cssCodeSplit: false,
-    lib: { entry: resolve(__dirname, 'main.tsx'), name: 'SkillVortex', formats: ['iife'], fileName: () => 'app.js' },
-    rollupOptions: { output: { assetFileNames: asset => asset.names.some(name => name.endsWith('.css')) ? 'app.css' : '[name][extname]' } }
+    lib: { entry: resolve(__dirname, 'main.tsx'), formats: ['es'], fileName: () => 'app.js' },
+    rollupOptions: {
+      output: {
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: asset => asset.names.some(name => name.endsWith('.css')) ? 'app.css' : 'assets/[name]-[hash][extname]'
+      }
+    }
   }
 })

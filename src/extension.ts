@@ -163,9 +163,26 @@ export function activate(context: vscode.ExtensionContext): void {
         content
       })
     }
-    for (const item of imported) {
-      data.catalog.skills.push(item.skill)
-      await writeSkillFile(root, item.skill.filePath, item.content)
+    const written: string[] = []
+    try {
+      for (const item of imported) {
+        await writeSkillFile(root, item.skill.filePath, item.content)
+        written.push(join(root, item.skill.filePath))
+        data.catalog.skills.push(item.skill)
+      }
+    } catch (error) {
+      const cleanupErrors: unknown[] = []
+      for (const file of written.reverse()) {
+        try {
+          await fs.unlink(file)
+        } catch (cleanupError) {
+          if (!hasErrorCode(cleanupError, 'ENOENT')) cleanupErrors.push(cleanupError)
+        }
+      }
+      if (cleanupErrors.length) {
+        throw new AggregateError([error, ...cleanupErrors], 'A importacao falhou e nem todos os arquivos temporarios puderam ser removidos.')
+      }
+      throw error
     }
     await persist(root, data)
     editingSkillId = imported[0].skill.id
@@ -299,7 +316,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const nonce = randomBytes(24).toString('base64')
     const script = current.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist/webview/app.js'))
     const css = current.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist/webview/app.css'))
-    current.webview.html = `<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${current.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${current.webview.cspSource} data:;"><link rel="stylesheet" href="${css}"><title>SkillVortex</title></head><body><div id="root"></div><script nonce="${nonce}" src="${script}"></script></body></html>`
+    current.webview.html = `<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${current.webview.cspSource} 'unsafe-inline'; script-src ${current.webview.cspSource} 'nonce-${nonce}'; worker-src ${current.webview.cspSource} blob:; font-src ${current.webview.cspSource} data:; img-src ${current.webview.cspSource} data:;"><link rel="stylesheet" href="${css}"><title>SkillVortex</title></head><body><div id="root"></div><script type="module" nonce="${nonce}" src="${script}"></script></body></html>`
     context.subscriptions.push(current.onDidDispose(() => { if (panel === current) panel = undefined }))
     context.subscriptions.push(current.webview.onDidReceiveMessage((raw: unknown) => run(async () => {
       const message = messageSchema.parse(raw)

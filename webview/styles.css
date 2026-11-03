@@ -243,19 +243,25 @@ main {
 
 .markdown-editor-card .ant-card-body {
   height: calc(100% - 57px);
+  min-height: 480px;
   padding: 0;
+  overflow: hidden;
 }
 
-.markdown-source.ant-input {
+.monaco-editor-shell {
   height: 100%;
   min-height: 480px;
-  resize: vertical;
-  border: 0;
-  border-radius: 0 0 8px 8px;
-  background: #1f1f1f;
-  font-family: var(--vscode-editor-font-family, "SFMono-Regular", Consolas, monospace);
-  font-size: 13px;
-  line-height: 1.65;
+}
+
+.markdown-editor-card .monaco-editor {
+  min-height: 480px;
+}
+
+.editor-loading {
+  display: grid;
+  min-height: 480px;
+  place-items: center;
+  color: #aaa;
 }
 
 .editor-panel .ant-card-body {
@@ -295,6 +301,33 @@ main {
   padding: 12px;
   border-radius: 6px;
   background: #202020;
+}
+
+.markdown-preview table {
+  display: block;
+  width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+  padding: 7px 10px;
+  border: 1px solid #383838;
+  text-align: left;
+}
+
+.markdown-preview th {
+  background: #202020;
+}
+
+.markdown-preview a {
+  color: #ff7875;
+}
+
+.markdown-preview input[type="checkbox"] {
+  margin-right: 7px;
+  accent-color: #ff4d4f;
 }
 
 .markdown-preview blockquote {

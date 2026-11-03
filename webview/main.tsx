@@ -1,16 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   Alert, Button, Card, Checkbox, Col, ConfigProvider, Empty, Input, Modal, Row,
   Select, Space, Switch, Tabs, Tag, Typography, theme
 } from 'antd'
-import MarkdownIt from 'markdown-it'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { Catalog, Projects, Skill } from '../src/model'
 import './styles.css'
 
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void }
 const api = acquireVsCodeApi()
-const markdown = new MarkdownIt({ html: false, linkify: false, breaks: false })
+const MonacoMarkdownEditor = lazy(() => import('./MonacoMarkdownEditor'))
 const labels = { validated: 'Validada', pending: 'Pendente', blocked: 'Bloqueada' }
 const colors = { validated: 'green', pending: 'gold', blocked: 'red' }
 const statusNames = ['validated', 'pending', 'blocked'] as const
@@ -47,6 +48,7 @@ function App(): React.JSX.Element {
   const [projectName, setProjectName] = useState('')
   const [categoryName, setCategoryName] = useState('')
   const [draft, setDraft] = useState<Draft | null>(null)
+  const [saving, setSaving] = useState(false)
   const baseline = useRef('')
 
   useEffect(() => {
@@ -56,8 +58,14 @@ function App(): React.JSX.Element {
         setError('')
         setNotice('')
       }
-      if (event.data.type === 'error') setError(event.data.message)
-      if (event.data.saved) setNotice('Alteracoes salvas no cofre.')
+      if (event.data.type === 'error') {
+        setError(event.data.message)
+        setSaving(false)
+      }
+      if (event.data.saved) {
+        setNotice('Alteracoes salvas no cofre.')
+        setSaving(false)
+      }
     }
     window.addEventListener('message', handler)
     api.postMessage({ type: 'ready' })
@@ -112,7 +120,8 @@ function App(): React.JSX.Element {
     })
   }
   const saveDraft = () => {
-    if (!draft) return
+    if (!draft || !dirty || saving) return
+    setSaving(true)
     api.postMessage({
       type: 'saveSkill',
       id: draft.id,
@@ -126,6 +135,16 @@ function App(): React.JSX.Element {
       projectIds: draft.status === 'blocked' ? [] : draft.projectIds
     })
   }
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === 's') {
+        event.preventDefault()
+        saveDraft()
+      }
+    }
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+  })
 
   return (
     <ConfigProvider theme={{
@@ -172,8 +191,8 @@ function App(): React.JSX.Element {
           {!state.editingSkillId && <div className="toolbar-spacer" />}
           {state.editingSkillId && draft ? (
             <Space className="editor-top-actions" wrap>
-              <Button onClick={leaveEditor}>Voltar ao Dashboard</Button>
-              <Button type="primary" onClick={saveDraft} disabled={!dirty}>Salvar</Button>
+              <Button onClick={leaveEditor} disabled={saving}>Voltar ao Dashboard</Button>
+              <Button type="primary" onClick={saveDraft} loading={saving} disabled={!dirty}>Salvar</Button>
             </Space>
           ) : (
             <Space wrap>
@@ -343,13 +362,13 @@ function App(): React.JSX.Element {
                 <Typography.Title level={3}>Editando: {draft.name}</Typography.Title>
                 <Typography.Text type="secondary">{dirty ? 'Nao salvo' : 'Todas as alteracoes salvas'}</Typography.Text>
               </div>
-              <Button type="primary" onClick={saveDraft} disabled={!dirty}>Salvar</Button>
+              <Button type="primary" onClick={saveDraft} loading={saving} disabled={!dirty}>Salvar</Button>
             </div>
             <Card className="metadata-card">
               <Row gutter={[12, 12]}>
                 <Col xs={24} md={12} xl={6}>
                   <label htmlFor="skill-name">Titulo</label>
-                  <Input id="skill-name" value={draft.name} maxLength={100} onChange={event => updateDraft('name', event.target.value)} />
+                  <Input id="skill-name" value={draft.name} maxLength={100} disabled={saving} onChange={event => updateDraft('name', event.target.value)} />
                 </Col>
                 <Col xs={24} md={12} xl={6}>
                   <label htmlFor="skill-category">Categoria</label>
@@ -357,13 +376,14 @@ function App(): React.JSX.Element {
                     id="skill-category"
                     className="full-width"
                     value={draft.category}
+                    disabled={saving}
                     options={(state.catalog?.categories ?? []).map(category => ({ value: category, label: category }))}
                     onChange={value => updateDraft('category', value)}
                   />
                 </Col>
                 <Col xs={24} md={12} xl={6}>
                   <label htmlFor="skill-tags">Etiquetas (separadas por virgula)</label>
-                  <Input id="skill-tags" value={draft.tags.join(', ')} onChange={event =>
+                  <Input id="skill-tags" value={draft.tags.join(', ')} disabled={saving} onChange={event =>
                     updateDraft('tags', event.target.value.split(',').map(tag => tag.trim()).filter(Boolean))
                   } />
                 </Col>
@@ -373,6 +393,7 @@ function App(): React.JSX.Element {
                     id="skill-status"
                     className="full-width"
                     value={draft.status}
+                    disabled={saving}
                     options={statusNames.map(status => ({ value: status, label: labels[status] }))}
                     onChange={value => updateDraft('status', value as Status)}
                   />
@@ -384,6 +405,7 @@ function App(): React.JSX.Element {
                     className="full-width"
                     mode="tags"
                     value={draft.agents}
+                    disabled={saving}
                     options={['GitHub Copilot', 'Antigravity', ...draft.agents]
                       .filter((agent, index, agents) => agents.indexOf(agent) === index)
                       .map(agent => ({ value: agent, label: agent }))}
@@ -392,7 +414,7 @@ function App(): React.JSX.Element {
                 </Col>
                 <Col span={24}>
                   <label htmlFor="skill-description">Descricao</label>
-                  <Input.TextArea id="skill-description" rows={2} maxLength={1000} value={draft.description}
+                  <Input.TextArea id="skill-description" rows={2} maxLength={1000} value={draft.description} disabled={saving}
                     onChange={event => updateDraft('description', event.target.value)} />
                 </Col>
                 <Col span={24}>
@@ -404,13 +426,13 @@ function App(): React.JSX.Element {
             <Row className="editor-workspace" gutter={[16, 16]}>
               <Col xs={24} xl={12}>
                 <Card className="markdown-editor-card" title="Conteudo Markdown">
-                  <Input.TextArea
-                    aria-label="Conteudo Markdown"
-                    className="markdown-source"
-                    spellCheck={false}
-                    value={draft.content}
-                    onChange={event => updateDraft('content', event.target.value)}
-                  />
+                  <Suspense fallback={<div className="editor-loading">Carregando Monaco...</div>}>
+                    <MonacoMarkdownEditor
+                      value={draft.content}
+                      readOnly={saving}
+                      onChange={value => updateDraft('content', value)}
+                    />
+                  </Suspense>
                 </Card>
               </Col>
               <Col xs={24} xl={12}>
@@ -419,8 +441,10 @@ function App(): React.JSX.Element {
                     items={[
                       {
                         key: 'preview', label: 'Visualizacao',
-                        children: <article className="markdown-preview"
-                          dangerouslySetInnerHTML={{ __html: markdown.render(draft.content) }} />
+                        children: <article className="markdown-preview">
+                          <Typography.Title level={3}>{draft.name}</Typography.Title>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{draft.content}</ReactMarkdown>
+                        </article>
                       },
                       {
                         key: 'projects', label: `Projetos (${draft.projectIds.length})`,
@@ -428,7 +452,7 @@ function App(): React.JSX.Element {
                           {state.projects?.projects.length ? (
                             <Checkbox.Group
                               value={draft.projectIds}
-                              disabled={draft.status === 'blocked'}
+                              disabled={saving || draft.status === 'blocked'}
                               onChange={value => updateDraft('projectIds', value as string[])}
                             >
                               <Space direction="vertical">

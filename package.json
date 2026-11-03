@@ -31,12 +31,19 @@
     "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license --out release/skillvortex-extension-0.1.0.vsix"
   },
   "dependencies": {
-    "markdown-it": "^14.3.3",
+    "@monaco-editor/react": "^4.7.0",
+    "monaco-editor": "^0.57.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "sql.js": "^1.13.0",
     "zod": "^4.6.7"
   },
+  "overrides": {
+    "monaco-editor": {
+      "dompurify": "^3.4.17"
+    }
+  },
   "devDependencies": {
-    "@types/markdown-it": "^14.2.0",
     "@types/node": "^22.15.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

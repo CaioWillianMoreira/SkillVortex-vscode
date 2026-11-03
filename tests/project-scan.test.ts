@@ -66,6 +66,17 @@ test('enforces the result limit', async () => {
   await expect(scanProjectMarkdown(project)).rejects.toThrow('limite de 1.000')
 })
 
+test('enforces the visited entry limit', async () => {
+  const manyEntries = join(project, 'entries')
+  await fs.mkdir(manyEntries)
+  for (let start = 0; start < 50001; start += 1000) {
+    await Promise.all(Array.from({ length: Math.min(1000, 50001 - start) }, (_, index) =>
+      fs.writeFile(join(manyEntries, `file-${start + index}`), '')
+    ))
+  }
+  await expect(scanProjectMarkdown(project)).rejects.toThrow('50.000 entradas')
+})
+
 test('recognizes Markdown case-insensitively but excludes README names', () => {
   expect(isProjectMarkdown('nested/guide.MD')).toBe(true)
   expect(isProjectMarkdown('nested/README.md')).toBe(false)

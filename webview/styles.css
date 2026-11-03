@@ -296,12 +296,21 @@ main {
 
 .skill-card-footer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 8px;
   margin: 12px -2px -4px;
   padding-top: 10px;
   border-top: 1px solid #2b2b2b;
+}
+
+.skill-card-project {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.skill-card-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .skill-card-footer .ant-typography {
@@ -504,10 +513,5 @@ main {
 
   .library-heading {
     align-items: flex-start;
-  }
-
-  .skill-card-footer {
-    align-items: flex-start;
-    flex-direction: column;
   }
 }

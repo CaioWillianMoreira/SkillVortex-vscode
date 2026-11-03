@@ -16,6 +16,7 @@ exports.run = async function run() {
   const mainBundle = webviewAssets.find(name => /^main-.*\.js$/.test(name))
   assert.ok(mainBundle, 'Webview entry bundle must be packaged')
   const mainSource = await readFile(join(extension.extensionPath, 'dist/webview/assets', mainBundle), 'utf8')
+  assert.doesNotMatch(mainSource, /process\.env\.NODE_ENV/, 'Webview bundle must not require Node.js process globals')
   assert.match(mainSource, /Criar cofre/, 'Welcome screen must contain the create-vault action')
   assert.match(mainSource, /Conheca as telas/, 'Welcome screen must describe the screen previews')
   assert.match(mainSource, /data:image\/png;base64,/, 'Desktop reference screenshots must be bundled locally')

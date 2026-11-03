@@ -3,6 +3,9 @@ import { resolve } from 'node:path'
 
 export default defineConfig({
   base: './',
+  define: {
+    'process.env.NODE_ENV': JSON.stringify('production')
+  },
   build: {
     minify: 'esbuild',
     outDir: resolve(__dirname, '../dist/webview'),

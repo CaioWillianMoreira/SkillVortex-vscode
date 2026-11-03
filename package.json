@@ -2,25 +2,48 @@
   "name": "skillvortex-extension",
   "displayName": "SkillVortex Extension",
   "description": "Cofre local e portatil de Markdown para projetos e agentes de IA.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "skillvortex",
   "private": true,
   "license": "UNLICENSED",
-  "engines": { "vscode": "^1.95.0" },
-  "categories": ["Other"],
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
   "icon": "resources/icon.png",
   "main": "./dist/extension.js",
-  "activationEvents": ["onCommand:skillVortex.open", "onStartupFinished"],
+  "activationEvents": [
+    "onCommand:skillVortex.open",
+    "onStartupFinished"
+  ],
   "capabilities": {
-    "untrustedWorkspaces": { "supported": false },
-    "virtualWorkspaces": { "supported": false }
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
   },
   "contributes": {
     "commands": [
-      { "command": "skillVortex.open", "title": "SkillVortex: Abrir biblioteca" },
-      { "command": "skillVortex.createVault", "title": "SkillVortex: Criar cofre" },
-      { "command": "skillVortex.openVault", "title": "SkillVortex: Abrir cofre" },
-      { "command": "skillVortex.migrateDesktop", "title": "SkillVortex: Importar banco do desktop" }
+      {
+        "command": "skillVortex.open",
+        "title": "SkillVortex: Abrir biblioteca"
+      },
+      {
+        "command": "skillVortex.createVault",
+        "title": "SkillVortex: Criar cofre"
+      },
+      {
+        "command": "skillVortex.openVault",
+        "title": "SkillVortex: Abrir cofre"
+      },
+      {
+        "command": "skillVortex.migrateDesktop",
+        "title": "SkillVortex: Importar banco do desktop"
+      }
     ]
   },
   "scripts": {
@@ -28,7 +51,7 @@
     "build": "tsc && esbuild src/extension.ts --bundle --platform=node --target=node20 --external:vscode --outfile=dist/extension.js && node scripts/build-assets.cjs && vite build --config webview/vite.config.ts",
     "test": "jest --runInBand",
     "test:host": "npm run build && node scripts/test-host.cjs",
-    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license --out release/skillvortex-extension-0.1.0.vsix"
+    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license --out release/skillvortex-extension-0.1.1.vsix"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

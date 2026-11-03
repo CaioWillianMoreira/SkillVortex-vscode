@@ -40,6 +40,7 @@ function categoryColor(category: string): string {
 }
 
 function App(): React.JSX.Element {
+  const [modal, modalContext] = Modal.useModal()
   const [state, setState] = useState<AppState>(emptyState)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -113,7 +114,7 @@ function App(): React.JSX.Element {
       api.postMessage({ type: 'backToDashboard' })
       return
     }
-    Modal.confirm({
+    modal.confirm({
       title: 'Descartar alteracoes?',
       content: 'As alteracoes nao salvas desta skill serao perdidas.',
       okText: 'Descartar',
@@ -154,6 +155,7 @@ function App(): React.JSX.Element {
       algorithm: theme.darkAlgorithm,
       token: { colorPrimary: '#ff4d4f', colorBgContainer: '#171717', borderRadius: 8 }
     }}>
+      {modalContext}
       <main>
         <header className="topbar">
           <Typography.Title className="brand" level={3}>Skill<span>Vortex</span></Typography.Title>
@@ -291,7 +293,18 @@ function App(): React.JSX.Element {
                   </Typography.Paragraph>
                 )}
               </div>
-              <Tag>{skills.length} {skills.length === 1 ? 'skill' : 'skills'}</Tag>
+              <Space wrap>
+                <Tag>{skills.length} {skills.length === 1 ? 'skill' : 'skills'}</Tag>
+                <Button type="primary" title="Criar e atualizar os oito cards da documentação no cofre" onClick={() => modal.confirm({
+                  title: 'Carregar exemplos do dashboard?',
+                  content: 'Cria no cofre os cards da documentação que faltam e atualiza os metadados dos exemplos existentes. IDs, caminhos e conteúdo Markdown existentes serão preservados. Skills bloqueadas serão desvinculadas dos projetos.',
+                  okText: 'Carregar exemplos',
+                  cancelText: 'Cancelar',
+                  onOk: () => api.postMessage({ type: 'createDocumentedExamples' })
+                })}>
+                  Carregar exemplos
+                </Button>
+              </Space>
             </section>
 
             <section className="filters">
@@ -345,7 +358,7 @@ function App(): React.JSX.Element {
               {skills.map(item => {
                 const linked = Boolean(activeProject?.skillIds.includes(item.id))
                 return (
-                  <Col key={item.id} xs={24} sm={12} lg={8} xl={6}>
+                  <Col key={item.id} xs={24} sm={24} md={12} lg={8} xl={6}>
                     <Card className="skill-card" style={{ borderTop: `3px solid ${categoryColor(item.category)}` }}>
                       <div className="skill-card-heading">
                         <Typography.Title level={5} title={item.name}>{item.name}</Typography.Title>
@@ -367,7 +380,7 @@ function App(): React.JSX.Element {
                         </Space>
                       </div>
                       <div className="skill-card-footer">
-                        <Space>
+                        <Space className="skill-card-project">
                           <Switch
                             size="small"
                             checked={linked}
@@ -376,7 +389,7 @@ function App(): React.JSX.Element {
                           />
                           <Typography.Text type="secondary">Usar no Projeto</Typography.Text>
                         </Space>
-                        <Space size={4}>
+                        <Space className="skill-card-actions" size={4}>
                           <Button size="small" type="link" onClick={() => api.postMessage({ type: 'openSkill', id: item.id })}>Editar</Button>
                           <Button size="small" type="link" onClick={() => api.postMessage({ type: 'unlinkSkill', id: item.id })}>Desvincular</Button>
                           <Button size="small" danger type="link" onClick={() => api.postMessage({ type: 'deleteSkill', id: item.id })}>Excluir</Button>
@@ -387,7 +400,13 @@ function App(): React.JSX.Element {
                 )
               })}
             </Row>
-            {!skills.length && <Empty className="empty-library" description="Nenhuma skill corresponde aos filtros" />}
+            {!skills.length && (
+              <Empty className="empty-library" description={
+                state.catalog.skills.length
+                  ? 'Nenhuma skill corresponde aos filtros'
+                  : 'Seu cofre ainda nao tem skills. Use Carregar exemplos para ver os oito cards da documentacao, Importar .md para adicionar seus arquivos ou Nova Skill para criar uma.'
+              } />
+            )}
           </>
         )}
 

@@ -8,6 +8,7 @@ import { initializeSql, migrateDesktop, rebuildIndex } from './database'
 import { hasErrorCode, skillSchema } from './model'
 import { readProjectMarkdown, scanProjectMarkdown } from './project-scan'
 import { createVaultBackup, listVaultBackups, restoreVaultBackup } from './backup'
+import { createDocumentedExamples, reconcileDocumentedExamples } from './documented-examples'
 
 const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready') }),
@@ -20,6 +21,7 @@ const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('createBackup') }),
   z.object({ type: z.literal('restoreBackup') }),
   z.object({ type: z.literal('createSkill') }),
+  z.object({ type: z.literal('createDocumentedExamples') }),
   z.object({ type: z.literal('importMarkdown') }),
   z.object({ type: z.literal('createCategory'), name: z.string() }),
   z.object({ type: z.literal('createProject'), name: z.string() }),
@@ -186,6 +188,62 @@ export function activate(context: vscode.ExtensionContext): void {
     await persist(root, data)
     editingSkillId = id
     await refresh()
+  }
+  async function createExamples(): Promise<void> {
+    const { root, data } = await currentVault()
+    const examples = createDocumentedExamples()
+    const { toCreate, updated, blockedSkillIds, orderedSkillIds } =
+      reconcileDocumentedExamples(data.catalog.skills, examples)
+    if (!toCreate.length && !updated) {
+      void vscode.window.showInformationMessage('Os cards ja correspondem aos exemplos da documentacao.')
+      return
+    }
+    if (data.catalog.skills.length + toCreate.length > 10000) {
+      throw new Error('O catalogo nao pode ultrapassar 10.000 skills.')
+    }
+    const addedCategories = [...new Set(examples.map(({ skill }) => skill.category))]
+      .filter(category => !data.catalog.categories.includes(category))
+    data.catalog.categories.push(...addedCategories)
+    const blockedIds = new Set(blockedSkillIds)
+    for (const project of data.projects.projects) {
+      project.skillIds = project.skillIds.filter(id => !blockedIds.has(id))
+    }
+    const written: string[] = []
+    try {
+      for (const { skill, content } of toCreate) {
+        await writeSkillFile(root, skill.filePath, content)
+        written.push(join(root, skill.filePath))
+        data.catalog.skills.push(skill)
+      }
+      const skillsById = new Map(data.catalog.skills.map(skill => [skill.id, skill]))
+      const exampleIds = new Set(orderedSkillIds)
+      data.catalog.skills = [
+        ...orderedSkillIds.flatMap(id => {
+          const skill = skillsById.get(id)
+          return skill ? [skill] : []
+        }),
+        ...data.catalog.skills.filter(skill => !exampleIds.has(skill.id))
+      ]
+      await persist(root, data)
+    } catch (error) {
+      const cleanupErrors: unknown[] = []
+      for (const file of written.reverse()) {
+        try {
+          await fs.unlink(file)
+        } catch (cleanupError) {
+          if (!hasErrorCode(cleanupError, 'ENOENT')) cleanupErrors.push(cleanupError)
+        }
+      }
+      if (cleanupErrors.length) {
+        throw new AggregateError([error, ...cleanupErrors], 'A criacao dos exemplos falhou e nem todos os arquivos puderam ser removidos.')
+      }
+      throw error
+    }
+    await refresh()
+    const messages = []
+    if (toCreate.length) messages.push(`${toCreate.length} cards criados`)
+    if (updated) messages.push(`${updated} cards atualizados`)
+    void vscode.window.showInformationMessage(`${messages.join(' e ')} conforme a documentação.`)
   }
   async function importMarkdown(): Promise<void> {
     const selected = await vscode.window.showOpenDialog({
@@ -412,6 +470,7 @@ export function activate(context: vscode.ExtensionContext): void {
         await refresh()
       }
       if (message.type === 'createSkill') await createSkill()
+      if (message.type === 'createDocumentedExamples') await createExamples()
       if (message.type === 'importMarkdown') await importMarkdown()
       if (message.type === 'setProjectFolder') await setProjectFolder()
       if (message.type === 'scanProject') await scanActiveProject()

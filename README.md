@@ -18,6 +18,8 @@ permanece intacto em sua pasta e repositorio.
   governanca, conteudo Markdown, pre-visualizacao GFM e projetos vinculados.
 - Criacao de categorias e projetos, selecao do projeto ativo e gerenciamento
   dos vinculos por skill.
+- Inclusao opcional dos oito cards da captura de dashboard, com metadados e
+  Markdown editaveis; IDs, caminhos e conteudo Markdown existentes sao preservados.
 - Desvinculacao do catalogo preservando o arquivo ou exclusao fisica confirmada.
 - Gravacao validada dos metadados e do Markdown no cofre.
 - Criacao de backups locais completos e restauracao confirmada, com ponto de
@@ -73,6 +75,11 @@ o seletor de local e nome; **Abrir cofre** carrega um existente. A tela tambem
 mostra as funcionalidades e capturas de referencia do dashboard e editor. O
 comando da Paleta de Comandos continua disponivel como alternativa.
 
+Um cofre novo comeca vazio: instalar a extensao nao importa seus Markdown nem
+adiciona exemplos automaticamente. Depois de criar ou abrir o cofre, clique em
+**Carregar exemplos** para adicionar os oito cards da captura de referencia.
+Os exemplos sao editaveis e nao constituem validacao automatica de qualidade.
+
 Alternativamente:
 
 ```sh
@@ -86,7 +93,7 @@ npm run package
 ```
 
 Use **Extensions: Install from VSIX...** com
-`release/skillvortex-extension-0.1.0.vsix`. Nao ha Electron ou instalador desktop
+`release/skillvortex-extension-0.1.1.vsix`. Nao ha Electron ou instalador desktop
 proprio na nova versao.
 
 ## Biblioteca, projetos e editor
@@ -100,6 +107,12 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   acima de 2 MB sao recusados.
 - **Nova Categoria** e **Novo Projeto**: adicionam metadados ao catalogo. O
   projeto ativo controla os switches **Usar no Projeto** dos cards.
+- **Carregar exemplos**: apos confirmacao, cria no cofre os cards ausentes e sincroniza titulo,
+  categoria, descricao, etiquetas, agentes e status dos exemplos que ja existem
+  para corresponder a captura (acessibilidade, REST, arquitetura, seguranca,
+  Git, SEO, CI e Vitest). Preserva IDs, caminhos e conteudo Markdown existentes.
+  Skills bloqueadas sao desvinculadas dos projetos. Nao busca arquivos na pasta
+  do projeto nem exige um projeto ativo.
 - **Associar pasta** vincula uma pasta local ao projeto ativo. **Buscar skills
   no projeto** mostra os Markdown encontrados antes de importar os selecionados.
 - **Biblioteca**: pesquise por texto e filtre por status, categoria e agente.

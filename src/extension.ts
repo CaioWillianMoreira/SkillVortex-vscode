@@ -5,11 +5,12 @@ import { basename, join, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import { createVault, readVault, readContained, writeSkillFile } from './vault'
 import { initializeSql, migrateDesktop, rebuildIndex } from './database'
-import { hasErrorCode, skillSchema } from './model'
-import { readProjectMarkdown, scanProjectMarkdown } from './project-scan'
+import { hasErrorCode, skillSchema, uniqueSkillFilePath } from './model'
+import { projectMarkdownAgent, readProjectMarkdown, scanProjectMarkdown } from './project-scan'
 import { createVaultBackup, listVaultBackups, restoreVaultBackup } from './backup'
 import { createDocumentedExamples, reconcileDocumentedExamples } from './documented-examples'
 import { saveProjectSkills } from './project-skills'
+import type { SkillCardColor } from './skill-colors'
 
 const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready') }),
@@ -21,7 +22,7 @@ const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('migrateDesktop') }),
   z.object({ type: z.literal('createBackup') }),
   z.object({ type: z.literal('restoreBackup') }),
-  z.object({ type: z.literal('createSkill') }),
+  z.object({ type: z.literal('createSkill'), cardColor: skillSchema.shape.cardColor.nullable() }),
   z.object({ type: z.literal('createDocumentedExamples') }),
   z.object({ type: z.literal('importMarkdown') }),
   z.object({ type: z.literal('createCategory'), name: z.string() }),
@@ -35,16 +36,37 @@ const messageSchema = z.discriminatedUnion('type', [
     type: z.literal('saveSkill'), id: z.string(),
     name: z.string().trim().min(1).max(100),
     category: z.string().trim().min(1).max(60),
-    description: z.string().max(1000),
+    description: z.string().trim().min(1, 'Informe a descricao da skill.').max(1000),
     tags: z.array(z.string().trim().min(1).max(60)).max(100),
     agents: z.array(z.string().trim().min(1).max(60)).max(20),
     status: z.enum(['validated', 'pending', 'blocked']),
+    cardColor: skillSchema.shape.cardColor.nullable(),
     content: z.string().max(2 * 1024 * 1024),
     projectIds: z.array(z.string()).max(10000)
   }),
   z.object({ type: z.literal('unlinkSkill'), id: z.string() }),
   z.object({ type: z.literal('deleteSkill'), id: z.string() })
 ])
+
+async function availableSkillFilePath(
+  root: string,
+  name: string,
+  existingPaths: Iterable<string>,
+  keepPath?: string
+): Promise<string> {
+  const paths = [...existingPaths]
+  while (true) {
+    const filePath = uniqueSkillFilePath(name, paths)
+    if (filePath === keepPath) return filePath
+    try {
+      await fs.lstat(join(root, filePath))
+      paths.push(filePath)
+    } catch (error) {
+      if (!hasErrorCode(error, 'ENOENT')) throw error
+      return filePath
+    }
+  }
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('SkillVortex')
@@ -185,19 +207,24 @@ export function activate(context: vscode.ExtensionContext): void {
       )
     }
   }
-  async function createSkill(): Promise<void> {
+  async function createSkill(cardColor?: SkillCardColor | null): Promise<void> {
     const { root, data } = await currentVault()
     const category = data.catalog.categories.includes('Geral')
       ? 'Geral' : data.catalog.categories[0] ?? 'Geral'
     if (!data.catalog.categories.includes(category)) data.catalog.categories.push(category)
     const id = randomBytes(16).toString('hex')
+    const name = 'Nova Skill'
+    const filePath = await availableSkillFilePath(root, name,
+      data.catalog.skills.map(item => item.filePath))
     const skill = {
-      id, name: 'Nova Skill', category,
-      description: '', filePath: `skills/${randomBytes(16).toString('hex')}.md`,
-      agents: [], status: 'pending' as const, tags: []
+      id, name, category,
+      description: 'Descreva o objetivo e quando usar esta skill.',
+      filePath,
+      agents: [], status: 'pending' as const, tags: [],
+      ...(cardColor ? { cardColor } : {})
     }
     data.catalog.skills.push(skill)
-    await writeSkillFile(root, skill.filePath, '# Nova Skill\n\n')
+    await writeSkillFile(root, skill.filePath, `# ${name}\n\n`)
     await persist(root, data)
     editingSkillId = id
     await refresh()
@@ -217,6 +244,11 @@ export function activate(context: vscode.ExtensionContext): void {
     const addedCategories = [...new Set(examples.map(({ skill }) => skill.category))]
       .filter(category => !data.catalog.categories.includes(category))
     data.catalog.categories.push(...addedCategories)
+    const occupiedPaths = data.catalog.skills.map(skill => skill.filePath)
+    for (const item of toCreate) {
+      item.skill.filePath = await availableSkillFilePath(root, item.skill.name, occupiedPaths)
+      occupiedPaths.push(item.skill.filePath)
+    }
     const blockedIds = new Set(blockedSkillIds)
     for (const project of data.projects.projects) {
       project.skillIds = project.skillIds.filter(id => !blockedIds.has(id))
@@ -305,11 +337,16 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       const title = content.match(/^#\s+(.+)$/m)?.[1]?.trim() || basename(filePath, '.md')
       const description = content.split(/\r?\n/).map(line => line.trim())
-        .find(line => line && !line.startsWith('#'))?.slice(0, 1000) ?? ''
+        .find(line => line && !line.startsWith('#'))?.slice(0, 1000) ||
+        `Instrucoes para ${title.slice(0, 100)}.`
       imported.push({
         skill: {
           id: randomBytes(16).toString('hex'), name: title.slice(0, 100) || 'Markdown importado',
-          category, description, filePath: `skills/${randomBytes(16).toString('hex')}.md`,
+          category, description,
+          filePath: await availableSkillFilePath(root, title, [
+            ...data.catalog.skills.map(item => item.filePath),
+            ...imported.map(item => item.skill.filePath)
+          ]),
           originPath: filePath, agents: [], status: 'pending', tags: []
         },
         content
@@ -377,21 +414,29 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!project.sourcePath) throw new Error('Associe uma pasta ao projeto antes de buscar Markdown.')
     const files = await scanProjectMarkdown(project.sourcePath)
     if (!files.length) {
-      void vscode.window.showInformationMessage('Nenhum arquivo Markdown encontrado para importar.')
+      void vscode.window.showInformationMessage('Nenhum Markdown encontrado em .github, .agents ou .agent do projeto.')
       return
     }
     const existing = new Set(data.catalog.skills.map(item => item.originPath)
       .filter((path): path is string => Boolean(path))
       .map(path => resolve(path)))
-    const selected = await vscode.window.showQuickPick(files.map(file => ({
-      label: basename(file),
-      description: relative(project.sourcePath!, file),
-      detail: existing.has(resolve(file)) ? 'Ja importado na biblioteca' : file,
-      picked: !existing.has(resolve(file)),
-      file
-    })), {
+    const sourceRoot = await fs.realpath(project.sourcePath)
+    const published = new Set((project.deployedSkills ?? []).map(item =>
+      resolve(sourceRoot, '.github', 'skills', item.directory, 'SKILL.md')))
+    const selected = await vscode.window.showQuickPick(files.map(file => {
+      const path = relative(sourceRoot, file)
+      const note = existing.has(resolve(file)) ? 'Ja importado na biblioteca'
+        : published.has(resolve(file)) ? 'Publicada pelo SkillVortex' : undefined
+      return {
+        label: basename(file),
+        description: `${projectMarkdownAgent(path) ?? 'Agente'} · ${path}`,
+        detail: note ?? file,
+        picked: !note,
+        file
+      }
+    }), {
       canPickMany: true,
-      placeHolder: `Selecione Markdown para importar (${files.length} encontrados; README excluidos)`
+      placeHolder: `Selecione Markdown dos agentes (.github, .agents, .agent) para importar (${files.length} encontrados)`
     })
     if (!selected?.length) return
     const fresh = selected.filter(item => !existing.has(resolve(item.file)))
@@ -482,7 +527,7 @@ export function activate(context: vscode.ExtensionContext): void {
         editingSkillId = null
         await refresh()
       }
-      if (message.type === 'createSkill') await createSkill()
+      if (message.type === 'createSkill') await createSkill(message.cardColor)
       if (message.type === 'createDocumentedExamples') await createExamples()
       if (message.type === 'importMarkdown') await importMarkdown()
       if (message.type === 'setProjectFolder') await setProjectFolder()
@@ -594,7 +639,8 @@ export function activate(context: vscode.ExtensionContext): void {
           description: message.description,
           tags: [...new Set(message.tags.map(tag => tag.trim()).filter(Boolean))],
           agents: [...new Set(message.agents.map(agent => agent.trim()).filter(Boolean))],
-          status: message.status
+          status: message.status,
+          cardColor: message.cardColor === null ? undefined : message.cardColor ?? current.cardColor
         })
         data.catalog.skills[index] = updated
         const linked = new Set(message.projectIds)
@@ -607,18 +653,31 @@ export function activate(context: vscode.ExtensionContext): void {
             throw new Error(`Associe uma pasta ao projeto ${project.name} no Dashboard antes de vincular a skill.`)
           }
         }
-        const previousContent = await readContained(root, join(root, updated.filePath))
-        await writeSkillFile(root, updated.filePath, message.content)
+        const previousFilePath = current.filePath
+        const previousContent = await readContained(root, join(root, previousFilePath))
+        const nextFilePath = await availableSkillFilePath(
+          root,
+          updated.name,
+          data.catalog.skills.filter(item => item.id !== updated.id).map(item => item.filePath),
+          previousFilePath
+        )
+        updated.filePath = nextFilePath
+        await writeSkillFile(root, nextFilePath, message.content)
         try {
           await persist(root, data)
         } catch (error) {
           try {
-            await writeSkillFile(root, updated.filePath, previousContent)
+            if (nextFilePath === previousFilePath) {
+              await writeSkillFile(root, previousFilePath, previousContent)
+            } else {
+              await fs.unlink(join(root, nextFilePath))
+            }
           } catch (rollbackError) {
             throw new AggregateError([error, rollbackError], 'Falha ao salvar a skill e restaurar o Markdown do cofre.')
           }
           throw error
         }
+        if (nextFilePath !== previousFilePath) await fs.unlink(join(root, previousFilePath))
         editingSkillId = updated.id
         await refresh(true)
       }

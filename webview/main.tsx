@@ -7,6 +7,9 @@ import {
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Catalog, Projects, Skill } from '../src/model'
+import {
+  categoryColor, isSkillCardColor, SKILL_CARD_COLOR_LABELS, SKILL_CARD_COLORS, skillCardTextColor
+} from '../src/skill-colors'
 import dashboardPreview from './assets/dashboard-preview.png'
 import editorPreview from './assets/editor-preview.png'
 import './styles.css'
@@ -31,13 +34,19 @@ type Draft = Skill & { content: string; projectIds: string[] }
 const emptyState: AppState = {
   root: null, catalog: null, projects: null, editingSkillId: null, content: ''
 }
-
-function categoryColor(category: string): string {
-  const palette = ['#9b59b6', '#ff4d4f', '#13c2c2', '#52c41a', '#fa8c16', '#1677ff']
-  let hash = 0
-  for (const character of category) hash = (hash * 31 + character.charCodeAt(0)) >>> 0
-  return palette[hash % palette.length]
-}
+const AUTOMATIC_COLOR = 'auto'
+const cardColorOptions = [
+  { value: AUTOMATIC_COLOR, label: 'Automatica (categoria)' },
+  ...SKILL_CARD_COLORS.map(color => ({
+    value: color,
+    label: (
+      <span>
+        <span className="skill-color-swatch" aria-hidden="true" style={{ backgroundColor: color }} />
+        {SKILL_CARD_COLOR_LABELS[color]}
+      </span>
+    )
+  }))
+]
 
 function App(): React.JSX.Element {
   const [modal, modalContext] = Modal.useModal()
@@ -125,6 +134,10 @@ function App(): React.JSX.Element {
   }
   const saveDraft = () => {
     if (!draft || !dirty || saving) return
+    if (!draft.description.trim()) {
+      setError('Informe a descricao da skill antes de salvar.')
+      return
+    }
     setSaving(true)
     api.postMessage({
       type: 'saveSkill',
@@ -135,6 +148,7 @@ function App(): React.JSX.Element {
       tags: draft.tags,
       agents: draft.agents,
       status: draft.status,
+      cardColor: draft.cardColor ?? null,
       content: draft.content,
       projectIds: draft.status === 'blocked' ? [] : draft.projectIds
     })
@@ -357,14 +371,20 @@ function App(): React.JSX.Element {
             <Row gutter={[16, 16]}>
               {skills.map(item => {
                 const linked = Boolean(activeProject?.skillIds.includes(item.id))
+                const cardColor = item.cardColor ?? categoryColor(item.category)
                 return (
                   <Col key={item.id} xs={24} sm={24} md={12} lg={8} xl={6}>
-                    <Card className="skill-card" style={{ borderTop: `3px solid ${categoryColor(item.category)}` }}>
+                    <Card className={`skill-card${linked ? ' skill-card-linked' : ''}`} style={{
+                      borderTop: `3px solid ${cardColor}`,
+                      ...(item.cardColor ? { backgroundImage: `linear-gradient(180deg, ${cardColor}33 0%, transparent 180px)` } : {})
+                    }}>
                       <div className="skill-card-heading">
                         <Typography.Title level={5} title={item.name}>{item.name}</Typography.Title>
                         <Tag color={colors[item.status]}>{labels[item.status]}</Tag>
                       </div>
-                      <Tag color={categoryColor(item.category)}>{item.category}</Tag>
+                      <Tag color={cardColor} style={item.cardColor ? { color: skillCardTextColor(cardColor) } : undefined}>
+                        {item.category}
+                      </Tag>
                       <Space className="skill-tags" wrap size={[4, 4]}>
                         {item.tags.map(tag => <Tag key={tag}>#{tag}</Tag>)}
                       </Space>
@@ -484,12 +504,28 @@ function App(): React.JSX.Element {
                 </Col>
                 <Col span={24}>
                   <label htmlFor="skill-description">Descricao</label>
-                  <Input.TextArea id="skill-description" rows={2} maxLength={1000} value={draft.description} disabled={saving}
+                  <Input.TextArea id="skill-description" rows={2} maxLength={1000} required value={draft.description} disabled={saving}
                     onChange={event => updateDraft('description', event.target.value)} />
                 </Col>
-                <Col span={24}>
+                <Col xs={24} md={8} xl={6}>
+                  <label htmlFor="skill-card-color">Cor do card</label>
+                  <Select
+                    id="skill-card-color"
+                    className="full-width"
+                    value={draft.cardColor ?? AUTOMATIC_COLOR}
+                    disabled={saving}
+                    virtual={false}
+                    options={cardColorOptions}
+                    onChange={value => {
+                      if (value === AUTOMATIC_COLOR) updateDraft('cardColor', undefined)
+                      else if (isSkillCardColor(value)) updateDraft('cardColor', value)
+                      else setError('Cor do card invalida.')
+                    }}
+                  />
+                </Col>
+                <Col xs={24} md={16} xl={18}>
                   <label>Caminho do arquivo</label>
-                  <Input readOnly value={draft.originPath ?? `${state.root}/${draft.filePath}`} />
+                  <Input readOnly value={`${state.root}/${draft.filePath}`} />
                 </Col>
               </Row>
             </Card>

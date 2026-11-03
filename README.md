@@ -12,8 +12,8 @@ permanece intacto em sua pasta e repositorio.
 - Importacao explicita do banco SQLite do desktop para um **cofre novo**.
 - Preservacao de IDs, categorias, tags, agentes, status e vinculos dos projetos.
 - Criacao e importacao de skills Markdown para o cofre.
-- Associacao de pastas locais aos projetos e varredura recursiva com selecao
-  previa dos Markdown encontrados.
+- Associacao de pastas locais aos projetos e varredura das pastas de agentes
+  (`.github`, `.agents`, `.agent`) com selecao previa dos Markdown encontrados.
 - Editor integrado com Monaco local, titulo, descricao, categoria, tags, agentes,
   governanca, conteudo Markdown, pre-visualizacao GFM e projetos vinculados.
 - Criacao de categorias e projetos, selecao do projeto ativo e gerenciamento
@@ -32,7 +32,7 @@ permanece intacto em sua pasta e repositorio.
 ```text
 MeuCofre/
 ├── skills/
-│   └── <identificador-unico>.md
+│   └── <nome-legivel-da-skill>.md
 └── .skillvortex/
     ├── catalogo.json
     ├── projetos.json
@@ -40,8 +40,9 @@ MeuCofre/
 ```
 
 Os JSON e Markdown sao a fonte de verdade. Os caminhos dos Markdown sao
-relativos ao cofre. Nomes de arquivo usam identificadores seguros para evitar
-colisoes e preservar os IDs originais nos metadados.
+relativos ao cofre. Novos nomes de arquivo e pastas publicadas derivam do titulo
+da skill em kebab-case; um sufixo numerico evita colisoes. Os IDs internos
+permanecem nos metadados, e cofres antigos continuam sendo lidos.
 
 O SQLite fica em `globalStorageUri`, fora do cofre. Utilizamos **sql.js / WASM**
 para nao depender de bindings nativos ou do `node:sqlite` do Electron.
@@ -92,9 +93,10 @@ Para gerar e instalar um VSIX:
 npm run package
 ```
 
-Use **Extensions: Install from VSIX...** com
-`release/skillvortex-extension-0.1.2.vsix`. Nao ha Electron ou instalador desktop
-proprio na nova versao.
+O comando compila o codigo atual e gera o VSIX em `builds/`, com o nome e a
+versao do `package.json`. Use **Extensions: Install from VSIX...** e selecione o
+arquivo recem-gerado. Recarregue a janela do VS Code apos instalar. Nao ha
+Electron ou instalador desktop proprio na nova versao.
 
 ## Biblioteca, projetos e editor
 
@@ -103,15 +105,25 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
 - **SkillVortex: Criar cofre**: selecione uma pasta pai e um nome novo.
 - **SkillVortex: Abrir cofre**: selecione uma pasta com os dois JSON validos.
 - **Nova Skill**: cria um Markdown no cofre e abre o editor integrado.
+- **Cor do card**: no editor de uma skill nova ou existente, escolha uma das 10
+  cores no seletor e clique em **Salvar**. A opcao **Automatica (categoria)**
+  usa a cor da categoria, como nas skills existentes sem uma cor escolhida.
+- **Descricao obrigatoria**: toda skill precisa de uma descricao para ser salva.
+  O nome legivel da skill determina o nome do arquivo e da pasta publicada,
+  convertendo acentos e espacos para kebab-case; por exemplo,
+  `Verifica consistencia do HTML` usa `skills/verifica-consistencia-do-html.md`.
 - **Importar .md**: copia arquivos Markdown selecionados para o cofre; arquivos
   acima de 2 MB sao recusados.
 - **Nova Categoria** e **Novo Projeto**: adicionam metadados ao catalogo. O
   projeto ativo controla os switches **Usar no Projeto** dos cards.
+- Cards ativos no projeto ficam com o fundo um pouco mais claro, preservando
+  a cor escolhida. Ao passar o cursor, os cards aumentam levemente com uma
+  transicao suave; o efeito respeita a preferencia por movimento reduzido.
 - **Usar no Projeto**: o botao existente publica a skill como
-  `.github/skills/skill-<id-estavel>/SKILL.md`, com frontmatter para o GitHub
+  `.github/skills/<nome-legivel>/SKILL.md`, com frontmatter para o GitHub
   Copilot. Sem projeto ativo ou pasta associada, usa a unica pasta local aberta
   no VS Code ou solicita uma pasta; cria o cadastro do projeto quando necessario.
-  **Executar** abre o chat do Copilot com o comando `/skill-<id-estavel>`
+  **Executar** abre o chat do Copilot com o comando `/<nome-legivel>`
   preenchido para a skill ativa; revise o pedido e envie no chat. A pasta
   associada precisa estar aberta como pasta do workspace no VS Code.
   Ao desativar, move o Markdown para `.skillvortex/disabled-skills/` no cofre,
@@ -126,7 +138,8 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   Skills bloqueadas sao desvinculadas dos projetos. Nao busca arquivos na pasta
   do projeto nem exige um projeto ativo.
 - **Associar pasta** vincula uma pasta local ao projeto ativo. **Buscar skills
-  no projeto** mostra os Markdown encontrados antes de importar os selecionados.
+  no projeto** procura Markdown nas pastas dos agentes (`.github`, `.agents`,
+  `.agent`) e mostra os encontrados antes de importar os selecionados.
 - **Biblioteca**: pesquise por texto e filtre por status, categoria e agente.
 - **Editor**: altere metadados e Markdown, confira a pre-visualizacao e ajuste
   os projetos vinculados. Monaco fornece realce Markdown e permite colar texto
@@ -148,9 +161,15 @@ serem publicados. A restauracao de backups tambem sincroniza os arquivos ativos;
 as copias desativadas permanecem no cofre, mas nao fazem parte do snapshot dos
 Markdown da biblioteca.
 
-A varredura inclui arquivos `.md` em qualquer capitalizacao e subpastas; exclui
+A varredura procura apenas nas pastas ocultas dos agentes na raiz do projeto:
+`.github` (GitHub Copilot: skills, prompts, instructions, agents e
+`copilot-instructions.md`), `.agents` (Antigravity: `.agents/skills`) e `.agent`
+(regras e workflows legados do Antigravity), alem de `AGENTS.md` e `GEMINI.md`
+na raiz. Inclui arquivos `.md` em qualquer capitalizacao e subpastas; exclui
 README, links simbolicos e diretorios `.git`, `node_modules`, `vendor`, `dist`,
-`out`, `build`, `release`, `.next`, `.venv`, `venv` e `coverage`. A busca para
+`out`, `build`, `release`, `.next`, `.venv`, `venv` e `coverage`. Cada item
+mostra o agente de origem; skills publicadas pelo proprio SkillVortex em
+`.github/skills` aparecem desmarcadas. A busca para
 com erro acima de 50.000 entradas ou 1.000 Markdown. Arquivos selecionados
 maiores que 2 MB sao recusados. Arquivos ja importados aparecem na selecao e
 sao ignorados ao importar novamente.

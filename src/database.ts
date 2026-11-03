@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, isAbsolute } from 'node:path'
 import { createHash, randomUUID } from 'node:crypto'
-import { emptyVault, validateVault, hasErrorCode, type VaultData } from './model'
+import { emptyVault, uniqueSkillFilePath, validateVault, hasErrorCode, type VaultData } from './model'
 import { z } from 'zod'
 
 export function initializeSql(wasm: string): Promise<SqlJsStatic> {
@@ -65,8 +65,10 @@ export async function migrateDesktop(SQL: SqlJsStatic, databasePath: string): Pr
       }
       if (Buffer.byteLength(content) > 2 * 1024 * 1024) throw new Error(`Skill maior que 2 MB: ${row.name}`)
       data.catalog.skills.push({
-        id: row.id, name: row.name, category: row.category, description: row.description,
-        filePath: `skills/${randomUUID()}.md`, originPath: row.file_path,
+        id: row.id, name: row.name, category: row.category,
+        description: row.description.trim() || `Instrucoes para ${row.name.slice(0, 100)}.`,
+        filePath: uniqueSkillFilePath(row.name, data.catalog.skills.map(skill => skill.filePath)),
+        originPath: row.file_path,
         agents: strings.parse(JSON.parse(row.agents_json)), status: row.status,
         tags: strings.parse(JSON.parse(row.tags_json))
       })

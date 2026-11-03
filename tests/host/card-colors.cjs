@@ -1,0 +1,326 @@
+const assert = require('node:assert/strict')
+const { join } = require('node:path')
+const vscode = require('vscode')
+
+module.exports = async function testCardColors(extension) {
+  const { SKILL_CARD_COLORS, SKILL_CARD_COLOR_LABELS, categoryColor, skillCardTextColor } =
+    require(join(extension.extensionPath, 'dist/skill-colors.js'))
+  const rgb = color => `rgb(${[1, 3, 5].map(index => parseInt(color.slice(index, index + 2), 16)).join(', ')})`
+  const panel = vscode.window.createWebviewPanel('cardColorsTest', 'Card colors test', vscode.ViewColumn.One, {
+    enableScripts: true,
+    localResourceRoots: [vscode.Uri.joinPath(extension.extensionUri, 'dist/webview')]
+  })
+  const webview = panel.webview
+  const script = webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'dist/webview/app.js'))
+  const css = webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'dist/webview/app.css'))
+  const nonce = 'cardColorsTestNonce'
+  let skill
+  let colorIndex = 0
+  let projectLinked = false
+  let stage = 'create'
+  const state = (editingSkillId = null, saved = false) => ({
+    type: 'state', root: '/test-vault',
+    catalog: { version: 1, categories: ['Geral'], skills: skill ? [skill] : [] },
+    projects: {
+      version: 1, activeProject: 'color-project',
+      projects: [{
+        id: 'color-project', name: 'Color project', sourcePath: '/test-project',
+        skillIds: projectLinked ? [skill.id] : []
+      }]
+    },
+    editingSkillId, content: editingSkillId ? '# Nova Skill\n\n' : '', saved
+  })
+
+  let timeout
+  let listener
+  const result = new Promise((resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error('Timed out testing card colors in the webview')), 60000)
+    listener = webview.onDidReceiveMessage(async message => {
+      try {
+        if (message.type === 'ready') {
+          assert.ok(await webview.postMessage(state()))
+          assert.ok(await webview.postMessage({ type: 'color-test-create' }))
+        } else if (message.type === 'createSkill') {
+          assert.equal(stage, 'create')
+          assert.deepEqual(message, { type: 'createSkill' })
+          skill = {
+            id: 'color-test', name: 'Nova Skill', category: 'Geral', description: 'Descricao de teste',
+            filePath: 'skills/nova-skill.md', agents: [], status: 'pending', tags: []
+          }
+          stage = 'select'
+          assert.ok(await webview.postMessage(state(skill.id)))
+          assert.ok(await webview.postMessage({ type: 'color-test-select' }))
+        } else if (message.type === 'color-test-options') {
+          assert.equal(stage, 'select')
+          assert.equal(message.groupLabel, 'Cor do card')
+          assert.equal(message.role, 'combobox')
+          assert.equal(message.radioCount, 0)
+          assert.equal(message.selectedIndex, 0)
+          assert.equal(message.hasCreateColorSelector, false)
+          assert.deepEqual(message.labels, [
+            'Automatica (categoria)', ...SKILL_CARD_COLORS.map(color => SKILL_CARD_COLOR_LABELS[color])
+          ])
+          assert.deepEqual(message.swatches, SKILL_CARD_COLORS.map(rgb))
+        } else if (message.type === 'saveSkill') {
+          assert.equal(message.id, skill.id)
+          if (stage === 'select' || stage === 'select-next') {
+            assert.equal(message.cardColor, SKILL_CARD_COLORS[colorIndex])
+            skill = { ...skill, cardColor: message.cardColor }
+            stage = 'manual-saved'
+          } else {
+            assert.equal(stage, 'reset')
+            assert.equal(message.cardColor, null)
+            const { cardColor: _cardColor, ...automaticSkill } = skill
+            skill = automaticSkill
+            stage = 'automatic-saved'
+          }
+          assert.ok(await webview.postMessage(state(skill.id, true)))
+          assert.ok(await webview.postMessage({
+            type: 'color-test-after-save',
+            expectedLabel: stage === 'manual-saved'
+              ? SKILL_CARD_COLOR_LABELS[SKILL_CARD_COLORS[colorIndex]] : 'Automatica (categoria)',
+            expectedColor: stage === 'manual-saved' ? rgb(SKILL_CARD_COLORS[colorIndex]) : null
+          }))
+        } else if (message.type === 'backToDashboard') {
+          if (stage === 'manual-saved') {
+            stage = 'manual-dashboard'
+            assert.ok(await webview.postMessage(state()))
+            assert.ok(await webview.postMessage({ type: 'color-test-dashboard-manual' }))
+          } else {
+            assert.equal(stage, 'automatic-saved')
+            stage = 'automatic-dashboard'
+            assert.ok(await webview.postMessage(state()))
+            assert.ok(await webview.postMessage({ type: 'color-test-dashboard-automatic' }))
+          }
+        } else if (message.type === 'color-test-manual-card') {
+          assert.equal(stage, 'manual-dashboard')
+          assert.equal(message.borderColor, rgb(SKILL_CARD_COLORS[colorIndex]))
+          assert.equal(message.categoryColor, rgb(SKILL_CARD_COLORS[colorIndex]))
+          assert.equal(message.categoryTextColor, rgb(skillCardTextColor(SKILL_CARD_COLORS[colorIndex])))
+          assert.notEqual(message.backgroundImage, 'none')
+          assert.deepEqual(message.actions, ['Executar', 'Editar', 'Desvincular', 'Excluir'])
+          assert.equal(message.hasProjectSwitch, true)
+        } else if (message.type === 'openSkill') {
+          assert.equal(stage, 'manual-dashboard')
+          assert.equal(message.id, skill.id)
+          const previousLabel = SKILL_CARD_COLOR_LABELS[SKILL_CARD_COLORS[colorIndex]]
+          const hasNextColor = colorIndex < SKILL_CARD_COLORS.length - 1
+          if (hasNextColor) colorIndex++
+          stage = hasNextColor ? 'select-next' : 'reset'
+          assert.ok(await webview.postMessage(state(skill.id)))
+          assert.ok(await webview.postMessage({
+            type: hasNextColor ? 'color-test-next' : 'color-test-reset',
+            previousLabel,
+            nextLabel: hasNextColor ? SKILL_CARD_COLOR_LABELS[SKILL_CARD_COLORS[colorIndex]] : undefined
+          }))
+        } else if (message.type === 'color-test-automatic-card') {
+          assert.equal(stage, 'automatic-dashboard')
+          assert.equal(colorIndex, SKILL_CARD_COLORS.length - 1)
+          assert.equal(message.borderColor, rgb(categoryColor('Geral')))
+          assert.equal(message.categoryColor, rgb(categoryColor('Geral')))
+          assert.equal(message.backgroundImage, 'none')
+          assert.equal(message.backgroundColor, 'rgb(27, 27, 27)')
+          assert.equal(message.linked, false)
+          stage = 'linking'
+          assert.ok(await webview.postMessage({ type: 'color-test-toggle-project' }))
+        } else if (message.type === 'toggleProjectSkill') {
+          assert.equal(message.id, skill.id)
+          assert.ok(stage === 'linking' || stage === 'unlinking')
+          projectLinked = stage === 'linking'
+          stage = projectLinked ? 'linked' : 'unlinked'
+          assert.ok(await webview.postMessage(state()))
+          assert.ok(await webview.postMessage({
+            type: 'color-test-project-state',
+            linked: projectLinked,
+            expectedBackground: projectLinked ? 'rgb(37, 37, 37)' : 'rgb(27, 27, 27)'
+          }))
+        } else if (message.type === 'color-test-project-card') {
+          assert.equal(message.linked, projectLinked)
+          assert.equal(message.backgroundColor, projectLinked ? 'rgb(37, 37, 37)' : 'rgb(27, 27, 27)')
+          assert.equal(message.borderColor, rgb(categoryColor('Geral')))
+          assert.equal(message.categoryColor, rgb(categoryColor('Geral')))
+          assert.equal(message.backgroundImage, 'none')
+          if (projectLinked) {
+            stage = 'unlinking'
+            assert.ok(await webview.postMessage({ type: 'color-test-toggle-project' }))
+          } else {
+            assert.equal(stage, 'unlinked')
+            resolve()
+          }
+        } else if (message.type === 'color-test-error') {
+          reject(new Error(message.message))
+        }
+      } catch (error) {
+        reject(error)
+      }
+    })
+  })
+
+  webview.html = `<!doctype html><html><head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'nonce-${nonce}'; worker-src ${webview.cspSource} blob:; font-src ${webview.cspSource} data:; img-src ${webview.cspSource} data:;">
+    <link rel="stylesheet" href="${css}">
+    </head><body><div id="root"></div>
+    <script nonce="${nonce}">
+      const bridge = acquireVsCodeApi();
+      globalThis.acquireVsCodeApi = () => bridge;
+      const firstColorLabel = ${JSON.stringify(SKILL_CARD_COLOR_LABELS[SKILL_CARD_COLORS[0]])};
+      const automaticLabel = 'Automatica (categoria)';
+      const button = text => Array.from(document.querySelectorAll('button'))
+        .find(item => item.textContent.trim() === text && !item.disabled);
+      const colorSelect = () => document.getElementById('skill-card-color');
+      const colorSelection = () => colorSelect()?.closest('.ant-select')?.querySelector('.ant-select-selection-item');
+      const colorOptions = () => Array.from(document.querySelectorAll('#skill-card-color_list [role="option"]'));
+      const optionLabel = item => item.querySelector('.ant-select-item-option-content')?.textContent.trim();
+      function openColorSelect() {
+        const input = colorSelect();
+        const selector = input?.closest('.ant-select')?.querySelector('.ant-select-selector');
+        if (!selector) return false;
+        if (input.getAttribute('aria-expanded') !== 'true') {
+          selector.dispatchEvent(new MouseEvent('mousedown', {bubbles:true, cancelable:true, button:0}));
+        }
+        return true;
+      }
+      function waitFor(description, action) {
+        const started = Date.now();
+        const timer = setInterval(() => {
+          try {
+            if (action()) clearInterval(timer);
+            else if (Date.now() - started > 8000) {
+              clearInterval(timer);
+              bridge.postMessage({type:'color-test-error', message:'Timed out waiting for ' + description});
+            }
+          } catch (error) {
+            clearInterval(timer);
+            bridge.postMessage({type:'color-test-error', message:String(error)});
+          }
+        }, 50);
+      }
+      function saveSelection(label) {
+        waitFor('color option ' + label, () => {
+          if (colorSelect()?.getAttribute('aria-expanded') !== 'true') return false;
+          const option = colorOptions().find(item => optionLabel(item) === label);
+          if (!option) return false;
+          option.click();
+          waitFor('enabled save button', () => {
+            const save = button('Salvar');
+            if (!save || colorSelection()?.textContent.trim() !== label) return false;
+            save.click();
+            return true;
+          });
+          return true;
+        });
+      }
+      function cardAppearance() {
+        const card = document.querySelector('.skill-card');
+        const category = card?.querySelector('.skill-card-heading + .ant-tag');
+        if (!card || !category) return null;
+        return {
+          borderColor: getComputedStyle(card).borderTopColor,
+          backgroundColor: getComputedStyle(card).backgroundColor,
+          backgroundImage: getComputedStyle(card).backgroundImage,
+          linked: card.classList.contains('skill-card-linked'),
+          categoryColor: getComputedStyle(category).backgroundColor,
+          categoryTextColor: getComputedStyle(category).color,
+          actions: Array.from(card.querySelectorAll('.skill-card-actions button'))
+            .map(item => item.textContent.trim()),
+          hasProjectSwitch: Boolean(card.querySelector('[role="switch"]'))
+        };
+      }
+      window.addEventListener('message', event => {
+        if (event.data.type === 'color-test-create') {
+          waitFor('new skill button', () => {
+            const create = button('Nova Skill');
+            if (!create) return false;
+            create.click();
+            return true;
+          });
+        } else if (event.data.type === 'color-test-select') {
+          waitFor('color selector', () => {
+            const input = colorSelect();
+            if (!input || colorSelection()?.textContent.trim() !== automaticLabel || !openColorSelect()) return false;
+            waitFor('color choices', () => {
+              const options = colorOptions();
+              if (input.getAttribute('aria-expanded') !== 'true' || options.length !== 11) return false;
+              bridge.postMessage({
+                type:'color-test-options',
+                groupLabel: document.querySelector('label[for="skill-card-color"]')?.textContent.trim(),
+                role: input.getAttribute('role'),
+                radioCount: input.closest('.ant-col').querySelectorAll('input[type="radio"]').length,
+                selectedIndex: options.findIndex(item => item.getAttribute('aria-selected') === 'true'),
+                hasCreateColorSelector: Boolean(document.getElementById('new-skill-card-color')),
+                labels: options.map(optionLabel),
+                swatches: options.slice(1).map(item => {
+                  const swatch = item.querySelector('.skill-color-swatch[aria-hidden="true"]');
+                  return swatch ? getComputedStyle(swatch).backgroundColor : null;
+                })
+              });
+              saveSelection(firstColorLabel);
+              return true;
+            });
+            return true;
+          });
+        } else if (event.data.type === 'color-test-after-save') {
+          waitFor('saved editor state', () => {
+            const selected = colorSelection();
+            const back = button('Voltar ao Dashboard');
+            const enabledSave = button('Salvar');
+            if (!selected || selected.textContent.trim() !== event.data.expectedLabel || !back || enabledSave) return false;
+            const swatch = selected.querySelector('.skill-color-swatch');
+            if (event.data.expectedColor &&
+                (!swatch || getComputedStyle(swatch).backgroundColor !== event.data.expectedColor)) return false;
+            if (!event.data.expectedColor && swatch) return false;
+            back.click();
+            return true;
+          });
+        } else if (event.data.type === 'color-test-dashboard-manual') {
+          waitFor('colored card', () => {
+            const appearance = cardAppearance();
+            const edit = button('Editar');
+            if (!appearance || !edit) return false;
+            bridge.postMessage({type:'color-test-manual-card', ...appearance});
+            edit.click();
+            return true;
+          });
+        } else if (event.data.type === 'color-test-next' || event.data.type === 'color-test-reset') {
+          waitFor('restored color selection', () => {
+            const selected = colorSelection();
+            if (!selected || selected.textContent.trim() !== event.data.previousLabel || !openColorSelect()) return false;
+            saveSelection(event.data.nextLabel ?? automaticLabel);
+            return true;
+          });
+        } else if (event.data.type === 'color-test-dashboard-automatic') {
+          waitFor('automatic card', () => {
+            const appearance = cardAppearance();
+            if (!appearance) return false;
+            bridge.postMessage({type:'color-test-automatic-card', ...appearance});
+            return true;
+          });
+        } else if (event.data.type === 'color-test-toggle-project') {
+          waitFor('project switch', () => {
+            const toggle = document.querySelector('.skill-card [role="switch"]');
+            if (!toggle || toggle.disabled) return false;
+            toggle.click();
+            return true;
+          });
+        } else if (event.data.type === 'color-test-project-state') {
+          waitFor('project card highlighting', () => {
+            const appearance = cardAppearance();
+            if (!appearance || appearance.linked !== event.data.linked ||
+                appearance.backgroundColor !== event.data.expectedBackground) return false;
+            bridge.postMessage({type:'color-test-project-card', ...appearance});
+            return true;
+          });
+        }
+      });
+    </script><script type="module" nonce="${nonce}" src="${script}"></script>
+    </body></html>`
+
+  try {
+    await result
+  } finally {
+    clearTimeout(timeout)
+    listener.dispose()
+    panel.dispose()
+  }
+}

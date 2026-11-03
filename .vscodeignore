@@ -9,4 +9,6 @@ package-lock.json
 .gitignore
 .vscode/**
 .vscode-test/**
+.github/**
+builds/**
 release/**

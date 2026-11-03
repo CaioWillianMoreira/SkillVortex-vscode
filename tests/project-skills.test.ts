@@ -41,7 +41,8 @@ async function activateSkill(): Promise<{ data: VaultData; file: string }> {
 test('the pending Vitest example is published as a discoverable Copilot skill', async () => {
   const { data, file } = await activateSkill()
   const content = await fs.readFile(file, 'utf8')
-  expect(content).toMatch(/^---\nname: skill-[a-f0-9]{24}\ndescription: ".+"\n---\n\n# Testes Unitários com Vitest/)
+  expect(content).toMatch(/^---\nname: testes-unitarios-com-vitest\ndescription: ".+"\n---\n\n# Testes Unitários com Vitest/)
+  expect(data.projects.projects[0].deployedSkills![0].directory).toBe('testes-unitarios-com-vitest')
   expect(data.catalog.skills[0].status).toBe('pending')
   expect(await readVault(root)).toEqual(data)
 })
@@ -66,7 +67,12 @@ test('disabling removes discovery and re-enabling preserves project edits byte f
   const unrelated = structuredClone(enabled)
   unrelated.catalog.categories.push('Other')
   await saveProjectSkills(root, enabled, unrelated)
-  expect(await fs.readFile(file)).toEqual(edited)
+  const syncedDirectory = unrelated.projects.projects[0].deployedSkills![0].directory
+  expect(syncedDirectory).toBe('renamed-while-disabled')
+  const synced = await fs.readFile(join(projectPath, '.github/skills', syncedDirectory, 'SKILL.md'), 'utf8')
+  expect(synced).toMatch(/^---\nname: renamed-while-disabled\n/)
+  expect(synced).toContain('# Testes Unitários com Vitest')
+  expect(synced).toContain('Edicoes locais')
 })
 
 test('saving active Markdown synchronizes unchanged generated files', async () => {
@@ -75,6 +81,23 @@ test('saving active Markdown synchronizes unchanged generated files', async () =
   const next = structuredClone(data)
   await saveProjectSkills(root, data, next)
   expect(await fs.readFile(file, 'utf8')).toContain('# New content')
+})
+
+test('renaming an active skill updates its published folder and slash command name', async () => {
+  const { data, file } = await activateSkill()
+  const next = structuredClone(data)
+  next.catalog.skills[0].name = 'Verifica consistência do HTML'
+  next.catalog.skills[0].description = 'Verifica estrutura e acessibilidade de documentos HTML.'
+
+  await saveProjectSkills(root, data, next)
+
+  const deployed = next.projects.projects[0].deployedSkills![0]
+  const renamed = join(projectPath, '.github/skills', 'verifica-consistencia-do-html', 'SKILL.md')
+  expect(deployed.directory).toBe('verifica-consistencia-do-html')
+  expect(await fs.readFile(renamed, 'utf8')).toMatch(
+    /^---\nname: verifica-consistencia-do-html\ndescription: ".+"\n---/
+  )
+  await expect(fs.stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
 test('saving never overwrites a skill edited in the project', async () => {

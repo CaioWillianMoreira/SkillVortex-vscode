@@ -6,6 +6,7 @@ import { createVault, readVault, readContained, saveVaultData, writeSkillFile } 
 import { emptyVault, validateVault } from '../src/model'
 import { initializeSql, migrateDesktop, rebuildIndex } from '../src/database'
 import { createVaultBackup, listVaultBackups, restoreVaultBackup } from '../src/backup'
+import { SKILL_CARD_COLORS } from '../src/skill-colors'
 
 let temporary: string
 beforeEach(async () => { temporary = await fs.mkdtemp(join(tmpdir(), 'skillvortex-extension-')) })
@@ -58,7 +59,8 @@ test('creates a complete backup and restores it with an automatic recovery point
   const original = await readVault(root)
   original.catalog.skills.push({
     id: 'skill-one', name: 'Original skill', category: 'Geral', description: 'Original',
-    filePath: 'skills/skill-one.md', agents: [], status: 'pending', tags: []
+    filePath: 'skills/skill-one.md', agents: [], status: 'pending', tags: [],
+    cardColor: SKILL_CARD_COLORS[6]
   })
   original.projects.projects.push({ id: 'project-one', name: 'Original project', skillIds: ['skill-one'] })
   original.projects.activeProject = 'project-one'
@@ -68,6 +70,7 @@ test('creates a complete backup and restores it with an automatic recovery point
 
   const changed = await readVault(root)
   changed.catalog.skills[0].name = 'Changed skill'
+  changed.catalog.skills[0].cardColor = SKILL_CARD_COLORS[7]
   changed.projects.projects[0].name = 'Changed project'
   await writeSkillFile(root, 'skills/skill-one.md', '# Changed content')
   await saveVaultData(root, changed)
@@ -119,7 +122,7 @@ test('restores original metadata when a multi-file save cannot be published', as
 test('failed import cleans only its newly created destination', async () => {
   const data = emptyVault()
   data.catalog.skills.push({
-    id: 'test', name: 'Test', category: 'Geral', description: '', filePath: 'skills/test.md',
+    id: 'test', name: 'Test', category: 'Geral', description: 'Test description', filePath: 'skills/test.md',
     agents: [], status: 'pending', tags: []
   })
   const root = join(temporary, 'vault')
@@ -130,7 +133,7 @@ test('failed import cleans only its newly created destination', async () => {
 test('rejects traversal, duplicate IDs and blocked project assignments', () => {
   const data = emptyVault()
   const skill = {
-    id: 'test', name: 'Test', category: 'Geral', description: '', filePath: 'skills/test.md',
+    id: 'test', name: 'Test', category: 'Geral', description: 'Test description', filePath: 'skills/test.md',
     agents: [], status: 'blocked' as const, tags: []
   }
   data.catalog.skills.push(skill)
@@ -141,6 +144,17 @@ test('rejects traversal, duplicate IDs and blocked project assignments', () => {
   expect(() => validateVault(data.catalog, data.projects)).toThrow()
   data.catalog.skills = [{ ...skill, filePath: '../outside.md' }]
   expect(() => validateVault(data.catalog, data.projects)).toThrow()
+})
+
+test('upgrades legacy empty skill descriptions to an explicit edit reminder', async () => {
+  const data = emptyVault()
+  data.catalog.skills.push({
+    id: 'legacy', name: 'Legacy skill', category: 'Geral', description: '',
+    filePath: 'skills/legacy-skill.md', agents: [], status: 'pending', tags: []
+  })
+
+  expect(validateVault(data.catalog, data.projects).catalog.skills[0].description)
+    .toBe('Skill importada sem descricao; edite este campo (Legacy skill).')
 })
 
 test('rejects metadata symlinks escaping the vault', async () => {

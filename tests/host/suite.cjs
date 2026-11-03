@@ -35,6 +35,7 @@ exports.run = async function run() {
   }
   assert.ok(hasTab())
   await require('./clipboard.cjs')(extension)
+  await require('./card-colors.cjs')(extension)
 
   // Run the shipped WASM against real data in the host's runtime, not Node/Electron SQLite.
   const { initializeSql, migrateDesktop, rebuildIndex } = require(join(extension.extensionPath, 'dist/database.js'))
@@ -66,5 +67,5 @@ exports.run = async function run() {
   } finally {
     await rm(temporary, { recursive: true, force: true })
   }
-  console.log('SkillVortex: extension activation, Webview tab, clipboard, migration and WASM index passed in VS Code host')
+  console.log('SkillVortex: extension activation, Webview tab, clipboard, card colors, migration and WASM index passed in VS Code host')
 }

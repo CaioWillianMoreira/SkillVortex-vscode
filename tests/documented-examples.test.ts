@@ -1,6 +1,7 @@
 import { test, expect } from '@jest/globals'
-import { skillSchema } from '../src/model'
+import { skillSchema, skillSlug, uniqueSkillFilePath } from '../src/model'
 import { createDocumentedExamples, reconcileDocumentedExamples } from '../src/documented-examples'
+import { SKILL_CARD_COLORS } from '../src/skill-colors'
 
 test('creates the eight documented, editable skill cards with valid metadata and Markdown', () => {
   const examples = createDocumentedExamples()
@@ -22,6 +23,7 @@ test('creates the eight documented, editable skill cards with valid metadata and
   ])
   expect(examples[4].skill.agents).toEqual(['Antigravity'])
   expect(examples[4].skill.description).toBe('Boas práticas para definição de contratos e endpoints.')
+  expect(examples[7].skill.filePath).toBe('skills/testes-unitarios-com-vitest.md')
   expect(new Set(examples.map(({ skill }) => skill.id)).size).toBe(examples.length)
   expect(new Set(examples.map(({ skill }) => skill.filePath)).size).toBe(examples.length)
 
@@ -33,6 +35,16 @@ test('creates the eight documented, editable skill cards with valid metadata and
   }
 })
 
+test('creates readable slugs and unique file names from skill titles', () => {
+  expect(skillSlug('Verifica consistência do HTML')).toBe('verifica-consistencia-do-html')
+  expect(uniqueSkillFilePath('Verifica consistência do HTML', [])).toBe(
+    'skills/verifica-consistencia-do-html.md'
+  )
+  expect(uniqueSkillFilePath('Verifica consistência do HTML', [
+    'skills/verifica-consistencia-do-html.md'
+  ])).toBe('skills/verifica-consistencia-do-html-2.md')
+})
+
 test('reconciles existing documented cards without replacing their IDs, paths, or Markdown', () => {
   const examples = createDocumentedExamples()
   const oldRestApi = {
@@ -42,7 +54,8 @@ test('reconciles existing documented cards without replacing their IDs, paths, o
     name: 'REST API',
     status: 'pending' as const,
     agents: ['GitHub Copilot', 'Antigravity'],
-    description: 'Boas praticas para definicao de contratos e endpoints.'
+    description: 'Boas praticas para definicao de contratos e endpoints.',
+    cardColor: SKILL_CARD_COLORS[6]
   }
   const oldAccessibility = {
     ...examples[0].skill,
@@ -73,6 +86,7 @@ test('reconciles existing documented cards without replacing their IDs, paths, o
     name: 'Padronização de API REST',
     status: 'validated',
     agents: ['Antigravity'],
+    cardColor: SKILL_CARD_COLORS[6],
     description: 'Boas práticas para definição de contratos e endpoints.'
   })
 })

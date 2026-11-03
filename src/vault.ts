@@ -51,12 +51,12 @@ export async function writeSkillFile(root: string, filePath: string, content: st
 }
 
 export async function saveVaultData(root: string, data: VaultData): Promise<void> {
-  validateVault(data.catalog, data.projects)
+  const validated = validateVault(data.catalog, data.projects)
   const canonicalRoot = await fs.realpath(root)
   const metadata = join(canonicalRoot, '.skillvortex')
   const values = [
-    [join(metadata, 'catalogo.json'), JSON.stringify(data.catalog, null, 2)],
-    [join(metadata, 'projetos.json'), JSON.stringify(data.projects, null, 2)]
+    [join(metadata, 'catalogo.json'), JSON.stringify(validated.catalog, null, 2)],
+    [join(metadata, 'projetos.json'), JSON.stringify(validated.projects, null, 2)]
   ] as const
   const id = randomUUID()
   const temporaries = values.map(([file]) => `${file}.${id}.tmp`)
@@ -110,7 +110,7 @@ export async function createVault(
   data: VaultData = emptyVault(),
   contents: Map<string, string> = new Map()
 ): Promise<void> {
-  validateVault(data.catalog, data.projects)
+  const validated = validateVault(data.catalog, data.projects)
   const staging = join(destination, `.pending-${randomUUID()}`)
   try {
     await fs.mkdir(destination)
@@ -123,13 +123,13 @@ export async function createVault(
   try {
     await fs.mkdir(join(staging, 'skills'), { recursive: true })
     await fs.mkdir(join(staging, '.skillvortex/backups'), { recursive: true })
-    for (const item of data.catalog.skills) {
+    for (const item of validated.catalog.skills) {
       const content = contents.get(item.id)
       if (content === undefined) throw new Error(`Conteudo ausente: ${item.name}`)
       await fs.writeFile(join(staging, item.filePath), content, { flag: 'wx' })
     }
-    await fs.writeFile(join(staging, '.skillvortex/catalogo.json'), JSON.stringify(data.catalog, null, 2))
-    await fs.writeFile(join(staging, '.skillvortex/projetos.json'), JSON.stringify(data.projects, null, 2))
+    await fs.writeFile(join(staging, '.skillvortex/catalogo.json'), JSON.stringify(validated.catalog, null, 2))
+    await fs.writeFile(join(staging, '.skillvortex/projetos.json'), JSON.stringify(validated.projects, null, 2))
     await fs.rename(join(staging, 'skills'), join(destination, 'skills'))
     await fs.rename(join(staging, '.skillvortex'), join(destination, '.skillvortex'))
     await fs.rmdir(staging)

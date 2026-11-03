@@ -6,6 +6,21 @@ const ignoredDirectories = new Set([
   '.next', '.venv', 'venv', 'coverage'
 ])
 
+// Copilot reads .github; Antigravity reads .agents (current) and .agent (legacy rules/workflows).
+export const agentDirectories = [
+  { directory: '.github', agent: 'Copilot' },
+  { directory: '.agents', agent: 'Antigravity' },
+  { directory: '.agent', agent: 'Antigravity' }
+] as const
+const rootAgentFiles = new Map([['agents.md', 'AGENTS.md'], ['gemini.md', 'Antigravity']])
+
+export function projectMarkdownAgent(relativePath: string): string | undefined {
+  const [first, ...rest] = relativePath.split(/[\\/]/)
+  const lower = first?.toLocaleLowerCase() ?? ''
+  if (!rest.length) return rootAgentFiles.get(lower)
+  return agentDirectories.find(item => item.directory === lower)?.agent
+}
+
 export function isProjectMarkdown(filePath: string): boolean {
   const name = filePath.split(/[\\/]/).pop()?.toLocaleLowerCase() ?? ''
   return name.endsWith('.md') && name !== 'readme.md'
@@ -34,7 +49,16 @@ export async function scanProjectMarkdown(rootPath: string): Promise<string[]> {
     }
   }
 
-  await visit(root)
+  for (const entry of await fs.readdir(root, { withFileTypes: true })) {
+    if (entry.isSymbolicLink()) continue
+    const name = entry.name.toLocaleLowerCase()
+    const file = join(root, entry.name)
+    if (entry.isDirectory() && agentDirectories.some(item => item.directory === name)) {
+      await visit(file)
+    } else if (entry.isFile() && rootAgentFiles.has(name)) {
+      files.push(file)
+    }
+  }
   return files.sort((left, right) => left.localeCompare(right))
 }
 
@@ -45,7 +69,8 @@ export async function readProjectMarkdown(rootPath: string, filePath: string): P
   const root = await fs.realpath(rootPath)
   const canonicalFile = await fs.realpath(filePath)
   const path = relative(root, canonicalFile)
-  if (!path || isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`) || !isProjectMarkdown(path)) {
+  if (!path || isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`) ||
+      !isProjectMarkdown(path) || !projectMarkdownAgent(path)) {
     throw new Error('O arquivo selecionado nao e Markdown dentro do projeto.')
   }
   const stat = await fs.stat(canonicalFile)

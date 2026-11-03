@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import type { Skill } from './model'
+import { uniqueSkillFilePath, type Skill } from './model'
 
 const examples: Array<Omit<Skill, 'id' | 'filePath'> & { markdown: string; aliases?: string[] }> = [
   {
@@ -78,12 +78,14 @@ const examples: Array<Omit<Skill, 'id' | 'filePath'> & { markdown: string; alias
 ]
 
 export function createDocumentedExamples(): Array<{ skill: Skill; content: string }> {
+  const usedPaths: string[] = []
   return examples.map(({ markdown, aliases: _aliases, ...metadata }) => {
     const skill: Skill = {
       ...metadata,
       id: randomBytes(16).toString('hex'),
-      filePath: `skills/${randomBytes(16).toString('hex')}.md`
+      filePath: uniqueSkillFilePath(metadata.name, usedPaths)
     }
+    usedPaths.push(skill.filePath)
     return { skill, content: `# ${skill.name}\n\n${skill.description}\n\n${markdown}\n` }
   })
 }
@@ -107,7 +109,16 @@ export function reconcileDocumentedExamples(
       .map(normalizeName)
     const existing = skills.find(skill => names.includes(normalizeName(skill.name)))
     if (!existing) {
-      toCreate.push(example)
+      toCreate.push({
+        ...example,
+        skill: {
+          ...example.skill,
+          filePath: uniqueSkillFilePath(example.skill.name, [
+            ...skills.map(skill => skill.filePath),
+            ...toCreate.map(item => item.skill.filePath)
+          ])
+        }
+      })
       orderedSkillIds.push(example.skill.id)
       continue
     }

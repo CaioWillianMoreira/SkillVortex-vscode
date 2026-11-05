@@ -4,9 +4,11 @@ import {
   Alert, Button, Card, Checkbox, Col, ConfigProvider, Empty, Input, Modal, Row,
   Select, Space, Switch, Tabs, Tag, Typography, theme
 } from 'antd'
+import type { ButtonProps } from 'antd'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Catalog, Projects, Skill } from '../src/model'
+import { skillRegistrationSchema } from '../src/model'
 import {
   categoryColor, isSkillCardColor, SKILL_CARD_COLOR_LABELS, SKILL_CARD_COLORS, skillCardTextColor
 } from '../src/skill-colors'
@@ -19,12 +21,45 @@ const api = acquireVsCodeApi()
 const MonacoMarkdownEditor = lazy(() => import('./MonacoMarkdownEditor'))
 const labels = { validated: 'Validada', pending: 'Pendente', blocked: 'Bloqueada' }
 const colors = { validated: 'green', pending: 'gold', blocked: 'red' }
+const actionIcons = {
+  run: 'M8 5v14l11-7z',
+  edit: 'm16 3 5 5M4 20l4-1L21 6l-3-3L5 16z',
+  unlink: 'm9 15-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 5 0M15 9l2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-5 0M3 3l18 18',
+  delete: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7',
+  folder: 'M3 7V4h6l2 3h10v13H3z',
+  search: 'M21 21l-6-6M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0',
+  back: 'm10 5-7 7 7 7M3 12h18',
+  save: 'M4 3h13l4 4v14H3V3zM7 3v6h10V3M7 21v-8h10v8',
+  import: 'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',
+  add: 'M12 4v16M4 12h16',
+  refresh: 'M20 7a9 9 0 1 0 1 8M20 2v6h-6',
+  backup: 'M4 3h16v18H4zM8 3v6h8V3M8 17h8',
+  restore: 'M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2',
+  examples: 'M3 4h7l2 2 2-2h7v16h-7l-2 2-2-2H3zM12 6v16',
+  filter: 'M3 4h18l-7 8v7l-4 2v-9z',
+  validated: 'm5 12 4 4L20 5',
+  pending: 'M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
+  blocked: 'm6 6 12 12M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0'
+}
+function ActionIcon({ action }: { action: keyof typeof actionIcons }): React.JSX.Element {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={actionIcons[action]} />
+  </svg>
+}
+function ActionButton({
+  action, className = '', ...props
+}: ButtonProps & { action: keyof typeof actionIcons }): React.JSX.Element {
+  return <Button {...props} className={`action-button action-${action} ${className}`}
+    icon={<ActionIcon action={action} />} />
+}
 const statusNames = ['validated', 'pending', 'blocked'] as const
 type Status = typeof statusNames[number]
 type AppState = {
   root: string | null
   catalog: Catalog | null
   projects: Projects | null
+  publishedMarkdown?: string[]
   editingSkillId: string | null
   content: string
   saved?: boolean
@@ -127,14 +162,16 @@ function App(): React.JSX.Element {
       content: 'As alteracoes nao salvas desta skill serao perdidas.',
       okText: 'Descartar',
       cancelText: 'Continuar editando',
-      okButtonProps: { danger: true },
+      okButtonProps: { danger: true, className: 'action-button action-delete', icon: <ActionIcon action="delete" /> },
+      cancelButtonProps: { className: 'action-button action-back', icon: <ActionIcon action="back" /> },
       onOk: () => api.postMessage({ type: 'backToDashboard' })
     })
   }
   const saveDraft = () => {
     if (!draft || !dirty || saving) return
-    if (!draft.description.trim()) {
-      setError('Informe a descricao da skill antes de salvar.')
+    const validation = skillRegistrationSchema.safeParse(draft)
+    if (!validation.success) {
+      setError(validation.error.issues.map(issue => issue.message).join(' '))
       return
     }
     setSaving(true)
@@ -174,25 +211,25 @@ function App(): React.JSX.Element {
           <Typography.Title className="brand" level={3}>Skill<span>Vortex</span></Typography.Title>
           {state.catalog && state.projects && !state.editingSkillId && (
             <>
-              <Select
+              <Input
                 className="project-select"
                 aria-label="Projeto ativo"
-                value={state.projects.activeProject ?? undefined}
-                placeholder="Selecione um projeto"
-                options={state.projects.projects.map(project => ({ value: project.id, label: `Projeto: ${project.name}` }))}
-                onChange={id => api.postMessage({ type: 'setActiveProject', id })}
+                readOnly
+                value={activeProject ? `Projeto: ${activeProject.name}` : ''}
+                placeholder="Nenhum projeto associado"
+                title={activeProject?.sourcePath}
               />
               {activeProject && (
                 <Space wrap>
-                  <Button onClick={() => api.postMessage({ type: 'setProjectFolder' })}>
+                  <ActionButton action="folder" onClick={() => api.postMessage({ type: 'setProjectFolder' })}>
                     {activeProject.sourcePath ? 'Alterar pasta' : 'Associar pasta'}
-                  </Button>
-                  <Button
+                  </ActionButton>
+                  <ActionButton action="search"
                     disabled={!activeProject.sourcePath}
                     onClick={() => api.postMessage({ type: 'scanProject' })}
                   >
                     Buscar skills no projeto
-                  </Button>
+                  </ActionButton>
                 </Space>
               )}
             </>
@@ -209,13 +246,13 @@ function App(): React.JSX.Element {
           {!state.editingSkillId && <div className="toolbar-spacer" />}
           {state.editingSkillId && draft ? (
             <Space className="editor-top-actions" wrap>
-              <Button onClick={leaveEditor} disabled={saving}>Voltar ao Dashboard</Button>
-              <Button type="primary" onClick={saveDraft} loading={saving} disabled={!dirty}>Salvar</Button>
+              <ActionButton action="back" onClick={leaveEditor} disabled={saving}>Voltar ao Dashboard</ActionButton>
+              <ActionButton action="save" type="primary" onClick={saveDraft} loading={saving} disabled={!dirty}>Salvar</ActionButton>
             </Space>
           ) : (
             <Space wrap>
-              <Button onClick={() => api.postMessage({ type: 'importMarkdown' })} disabled={!state.root}>Importar .md</Button>
-              <Button type="primary" onClick={() => api.postMessage({ type: 'createSkill' })} disabled={!state.root}>Nova Skill</Button>
+              <ActionButton action="import" onClick={() => api.postMessage({ type: 'importMarkdown' })} disabled={!state.root}>Importar .md</ActionButton>
+              <ActionButton action="add" type="primary" onClick={() => api.postMessage({ type: 'createSkill' })} disabled={!state.root}>Nova Skill</ActionButton>
             </Space>
           )}
         </header>
@@ -230,11 +267,11 @@ function App(): React.JSX.Element {
                 Seus arquivos permanecem locais; nada e enviado automaticamente aos agentes.
               </Typography.Paragraph>
               <Space wrap className="welcome-actions">
-                <Button type="primary" size="large" onClick={() => api.postMessage({ type: 'createVault' })}>
+                <ActionButton action="add" type="primary" size="large" onClick={() => api.postMessage({ type: 'createVault' })}>
                   Criar cofre
-                </Button>
-                <Button size="large" onClick={() => api.postMessage({ type: 'openVault' })}>Abrir cofre</Button>
-                <Button size="large" onClick={() => api.postMessage({ type: 'migrateDesktop' })}>Importar do desktop</Button>
+                </ActionButton>
+                <ActionButton action="folder" size="large" onClick={() => api.postMessage({ type: 'openVault' })}>Abrir cofre</ActionButton>
+                <ActionButton action="import" size="large" onClick={() => api.postMessage({ type: 'migrateDesktop' })}>Importar do desktop</ActionButton>
               </Space>
             </Card>
             <section className="feature-grid" aria-label="Funcionalidades">
@@ -272,11 +309,11 @@ function App(): React.JSX.Element {
           <>
             <div className="vault-path">
               <Typography.Text type="secondary" title={state.root}>{state.root}</Typography.Text>
-              <Button size="small" onClick={() => api.postMessage({ type: 'refresh' })}>Atualizar</Button>
-              <Button size="small" onClick={() => api.postMessage({ type: 'createBackup' })}>Criar backup</Button>
-              <Button size="small" onClick={() => api.postMessage({ type: 'restoreBackup' })}>Restaurar backup</Button>
-              <Button size="small" onClick={() => api.postMessage({ type: 'openVault' })}>Abrir outro cofre</Button>
-              <Button size="small" onClick={() => api.postMessage({ type: 'migrateDesktop' })}>Importar desktop</Button>
+              <ActionButton action="refresh" size="small" onClick={() => api.postMessage({ type: 'refresh' })}>Atualizar</ActionButton>
+              <ActionButton action="backup" size="small" onClick={() => api.postMessage({ type: 'createBackup' })}>Criar backup</ActionButton>
+              <ActionButton action="restore" size="small" onClick={() => api.postMessage({ type: 'restoreBackup' })}>Restaurar backup</ActionButton>
+              <ActionButton action="folder" size="small" onClick={() => api.postMessage({ type: 'openVault' })}>Abrir outro cofre</ActionButton>
+              <ActionButton action="import" size="small" onClick={() => api.postMessage({ type: 'migrateDesktop' })}>Importar desktop</ActionButton>
             </div>
             <section className="library-heading">
               <div>
@@ -293,25 +330,27 @@ function App(): React.JSX.Element {
               </div>
               <Space wrap>
                 <Tag>{skills.length} {skills.length === 1 ? 'skill' : 'skills'}</Tag>
-                <Button type="primary" title="Criar e atualizar os oito cards da documentação no cofre" onClick={() => modal.confirm({
+                <ActionButton action="examples" type="primary" title="Criar e atualizar os oito cards da documentação no cofre" onClick={() => modal.confirm({
                   title: 'Carregar exemplos do dashboard?',
                   content: 'Cria no cofre os cards da documentação que faltam e atualiza os metadados dos exemplos existentes. IDs, caminhos e conteúdo Markdown existentes serão preservados. Skills bloqueadas serão desvinculadas dos projetos.',
                   okText: 'Carregar exemplos',
                   cancelText: 'Cancelar',
+                  okButtonProps: { className: 'action-button action-examples', icon: <ActionIcon action="examples" /> },
+                  cancelButtonProps: { className: 'action-button action-back', icon: <ActionIcon action="back" /> },
                   onOk: () => api.postMessage({ type: 'createDocumentedExamples' })
                 })}>
                   Carregar exemplos
-                </Button>
+                </ActionButton>
               </Space>
             </section>
 
             <section className="filters">
               <Space wrap>
-                <Button type={statusFilter === 'all' ? 'primary' : 'default'} onClick={() => setStatusFilter('all')}>Todas</Button>
+                <ActionButton action="filter" type={statusFilter === 'all' ? 'primary' : 'default'} onClick={() => setStatusFilter('all')}>Todas</ActionButton>
                 {statusNames.map(status => (
-                  <Button key={status} type={statusFilter === status ? 'primary' : 'default'} onClick={() => setStatusFilter(status)}>
+                  <ActionButton action={status} key={status} type={statusFilter === status ? 'primary' : 'default'} onClick={() => setStatusFilter(status)}>
                     {labels[status]}
-                  </Button>
+                  </ActionButton>
                 ))}
               </Space>
               <Space wrap>
@@ -326,10 +365,10 @@ function App(): React.JSX.Element {
                     setCategoryName('')
                   }}
                 />
-                <Button onClick={() => {
+                <ActionButton action="add" onClick={() => {
                   if (categoryName.trim()) api.postMessage({ type: 'createCategory', name: categoryName })
                   setCategoryName('')
-                }} disabled={!categoryName.trim()}>Criar categoria</Button>
+                }} disabled={!categoryName.trim()}>Criar categoria</ActionButton>
                 <Select
                   allowClear
                   className="filter-select"
@@ -352,14 +391,15 @@ function App(): React.JSX.Element {
               </Space>
             </section>
 
-            <Row gutter={[16, 16]}>
+            <div className="skills-grid">
               {skills.map(item => {
                 const linked = Boolean(activeProject?.skillIds.includes(item.id))
                 const linkedAnywhere = Boolean(state.projects?.projects.some(project => project.skillIds.includes(item.id)))
                 const lockedTitle = linkedAnywhere ? 'Desative a skill em todos os projetos antes de realizar esta acao.' : undefined
+                const hasPublishedMarkdown = state.publishedMarkdown?.includes(item.id) ?? false
                 const cardColor = item.cardColor ?? categoryColor(item.category)
                 return (
-                  <Col key={item.id} xs={24} sm={24} md={12} lg={8} xl={6}>
+                  <div key={item.id} className="skill-grid-item">
                     <Card className={`skill-card${linked ? ' skill-card-linked' : ''}`} style={{
                       borderTop: `3px solid ${cardColor}`,
                       ...(item.cardColor ? { backgroundImage: `linear-gradient(180deg, ${cardColor}33 0%, transparent 180px)` } : {})
@@ -401,26 +441,34 @@ function App(): React.JSX.Element {
                           />
                           <Typography.Text type="secondary">Usar no Projeto</Typography.Text>
                         </Space>
-                        <Space className="skill-card-actions" size={4}>
-                          <Button
+                        <div className="skill-card-actions">
+                          <ActionButton action="run"
+                            aria-label="Executar"
                             size="small"
-                            type="link"
                             disabled={!linked || item.status === 'blocked'}
                             title={linked
                               ? 'Abrir o chat do Copilot com esta skill; revise o pedido e envie.'
                               : 'Ative a skill no projeto para executa-la.'}
                             onClick={() => api.postMessage({ type: 'runSkill', id: item.id })}
-                          >Executar</Button>
-                          <Button size="small" type="link" disabled={linkedAnywhere} title={lockedTitle} onClick={() => api.postMessage({ type: 'openSkill', id: item.id })}>Editar</Button>
-                          <Button size="small" type="link" disabled={linkedAnywhere} title={lockedTitle} onClick={() => api.postMessage({ type: 'unlinkSkill', id: item.id })}>Desvincular</Button>
-                          <Button size="small" danger type="link" disabled={linkedAnywhere} title={lockedTitle} onClick={() => api.postMessage({ type: 'deleteSkill', id: item.id })}>Excluir</Button>
-                        </Space>
+                          >Executar</ActionButton>
+                          <ActionButton action="edit" aria-label="Editar" size="small" disabled={linkedAnywhere} title={lockedTitle ?? 'Editar'} onClick={() => api.postMessage({ type: 'openSkill', id: item.id })}>Editar</ActionButton>
+                          <ActionButton action="unlink"
+                            aria-label="Desvincular"
+                            size="small"
+                            disabled={linkedAnywhere && !hasPublishedMarkdown}
+                            title={linkedAnywhere && hasPublishedMarkdown
+                              ? 'Remover o card da biblioteca e manter o SKILL.md no projeto.'
+                              : linkedAnywhere ? lockedTitle : 'Desvincular'}
+                            onClick={() => api.postMessage({ type: 'unlinkSkill', id: item.id })}
+                          >Desvincular</ActionButton>
+                          <ActionButton action="delete" aria-label="Excluir" size="small" danger disabled={linkedAnywhere} title={lockedTitle ?? 'Excluir'} onClick={() => api.postMessage({ type: 'deleteSkill', id: item.id })}>Excluir</ActionButton>
+                        </div>
                       </div>
                     </Card>
-                  </Col>
+                  </div>
                 )
               })}
-            </Row>
+            </div>
             {!skills.length && (
               <Empty className="empty-library" description={
                 state.catalog.skills.length
@@ -438,18 +486,20 @@ function App(): React.JSX.Element {
                 <Typography.Title level={3}>Editando: {draft.name}</Typography.Title>
                 <Typography.Text type="secondary">{dirty ? 'Nao salvo' : 'Todas as alteracoes salvas'}</Typography.Text>
               </div>
-              <Button type="primary" onClick={saveDraft} loading={saving} disabled={!dirty}>Salvar</Button>
+              <ActionButton action="save" type="primary" onClick={saveDraft} loading={saving} disabled={!dirty}>Salvar</ActionButton>
             </div>
             <Card className="metadata-card">
+              <Typography.Paragraph type="secondary">Campos com * sao obrigatorios. Cor automatica e projetos sao opcionais.</Typography.Paragraph>
               <Row gutter={[12, 12]}>
                 <Col xs={24} md={12} xl={6}>
-                  <label htmlFor="skill-name">Titulo</label>
-                  <Input id="skill-name" value={draft.name} maxLength={100} disabled={saving} onChange={event => updateDraft('name', event.target.value)} />
+                  <label htmlFor="skill-name">Titulo *</label>
+                  <Input id="skill-name" required value={draft.name} maxLength={100} disabled={saving} onChange={event => updateDraft('name', event.target.value)} />
                 </Col>
                 <Col xs={24} md={12} xl={6}>
-                  <label htmlFor="skill-category">Categoria</label>
+                  <label htmlFor="skill-category">Categoria *</label>
                   <Select
                     id="skill-category"
+                    aria-required="true"
                     className="full-width"
                     value={draft.category}
                     disabled={saving}
@@ -458,15 +508,16 @@ function App(): React.JSX.Element {
                   />
                 </Col>
                 <Col xs={24} md={12} xl={6}>
-                  <label htmlFor="skill-tags">Etiquetas (separadas por virgula)</label>
-                  <Input id="skill-tags" value={draft.tags.join(', ')} disabled={saving} onChange={event =>
+                  <label htmlFor="skill-tags">Etiquetas (separadas por virgula) *</label>
+                  <Input id="skill-tags" required value={draft.tags.join(', ')} disabled={saving} onChange={event =>
                     updateDraft('tags', event.target.value.split(',').map(tag => tag.trim()).filter(Boolean))
                   } />
                 </Col>
                 <Col xs={24} md={12} xl={3}>
-                  <label htmlFor="skill-status">Status</label>
+                  <label htmlFor="skill-status">Status *</label>
                   <Select
                     id="skill-status"
+                    aria-required="true"
                     className="full-width"
                     value={draft.status}
                     disabled={saving}
@@ -475,9 +526,10 @@ function App(): React.JSX.Element {
                   />
                 </Col>
                 <Col xs={24} md={12} xl={3}>
-                  <label htmlFor="skill-agents">Agentes</label>
+                  <label htmlFor="skill-agents">Agentes *</label>
                   <Select
                     id="skill-agents"
+                    aria-required="true"
                     className="full-width"
                     mode="tags"
                     value={draft.agents}
@@ -489,7 +541,7 @@ function App(): React.JSX.Element {
                   />
                 </Col>
                 <Col span={24}>
-                  <label htmlFor="skill-description">Descricao</label>
+                  <label htmlFor="skill-description">Descricao *</label>
                   <Input.TextArea id="skill-description" rows={2} maxLength={1000} required value={draft.description} disabled={saving}
                     onChange={event => updateDraft('description', event.target.value)} />
                 </Col>
@@ -517,7 +569,7 @@ function App(): React.JSX.Element {
             </Card>
             <Row className="editor-workspace" gutter={[16, 16]}>
               <Col xs={24} xl={12}>
-                <Card className="markdown-editor-card" title="Conteudo Markdown">
+                <Card className="markdown-editor-card" title="Conteudo Markdown *">
                   <Suspense fallback={<div className="editor-loading">Carregando Monaco...</div>}>
                     <MonacoMarkdownEditor
                       value={draft.content}

@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs'
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash } from 'node:crypto'
+import { homedir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { hasErrorCode, skillSlug, type Skill, type VaultData } from './model'
 import { assertImportedOriginsPreserved } from './skill-deletion'
@@ -48,6 +49,19 @@ async function validMarker(path: string, skillId: string): Promise<boolean> {
     const stat = await fs.lstat(path)
     if (stat.isSymbolicLink() || !stat.isFile() || stat.size > 800) return false
     return await fs.readFile(path, 'utf8') === skillId
+  } catch (error) {
+    if (hasErrorCode(error, 'ENOENT')) return false
+    throw error
+  }
+}
+
+async function isImportedOrigin(skill: Skill, path: string): Promise<boolean> {
+  if (!skill.originPath) return false
+  const origin = skill.originPath.startsWith('~/')
+    ? join(homedir(), skill.originPath.slice(2)) : skill.originPath
+  if (!isAbsolute(origin)) throw new Error(`Caminho de origem invalido: ${skill.originPath}`)
+  try {
+    return await fs.realpath(origin) === await fs.realpath(path)
   } catch (error) {
     if (hasErrorCode(error, 'ENOENT')) return false
     throw error
@@ -160,14 +174,18 @@ export async function saveProjectSkills(
         const folderPath = await directory(path, ['.github', 'skills', deployed.directory])
         const source = join(folderPath, 'SKILL.md')
         const content = await readFile(source)
-        if (!content) throw new Error(`Skill ativada nao encontrada: ${source}. Restaure o arquivo antes de desativar.`)
+        const originsToPreserve: Skill[] = []
+        for (const item of [...previous.catalog.skills, ...next.catalog.skills]) {
+          if (content && item.id === deployed.skillId && await isImportedOrigin(item, source)) continue
+          originsToPreserve.push(item)
+        }
         if (skill) {
           const known = skill.publishedFolders?.find(item => item.projectId === oldProject.id &&
             item.projectPath === path && item.directory === deployed.directory)
           let marker = known?.marker
           let owned = known?.owned ?? false
-          if (owned && (!marker ||
-              !await validMarker(join(folderPath, `.skillvortex-${marker}`), deployed.skillId))) {
+          if (owned && marker &&
+              !await validMarker(join(folderPath, `.skillvortex-${marker}`), deployed.skillId)) {
             owned = false
             marker = undefined
           }
@@ -176,9 +194,15 @@ export async function saveProjectSkills(
             owned, marker
           })
         }
-        const archived = await archivedPath(oldProject, deployed.skillId)
-        await write(archived, content)
-        await remove(source, content)
+        if (content) {
+          const archived = await archivedPath(oldProject, deployed.skillId)
+          await assertImportedOriginsPreserved(originsToPreserve, [], [source])
+          await assertImportedOriginsPreserved(
+            [...previous.catalog.skills, ...next.catalog.skills], [], [archived]
+          )
+          await write(archived, content)
+          await remove(source, content)
+        }
         const knownFolder = skill?.publishedFolders?.find(item =>
           item.projectId === oldProject.id && item.projectPath === path &&
           item.directory === deployed.directory)
@@ -188,7 +212,7 @@ export async function saveProjectSkills(
         if (remaining.length === 0 ||
             (remaining.length === 1 && remaining[0] === markerName)) {
           await assertImportedOriginsPreserved(
-            [...previous.catalog.skills, ...next.catalog.skills], [folderPath], []
+            originsToPreserve, [folderPath], []
           )
           if (markerName && remaining.length) {
             const markerPath = join(folderPath, markerName)
@@ -241,8 +265,8 @@ export async function saveProjectSkills(
           if (stat.isSymbolicLink() || !stat.isDirectory()) {
             throw new Error(`Diretorio de skill invalido ou simbolico: ${previousDirectory}`)
           }
-          if (!previousFolder?.owned || !previousFolder.marker ||
-              !await validMarker(join(previousDirectory, `.skillvortex-${previousFolder.marker}`), skillId)) {
+          if (!previousFolder?.owned || (previousFolder.marker &&
+              !await validMarker(join(previousDirectory, `.skillvortex-${previousFolder.marker}`), skillId))) {
             throw new Error(`Nao foi possivel identificar a pasta para renomear: ${previousDirectory}`)
           }
           await assertImportedOriginsPreserved(
@@ -279,19 +303,21 @@ export async function saveProjectSkills(
         let owned = existing ? (previousFolder?.owned ?? false)
           : (knownFolder?.owned ?? created)
         let marker = existing ? previousFolder?.marker : knownFolder?.marker
-        if (owned && !created && (!marker ||
-            !await validMarker(join(folderPath, `.skillvortex-${marker}`), skillId))) {
+        if (created) marker = undefined
+        if (owned && !created && marker &&
+            !await validMarker(join(folderPath, `.skillvortex-${marker}`), skillId)) {
           owned = false
           marker = undefined
         }
-        if (owned && created) {
-          marker = randomBytes(16).toString('hex')
-          await write(join(folderPath, `.skillvortex-${marker}`), Buffer.from(skillId))
-        }
         const destination = join(folderPath, 'SKILL.md')
         rememberFolder(skill, { projectId: project.id, projectPath: path, directory: name, owned, marker })
-        const content = markdown(skill, name, await readContained(canonicalRoot, join(canonicalRoot, skill.filePath)))
+        const sourceContent = await readContained(canonicalRoot, join(canonicalRoot, skill.filePath))
+        const content = markdown(skill, name, sourceContent)
         if (existing) {
+          if (name === existing.directory && hash(content) === existing.sourceHash) {
+            deployedSkills.push(existing)
+            continue
+          }
           const current = await readFile(destination)
           if (!current) throw new Error(`Skill ativada nao encontrada: ${destination}. Restaure o arquivo antes de continuar.`)
           if (name !== existing.directory && hash(current) === existing.hash) {
@@ -339,9 +365,18 @@ export async function saveProjectSkills(
           deployedSkills.push({ skillId, directory: name, hash: hash(content), sourceHash: hash(content) })
         } else {
           const published = preserved ?? content
-          await write(destination, published)
-          if (preserved && archived) await remove(archived, preserved)
-          deployedSkills.push({ skillId, directory: name, hash: hash(published), sourceHash: hash(content) })
+          const current = await readFile(destination)
+          const importedOrigin = current ? await isImportedOrigin(skill, destination) : false
+          if (current && preserved && !current.equals(preserved)) {
+            throw new Error(`O SKILL.md do projeto difere da copia desativada no cofre: ${destination}. Preserve e revise as duas versoes antes de reativar.`)
+          }
+          if (current && !importedOrigin && !current.equals(published) &&
+              !current.equals(Buffer.from(sourceContent))) {
+            throw new Error(`Ja existe outro SKILL.md nesta pasta: ${destination}. Importe esse arquivo ou escolha outro nome para a skill; o arquivo existente foi preservado.`)
+          }
+          if (!current) await write(destination, published)
+          if (preserved && archived && (!current || current.equals(preserved))) await remove(archived, preserved)
+          deployedSkills.push({ skillId, directory: name, hash: hash(current ?? published), sourceHash: hash(content) })
         }
       }
       if (deployedSkills.length || project.deployedSkills) project.deployedSkills = deployedSkills

@@ -49,7 +49,7 @@ module.exports = async function testCardColors(extension) {
           assert.deepEqual(message, { type: 'createSkill' })
           skill = {
             id: 'color-test', name: 'Nova Skill', category: 'Geral', description: 'Descricao de teste',
-            filePath: 'skills/nova-skill.md', agents: [], status: 'pending', tags: []
+            filePath: 'skills/nova-skill.md', agents: ['GitHub Copilot'], status: 'pending', tags: ['teste']
           }
           stage = 'select'
           assert.ok(await webview.postMessage(state(skill.id)))
@@ -104,6 +104,17 @@ module.exports = async function testCardColors(extension) {
           assert.notEqual(message.backgroundImage, 'none')
           assert.deepEqual(message.actions, ['Executar', 'Editar', 'Desvincular', 'Excluir'])
           assert.deepEqual(message.disabledActions, [true, false, false, false])
+          assert.equal(message.actionIconCount, 4)
+          assert.deepEqual(message.actionColors.slice(1), [
+            'rgb(105, 177, 255)', 'rgb(255, 192, 105)', 'rgb(255, 120, 117)'
+          ])
+          assert.equal(message.projectReadOnly, true)
+          assert.equal(message.allActionButtonsHaveIcons, true)
+          assert.equal(message.generalButtonsHaveBorders, true)
+          assert.equal(message.cardActionsHaveNoBorders, true)
+          assert.equal(message.secondaryButtonsAreRed, true, JSON.stringify(message.secondaryButtonColors))
+          assert.ok(message.cardLayouts.every(layout => layout.oneRow && layout.contained),
+            JSON.stringify(message.cardLayouts))
           assert.equal(message.hasProjectSwitch, true)
           assert.equal(message.hasCreateProject, false)
         } else if (message.type === 'openSkill') {
@@ -235,7 +246,36 @@ module.exports = async function testCardColors(extension) {
         const card = document.querySelector('.skill-card');
         const category = card?.querySelector('.skill-card-heading + .ant-tag');
         if (!card || !category) return null;
+        const grid = document.querySelector('.skills-grid');
+        const gridStyle = grid.style.cssText;
+        const cardLayouts = [240, 360, 520].map(width => {
+          grid.style.width = width + 'px';
+          grid.style.gridTemplateColumns = 'minmax(0, 1fr)';
+          const bounds = card.getBoundingClientRect();
+          const buttons = Array.from(card.querySelectorAll('.skill-card-actions button'));
+          const positions = buttons.map(button => button.getBoundingClientRect());
+          return {
+            width,
+            oneRow: positions.every(position => Math.abs(position.top - positions[0].top) < 1),
+            contained: positions.every((position, index) => position.left >= bounds.left &&
+              position.right <= bounds.right && buttons[index].scrollWidth <= buttons[index].clientWidth)
+          };
+        });
+        grid.style.cssText = gridStyle;
+        const actionButtons = Array.from(document.querySelectorAll('main button.action-button'));
         return {
+          cardLayouts,
+          allActionButtonsHaveIcons: actionButtons.every(button => button.querySelector('svg[aria-hidden="true"]')),
+          generalButtonsHaveBorders: actionButtons.filter(button => !button.closest('.skill-card-actions') && !button.disabled)
+            .every(button => parseFloat(getComputedStyle(button).borderTopWidth) > 0),
+          cardActionsHaveNoBorders: Array.from(card.querySelectorAll('.skill-card-actions button'))
+            .every(button => parseFloat(getComputedStyle(button).borderTopWidth) === 0),
+          secondaryButtonsAreRed: actionButtons.filter(button => !button.closest('.skill-card-actions') &&
+              !button.matches('.action-save, .action-restore') && !button.disabled)
+            .every(button => getComputedStyle(button).color === 'rgb(255, 120, 117)'),
+          secondaryButtonColors: actionButtons.filter(button => !button.closest('.skill-card-actions') &&
+              !button.matches('.action-save, .action-restore') && !button.disabled)
+            .map(button => ({label: button.textContent, color: getComputedStyle(button).color})),
           borderColor: getComputedStyle(card).borderTopColor,
           backgroundColor: getComputedStyle(card).backgroundColor,
           backgroundImage: getComputedStyle(card).backgroundImage,
@@ -246,6 +286,10 @@ module.exports = async function testCardColors(extension) {
             .map(item => item.textContent.trim()),
           disabledActions: Array.from(card.querySelectorAll('.skill-card-actions button'))
             .map(item => item.disabled),
+          actionIconCount: card.querySelectorAll('.skill-card-actions button svg[aria-hidden="true"]').length,
+          actionColors: Array.from(card.querySelectorAll('.skill-card-actions button'))
+            .map(item => getComputedStyle(item).color),
+          projectReadOnly: document.querySelector('input[aria-label="Projeto ativo"]')?.readOnly === true,
           hasCreateProject: Boolean(document.querySelector('input[placeholder="Novo Projeto"]')) ||
             Array.from(document.querySelectorAll('button')).some(item => item.textContent.trim() === 'Criar projeto'),
           hasProjectSwitch: Boolean(card.querySelector('[role="switch"]'))
@@ -301,7 +345,7 @@ module.exports = async function testCardColors(extension) {
           waitFor('colored card', () => {
             const appearance = cardAppearance();
             const edit = button('Editar');
-            if (!appearance || !edit) return false;
+            if (!appearance || !edit || !appearance.secondaryButtonsAreRed) return false;
             bridge.postMessage({type:'color-test-manual-card', ...appearance});
             edit.click();
             return true;

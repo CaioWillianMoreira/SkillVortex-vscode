@@ -53,6 +53,16 @@ async function disabledSkill(): Promise<VaultData> {
 const persist = async (path: string, data: VaultData) =>
   saveProjectSkills(path, await readVault(path), data)
 
+async function addLegacyMarker(data: VaultData, folderIndex = 0): Promise<void> {
+  const skill = data.catalog.skills[0]
+  const folder = skill.publishedFolders![folderIndex]
+  folder.marker = 'a'.repeat(32)
+  await fs.writeFile(
+    join(folder.projectPath, '.github/skills', folder.directory, `.skillvortex-${folder.marker}`),
+    skill.id
+  )
+}
+
 test('deletes all recorded project folders and archives while preserving imported and unrelated files', async () => {
   const data = await disabledSkill()
   const skill = data.catalog.skills[0]
@@ -162,6 +172,7 @@ test('refuses a published folder whose ownership marker was removed or altered',
   const skill = data.catalog.skills[0]
   const folder = skill.publishedFolders![0]
   const path = join(folder.projectPath, '.github/skills', folder.directory)
+  await addLegacyMarker(data)
   await fs.unlink(join(path, `.skillvortex-${folder.marker}`))
   await fs.writeFile(join(path, 'unrelated.txt'), 'Keep')
   await expect(planSkillDeletion(root, data, skill)).rejects.toThrow('Identificacao')
@@ -172,6 +183,7 @@ test('a missing marker does not trap an active skill: it can be disabled without
   const active = structuredClone(initial)
   active.projects.projects[0].skillIds = [active.catalog.skills[0].id]
   await saveProjectSkills(root, initial, active)
+  await addLegacyMarker(active)
   const folder = active.catalog.skills[0].publishedFolders![0]
   const path = join(folder.projectPath, '.github/skills', folder.directory)
   await fs.unlink(join(path, `.skillvortex-${folder.marker}`))
@@ -242,7 +254,8 @@ test('a removed pre-existing folder can be recreated and safely registered on re
   await saveProjectSkills(root, disabled, active)
   const owned = active.catalog.skills[0].publishedFolders!.find(item => item.projectId === 'project-0')!
   expect(owned.owned).toBe(true)
-  expect(owned.marker).toMatch(/^[a-f0-9]{32}$/)
+  expect(owned.marker).toBeUndefined()
+  expect((await fs.readdir(folder)).some(name => name.startsWith('.skillvortex-'))).toBe(false)
   const again = structuredClone(active)
   again.projects.projects[0].skillIds = []
   await saveProjectSkills(root, active, again)
@@ -275,6 +288,7 @@ test('does not assume a legacy active deployment owns its pre-existing folder', 
   const active = structuredClone(initial)
   active.projects.projects[0].skillIds = [active.catalog.skills[0].id]
   await saveProjectSkills(root, initial, active)
+  await addLegacyMarker(active)
   const folder = active.catalog.skills[0].publishedFolders![0]
   const path = join(folder.projectPath, '.github/skills', folder.directory)
   await fs.unlink(join(path, `.skillvortex-${folder.marker}`))

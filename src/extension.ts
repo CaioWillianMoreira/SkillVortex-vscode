@@ -3,9 +3,9 @@ import { promises as fs } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
-import { createVault, readVault, readContained, writeSkillFile } from './vault'
+import { createVault, readVault, readContained, saveVaultData, writeSkillFile } from './vault'
 import { initializeSql, migrateDesktop, rebuildIndex } from './database'
-import { hasErrorCode, skillSchema, uniqueSkillFilePath } from './model'
+import { hasErrorCode, skillRegistrationSchema, skillSchema, uniqueSkillFilePath } from './model'
 import { projectMarkdownAgent, readProjectMarkdown, scanProjectMarkdown } from './project-scan'
 import { createVaultBackup, listVaultBackups, restoreVaultBackup } from './backup'
 import { createDocumentedExamples, reconcileDocumentedExamples } from './documented-examples'
@@ -34,14 +34,8 @@ const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('runSkill'), id: z.string() }),
   z.object({
     type: z.literal('saveSkill'), id: z.string(),
-    name: z.string().trim().min(1).max(100),
-    category: z.string().trim().min(1).max(60),
-    description: z.string().trim().min(1, 'Informe a descricao da skill.').max(1000),
-    tags: z.array(z.string().trim().min(1).max(60)).max(100),
-    agents: z.array(z.string().trim().min(1).max(60)).max(20),
-    status: z.enum(['validated', 'pending', 'blocked']),
+    ...skillRegistrationSchema.shape,
     cardColor: skillSchema.shape.cardColor.nullable(),
-    content: z.string().max(2 * 1024 * 1024),
     projectIds: z.array(z.string()).max(10000)
   }),
   z.object({ type: z.literal('unlinkSkill'), id: z.string() }),
@@ -94,6 +88,29 @@ export function activate(context: vscode.ExtensionContext): void {
     queue = queue.then(async () => { if (!disposed) await action() }).catch(report)
     return queue
   }
+  async function publishedMarkdownSkills(data: Awaited<ReturnType<typeof readVault>>): Promise<string[]> {
+    const skillIds = new Set<string>()
+    for (const project of data.projects.projects) {
+      if (!project.sourcePath || !project.deployedSkills?.length) continue
+      let projectPath: string
+      try {
+        projectPath = await fs.realpath(project.sourcePath)
+      } catch (error) {
+        if (hasErrorCode(error, 'ENOENT')) continue
+        throw error
+      }
+      for (const deployed of project.deployedSkills) {
+        const markdown = join(projectPath, '.github', 'skills', deployed.directory, 'SKILL.md')
+        try {
+          const stat = await fs.lstat(markdown)
+          if (stat.isFile() && !stat.isSymbolicLink()) skillIds.add(deployed.skillId)
+        } catch (error) {
+          if (!hasErrorCode(error, 'ENOENT') && !hasErrorCode(error, 'ENOTDIR')) throw error
+        }
+      }
+    }
+    return [...skillIds]
+  }
   async function refresh(saved = false): Promise<void> {
     const root = context.globalState.get<string>('vaultPath')
     if (!root) {
@@ -142,7 +159,8 @@ export function activate(context: vscode.ExtensionContext): void {
     const content = skill ? await readContained(canonical, join(canonical, skill.filePath)) : ''
     if (editingSkillId && !skill) editingSkillId = null
     await panel?.webview.postMessage({
-      type: 'state', root: canonical, ...data, editingSkillId, content, saved
+      type: 'state', root: canonical, ...data, editingSkillId, content,
+      publishedMarkdown: await publishedMarkdownSkills(data), saved
     })
   }
   async function currentVault(): Promise<{ root: string; data: Awaited<ReturnType<typeof readVault>> }> {
@@ -688,8 +706,13 @@ export function activate(context: vscode.ExtensionContext): void {
         const { root, data } = await currentVault()
         const skill = data.catalog.skills.find(item => item.id === message.id)
         if (!skill) throw new Error('Skill nao encontrada.')
-        assertSkillInactive(data, skill.id)
         const deleting = message.type === 'deleteSkill'
+        if (deleting) assertSkillInactive(data, skill.id)
+        const linkedProjects = data.projects.projects.filter(project => project.skillIds.includes(skill.id))
+        if (!deleting && linkedProjects.length &&
+            !(await publishedMarkdownSkills(data)).includes(skill.id)) {
+          throw new Error('Nao existe um SKILL.md publicado para preservar no projeto.')
+        }
         const plan = deleting ? await planSkillDeletion(root, data, skill) : undefined
         const action = deleting ? 'Excluir permanentemente' : 'Desvincular'
         const confirmation = await vscode.window.showWarningMessage(
@@ -717,7 +740,11 @@ export function activate(context: vscode.ExtensionContext): void {
           }
         } else {
           data.catalog.skills = data.catalog.skills.filter(item => item.id !== skill.id)
-          await persist(root, data)
+          for (const project of data.projects.projects) {
+            project.skillIds = project.skillIds.filter(id => id !== skill.id)
+            project.deployedSkills = project.deployedSkills?.filter(item => item.skillId !== skill.id)
+          }
+          await saveVaultData(root, data)
         }
         if (editingSkillId === skill.id) editingSkillId = null
         await refresh()

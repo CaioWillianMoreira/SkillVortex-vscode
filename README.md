@@ -108,7 +108,9 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
 - **Cor do card**: no editor de uma skill nova ou existente, escolha uma das 10
   cores no seletor e clique em **Salvar**. A opcao **Automatica (categoria)**
   usa a cor da categoria, como nas skills existentes sem uma cor escolhida.
-- **Descricao obrigatoria**: toda skill precisa de uma descricao para ser salva.
+- **Campos obrigatorios**: ao salvar uma skill, informe titulo, categoria,
+  pelo menos uma etiqueta, status, pelo menos um agente, descricao e conteudo
+  Markdown. Cor automatica e vinculos com projetos continuam opcionais.
   O nome legivel da skill determina o nome do arquivo e da pasta publicada,
   convertendo acentos e espacos para kebab-case; por exemplo,
   `Verifica consistencia do HTML` usa `skills/verifica-consistencia-do-html.md`.
@@ -116,19 +118,33 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   acima de 2 MB sao recusados.
 - **Nova Categoria**: adiciona uma categoria ao catalogo. Os projetos sao
   cadastrados automaticamente ao ativar **Usar no Projeto** para uma pasta,
-  sem formulario de criacao manual. O projeto ativo controla os switches dos cards.
+  sem formulario de criacao manual. O campo **Projeto** e somente leitura e
+  exibe o projeto ativo, que controla os switches dos cards.
 - Cards ativos no projeto ficam com o fundo um pouco mais claro, preservando
   a cor escolhida. Ao passar o cursor, os cards aumentam levemente com uma
   transicao suave; o efeito respeita a preferencia por movimento reduzido.
+- Os botoes gerais mantem os icones e o padrao vermelho com bordas.
+  Apenas Salvar (verde) e Restaurar backup (laranja) recebem destaque diferente.
+  As acoes dos cards nao possuem bordas: Executar em verde, Editar em azul,
+  Desvincular em laranja e Excluir em vermelho.
+  As quatro acoes dos cards ficam alinhadas em uma unica linha; em cards
+  estreitos, os icones preservam os nomes acessiveis e dicas de cada acao.
+  Acoes indisponiveis permanecem visualmente desabilitadas.
 - **Usar no Projeto**: o botao existente publica a skill como
   `.github/skills/<nome-legivel>/SKILL.md`, com frontmatter para o GitHub
   Copilot. Sem projeto ativo ou pasta associada, usa a unica pasta local aberta
   no VS Code ou solicita uma pasta; cria o cadastro do projeto quando necessario.
+  Se o `SKILL.md` ja existir e for a origem importada ou tiver conteudo identico
+  ao da skill, ativa o vinculo sem sobrescrever o arquivo. Arquivos diferentes
+  e conflitos com copias desativadas sao preservados e informados para revisao.
   **Executar** abre o chat do Copilot com o comando `/<nome-legivel>`
   preenchido para a skill ativa; revise o pedido e envie no chat. A pasta
   associada precisa estar aberta como pasta do workspace no VS Code.
   Ao desativar, move o Markdown para `.skillvortex/disabled-skills/` no cofre,
   preservando inclusive edicoes feitas no projeto. Reativar restaura esse arquivo.
+  Isso tambem se aplica quando o proprio `SKILL.md` foi a origem importada:
+  o caminho de origem continua registrado como referencia, o conteudo e arquivado
+  e a pasta vazia e removida. Origens de outras skills continuam protegidas.
   A pasta publicada tambem e removida quando nao contem arquivos adicionais;
   pastas com outros arquivos ficam registradas para a exclusao confirmada do card.
   O cofre deve ficar fora da pasta do projeto. Arquivos existentes e links

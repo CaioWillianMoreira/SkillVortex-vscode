@@ -47,6 +47,19 @@ export const skillSchema = z.object({
   })).max(10000).optional()
 })
 export type Skill = z.infer<typeof skillSchema>
+export const skillRegistrationSchema = skillSchema.pick({
+  name: true, category: true, description: true, status: true
+}).extend({
+  name: z.string().trim().min(1, 'Informe o titulo da skill.').max(100),
+  category: z.string().trim().min(1, 'Informe a categoria da skill.').max(60),
+  description: z.string().trim().min(1, 'Informe a descricao da skill.').max(1000),
+  tags: z.array(z.string().trim().min(1).max(60))
+    .min(1, 'Informe pelo menos uma etiqueta.').max(100),
+  agents: z.array(z.string().trim().min(1).max(60))
+    .min(1, 'Informe pelo menos um agente.').max(20),
+  content: z.string().max(2 * 1024 * 1024)
+    .refine(value => Boolean(value.trim()), 'Informe o conteudo Markdown.')
+})
 export const catalogSchema = z.object({
   version: z.literal(1),
   categories: names,

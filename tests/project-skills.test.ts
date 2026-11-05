@@ -44,7 +44,141 @@ test('the pending Vitest example is published as a discoverable Copilot skill', 
   expect(content).toMatch(/^---\nname: testes-unitarios-com-vitest\ndescription: ".+"\n---\n\n# Testes Unitários com Vitest/)
   expect(data.projects.projects[0].deployedSkills![0].directory).toBe('testes-unitarios-com-vitest')
   expect(data.catalog.skills[0].status).toBe('pending')
+  expect(data.catalog.skills[0].publishedFolders![0].marker).toBeUndefined()
+  expect((await fs.readdir(join(file, '..'))).some(name => name.startsWith('.skillvortex-'))).toBe(false)
   expect(await readVault(root)).toEqual(data)
+})
+
+test('activation reuses an imported project Markdown without overwriting local edits', async () => {
+  const file = join(projectPath, '.github/skills/testes-unitarios-com-vitest/SKILL.md')
+  await fs.mkdir(join(file, '..'), { recursive: true })
+  await fs.writeFile(file, '# Imported skill\n\nLocal edits to preserve.\r\n')
+  original.catalog.skills[0].originPath = file
+  await saveVaultData(root, original)
+  const before = await fs.readFile(file)
+
+  const { data } = await activateSkill()
+
+  expect(data.projects.projects[0].skillIds).toEqual([data.catalog.skills[0].id])
+  expect(data.projects.projects[0].deployedSkills![0].directory).toBe('testes-unitarios-com-vitest')
+  expect(data.catalog.skills[0].publishedFolders![0].owned).toBe(false)
+  expect(await fs.readFile(file)).toEqual(before)
+})
+
+test('an imported project skill can be disabled and restored byte for byte', async () => {
+  const file = join(projectPath, '.github/skills/testes-unitarios-com-vitest/SKILL.md')
+  await fs.mkdir(join(file, '..'), { recursive: true })
+  const content = Buffer.from('# Imported skill\r\n\nPreserve my edits.\r\n')
+  await fs.writeFile(file, content)
+  original.catalog.skills[0].originPath = file
+  await saveVaultData(root, original)
+  const { data } = await activateSkill()
+  const disabled = structuredClone(data)
+  disabled.projects.projects[0].skillIds = []
+
+  await saveProjectSkills(root, data, disabled)
+
+  await expect(fs.stat(join(file, '..'))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(disabled.catalog.skills[0].originPath).toBe(file)
+  expect((await readVault(root)).projects.projects[0].skillIds).toEqual([])
+  const enabled = structuredClone(disabled)
+  enabled.projects.projects[0].skillIds = [enabled.catalog.skills[0].id]
+  await saveProjectSkills(root, disabled, enabled)
+  expect(await fs.readFile(file)).toEqual(content)
+})
+
+test('a failed save restores an imported project skill and its folder', async () => {
+  const file = join(projectPath, '.github/skills/testes-unitarios-com-vitest/SKILL.md')
+  await fs.mkdir(join(file, '..'), { recursive: true })
+  await fs.writeFile(file, '# Imported original')
+  original.catalog.skills[0].originPath = file
+  await saveVaultData(root, original)
+  const { data } = await activateSkill()
+  const disabled = structuredClone(data)
+  disabled.projects.projects[0].skillIds = []
+
+  await expect(saveProjectSkills(root, data, disabled, async () => {
+    throw new Error('Metadata failed')
+  })).rejects.toThrow('Metadata failed')
+  expect(await fs.readFile(file, 'utf8')).toBe('# Imported original')
+  expect(await readVault(root)).toEqual(data)
+})
+
+test('disabling refuses to remove a Markdown also used as another imported origin', async () => {
+  const { data, file } = await activateSkill()
+  const other = createDocumentedExamples()[1]
+  other.skill.category = 'Geral'
+  other.skill.originPath = file
+  data.catalog.skills.push(other.skill)
+  await writeSkillFile(root, other.skill.filePath, other.content)
+  await saveVaultData(root, data)
+  const content = await fs.readFile(file)
+  const disabled = structuredClone(data)
+  disabled.projects.projects[0].skillIds = []
+
+  await expect(saveProjectSkills(root, data, disabled)).rejects.toThrow('origem importado')
+  expect(await fs.readFile(file)).toEqual(content)
+  expect(await readVault(root)).toEqual(data)
+})
+
+test('activation reuses matching existing content without claiming its folder', async () => {
+  const file = join(projectPath, '.github/skills/testes-unitarios-com-vitest/SKILL.md')
+  await fs.mkdir(join(file, '..'), { recursive: true })
+  const content = await fs.readFile(join(root, original.catalog.skills[0].filePath))
+  await fs.writeFile(file, content)
+
+  const { data } = await activateSkill()
+
+  expect(await fs.readFile(file)).toEqual(content)
+  expect(data.catalog.skills[0].publishedFolders![0].owned).toBe(false)
+})
+
+test('a metadata failure leaves a reused project Markdown untouched', async () => {
+  const file = join(projectPath, '.github/skills/testes-unitarios-com-vitest/SKILL.md')
+  await fs.mkdir(join(file, '..'), { recursive: true })
+  const content = await fs.readFile(join(root, original.catalog.skills[0].filePath))
+  await fs.writeFile(file, content)
+  const next = structuredClone(original)
+  next.projects.projects[0].skillIds = [next.catalog.skills[0].id]
+
+  await expect(saveProjectSkills(root, original, next, async () => {
+    throw new Error('Metadata failed')
+  })).rejects.toThrow('Metadata failed')
+  expect(await fs.readFile(file)).toEqual(content)
+  expect(await readVault(root)).toEqual(original)
+})
+
+test('reactivation reuses a matching existing deployment and clears its archive', async () => {
+  const { data, file } = await activateSkill()
+  const published = await fs.readFile(file)
+  const disabled = structuredClone(data)
+  disabled.projects.projects[0].skillIds = []
+  await saveProjectSkills(root, data, disabled)
+  await fs.mkdir(join(file, '..'))
+  await fs.writeFile(file, published)
+  const next = structuredClone(disabled)
+  next.projects.projects[0].skillIds = [next.catalog.skills[0].id]
+
+  await saveProjectSkills(root, disabled, next)
+  expect(await fs.readFile(file)).toEqual(published)
+  const disabledAgain = structuredClone(next)
+  disabledAgain.projects.projects[0].skillIds = []
+  await expect(saveProjectSkills(root, next, disabledAgain)).resolves.toBeUndefined()
+})
+
+test('a different project file does not overwrite the archived version on reactivation', async () => {
+  const { data, file } = await activateSkill()
+  const disabled = structuredClone(data)
+  disabled.projects.projects[0].skillIds = []
+  await saveProjectSkills(root, data, disabled)
+  await fs.mkdir(join(file, '..'))
+  await fs.writeFile(file, '# Different project version')
+  const next = structuredClone(disabled)
+  next.projects.projects[0].skillIds = [next.catalog.skills[0].id]
+
+  await expect(saveProjectSkills(root, disabled, next)).rejects.toThrow('difere da copia desativada')
+  expect(await fs.readFile(file, 'utf8')).toBe('# Different project version')
+  expect(await readVault(root)).toEqual(disabled)
 })
 
 test('disabling removes discovery and re-enabling preserves project edits byte for byte', async () => {
@@ -82,6 +216,28 @@ test('saving active Markdown synchronizes unchanged generated files', async () =
   const next = structuredClone(data)
   await saveProjectSkills(root, data, next)
   expect(await fs.readFile(file, 'utf8')).toContain('# New content')
+})
+
+test('unrelated metadata changes do not fail when an unchanged active deployment is missing', async () => {
+  const { data, file } = await activateSkill()
+  await fs.unlink(file)
+  const next = structuredClone(data)
+  next.catalog.categories.push('Other')
+
+  await expect(saveProjectSkills(root, data, next)).resolves.toBeUndefined()
+  expect(await readVault(root)).toEqual(next)
+})
+
+test('disabling a deployment whose project Markdown is missing still clears the active link', async () => {
+  const { data, file } = await activateSkill()
+  await fs.unlink(file)
+  const next = structuredClone(data)
+  next.projects.projects[0].skillIds = []
+
+  await expect(saveProjectSkills(root, data, next)).resolves.toBeUndefined()
+  expect(next.projects.projects[0].deployedSkills).toEqual([])
+  await expect(fs.stat(join(file, '..'))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await readVault(root)).toEqual(next)
 })
 
 test('renaming an active skill updates its published folder and slash command name', async () => {
@@ -141,7 +297,7 @@ test('metadata failure rolls back activation without overwriting existing files'
   await fs.writeFile(file, '# User file')
   const retry = structuredClone(original)
   retry.projects.projects[0].skillIds = [retry.catalog.skills[0].id]
-  await expect(saveProjectSkills(root, original, retry)).rejects.toMatchObject({ code: 'EEXIST' })
+  await expect(saveProjectSkills(root, original, retry)).rejects.toThrow('Ja existe outro SKILL.md')
   expect(await fs.readFile(file, 'utf8')).toBe('# User file')
 })
 
@@ -161,8 +317,6 @@ test('metadata failure while disabling restores the edited active file', async (
 
 test('disabling a legacy deployment removes its empty folder without claiming unrelated content', async () => {
   const { data, file } = await activateSkill()
-  const folder = data.catalog.skills[0].publishedFolders![0]
-  await fs.unlink(join(file, '..', `.skillvortex-${folder.marker}`))
   delete data.catalog.skills[0].publishedFolders
   await saveVaultData(root, data)
   const disabled = structuredClone(data)

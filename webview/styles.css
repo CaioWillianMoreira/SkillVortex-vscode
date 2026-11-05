@@ -47,6 +47,38 @@ main {
   padding: 18px 24px 32px;
 }
 
+.action-button {
+  --action-color: #ff7875;
+}
+
+.action-button.ant-btn:not(:disabled) {
+  color: var(--action-color);
+  background: color-mix(in srgb, var(--action-color) 10%, #171717);
+  border: 1px solid color-mix(in srgb, var(--action-color) 60%, #171717);
+  box-shadow: none;
+}
+
+.action-button.ant-btn:not(:disabled):hover,
+.action-button.ant-btn-primary:not(:disabled) {
+  color: var(--action-color);
+  background: color-mix(in srgb, var(--action-color) 22%, #171717);
+  border-color: var(--action-color);
+}
+
+.action-save,
+.skill-card-actions .action-run {
+  --action-color: #73d13d;
+}
+
+.skill-card-actions .action-edit {
+  --action-color: #69b1ff;
+}
+
+.skill-card-actions .action-unlink,
+.action-restore {
+  --action-color: #ffc069;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -226,6 +258,17 @@ main {
   width: 160px;
 }
 
+.skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+  gap: 16px;
+}
+
+.skill-grid-item {
+  min-width: 0;
+  container-type: inline-size;
+}
+
 .skill-card.ant-card {
   display: flex;
   height: 100%;
@@ -332,8 +375,22 @@ main {
 }
 
 .skill-card-actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  width: 100%;
+}
+
+.skill-card-actions .action-button.ant-btn,
+.skill-card-actions .action-button.ant-btn:not(:disabled),
+.skill-card-actions .action-button.ant-btn:not(:disabled):hover {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.skill-card-actions .action-button.ant-btn:not(:disabled):hover {
+  background: #ffffff0a;
 }
 
 .skill-card-footer .ant-typography {
@@ -341,8 +398,16 @@ main {
 }
 
 .skill-card-footer .ant-btn {
-  padding-inline: 5px;
-  font-size: 12px;
+  min-width: 0;
+  gap: 3px;
+  padding-inline: 3px;
+  font-size: 11px;
+}
+
+@container (max-width: 350px) {
+  .skill-card-actions .ant-btn > span:not(.ant-btn-icon) {
+    display: none;
+  }
 }
 
 .empty-library {

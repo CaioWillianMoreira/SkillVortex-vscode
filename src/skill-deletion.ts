@@ -106,13 +106,15 @@ export async function planSkillDeletion(root: string, data: VaultData, skill: Sk
     const target = await optionalDirectory(projectPath, ['.github', 'skills', folder.directory])
     if (!target) continue
     if (inside(target, canonicalRoot)) throw new Error(`A pasta publicada contem o cofre: ${target}`)
-    if (!folder.owned || !folder.marker) {
+    if (!folder.owned) {
       throw new Error(`A pasta nao foi identificada como criada pelo SkillVortex: ${target}. Preserve seus arquivos e remova-a manualmente, se desejar.`)
     }
-    const marker = join(target, `.skillvortex-${folder.marker}`)
-    if (!await optionalFile(marker) || (await fs.lstat(marker)).size > 800 ||
-        await fs.readFile(marker, 'utf8') !== skill.id) {
-      throw new Error(`Identificacao da pasta publicada ausente ou alterada: ${target}`)
+    if (folder.marker) {
+      const marker = join(target, `.skillvortex-${folder.marker}`)
+      if (!await optionalFile(marker) || (await fs.lstat(marker)).size > 800 ||
+          await fs.readFile(marker, 'utf8') !== skill.id) {
+        throw new Error(`Identificacao da pasta publicada ausente ou alterada: ${target}`)
+      }
     }
     for (const other of data.catalog.skills) {
       if (other.id === skill.id) continue

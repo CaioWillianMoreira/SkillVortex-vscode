@@ -55,6 +55,7 @@ test('disabling removes discovery and re-enabling preserves project edits byte f
   disabled.projects.projects[0].skillIds = []
   await saveProjectSkills(root, data, disabled)
   await expect(fs.stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(fs.stat(join(file, '..'))).rejects.toMatchObject({ code: 'ENOENT' })
   const directories = await fs.readdir(join(root, '.skillvortex/disabled-skills'))
   const archivedDirectory = join(root, '.skillvortex/disabled-skills', directories[0])
   const archivedFiles = await fs.readdir(archivedDirectory)
@@ -94,10 +95,27 @@ test('renaming an active skill updates its published folder and slash command na
   const deployed = next.projects.projects[0].deployedSkills![0]
   const renamed = join(projectPath, '.github/skills', 'verifica-consistencia-do-html', 'SKILL.md')
   expect(deployed.directory).toBe('verifica-consistencia-do-html')
+  expect(next.catalog.skills[0].publishedFolders?.map(folder => folder.directory))
+    .toEqual(['verifica-consistencia-do-html'])
   expect(await fs.readFile(renamed, 'utf8')).toMatch(
     /^---\nname: verifica-consistencia-do-html\ndescription: ".+"\n---/
   )
   await expect(fs.stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+test('renaming a published folder does not move another imported origin', async () => {
+  const { data, file } = await activateSkill()
+  const origin = join(file, '..', 'imported.md')
+  await fs.writeFile(origin, 'Original')
+  const next = structuredClone(data)
+  next.catalog.skills[0].name = 'Another name'
+  const other = createDocumentedExamples()[1].skill
+  other.category = 'Geral'
+  other.originPath = origin
+  next.catalog.skills.push(other)
+  await expect(saveProjectSkills(root, data, next)).rejects.toThrow('origem importado')
+  expect(await fs.readFile(origin, 'utf8')).toBe('Original')
+  expect(await fs.readFile(file, 'utf8')).toContain('Testes Unitários com Vitest')
 })
 
 test('saving never overwrites a skill edited in the project', async () => {
@@ -119,8 +137,11 @@ test('metadata failure rolls back activation without overwriting existing files'
   const dir = data.projects.projects[0].deployedSkills![0].directory
   const file = join(projectPath, '.github/skills', dir, 'SKILL.md')
   await expect(fs.stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+  await fs.mkdir(join(projectPath, '.github/skills', dir))
   await fs.writeFile(file, '# User file')
-  await expect(saveProjectSkills(root, original, data)).rejects.toMatchObject({ code: 'EEXIST' })
+  const retry = structuredClone(original)
+  retry.projects.projects[0].skillIds = [retry.catalog.skills[0].id]
+  await expect(saveProjectSkills(root, original, retry)).rejects.toMatchObject({ code: 'EEXIST' })
   expect(await fs.readFile(file, 'utf8')).toBe('# User file')
 })
 
@@ -136,6 +157,18 @@ test('metadata failure while disabling restores the edited active file', async (
   expect(await readVault(root)).toEqual(data)
   await saveProjectSkills(root, data, next)
   await expect(fs.stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+test('disabling a legacy deployment removes its empty folder without claiming unrelated content', async () => {
+  const { data, file } = await activateSkill()
+  const folder = data.catalog.skills[0].publishedFolders![0]
+  await fs.unlink(join(file, '..', `.skillvortex-${folder.marker}`))
+  delete data.catalog.skills[0].publishedFolders
+  await saveVaultData(root, data)
+  const disabled = structuredClone(data)
+  disabled.projects.projects[0].skillIds = []
+  await saveProjectSkills(root, data, disabled)
+  await expect(fs.stat(join(file, '..'))).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
 test.each(['blocked', 'unlinked', 'deleted-project'])('%s preserves published files outside the project', async action => {
@@ -164,6 +197,9 @@ test('changing the associated folder transfers the preserved skill to the new pr
   await expect(fs.stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
   expect(await fs.readFile(join(newPath, '.github/skills',
     next.projects.projects[0].deployedSkills![0].directory, 'SKILL.md'), 'utf8')).toBe(edited)
+  expect(next.catalog.skills[0].publishedFolders?.map(folder => folder.projectPath).sort()).toEqual(
+    [await fs.realpath(projectPath), await fs.realpath(newPath)].sort()
+  )
 })
 
 test('refuses symbolic directories and vaults inside the project', async () => {
@@ -194,6 +230,7 @@ test('restoring a backup also deactivates and restores the project file', async 
   const save = async (path: string, next: VaultData) => saveProjectSkills(path, await readVault(path), next)
   await restoreVaultBackup(root, disabledBackup.id, save)
   await expect(fs.stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect((await readVault(root)).catalog.skills[0].publishedFolders).toHaveLength(1)
   await restoreVaultBackup(root, enabledBackup.id, save)
   expect(await fs.readFile(file, 'utf8')).toContain('Testes Unitários com Vitest')
 })

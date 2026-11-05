@@ -57,7 +57,6 @@ function App(): React.JSX.Element {
   const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>()
   const [agentFilter, setAgentFilter] = useState<string>()
-  const [projectName, setProjectName] = useState('')
   const [categoryName, setCategoryName] = useState('')
   const [draft, setDraft] = useState<Draft | null>(null)
   const [saving, setSaving] = useState(false)
@@ -216,21 +215,6 @@ function App(): React.JSX.Element {
           ) : (
             <Space wrap>
               <Button onClick={() => api.postMessage({ type: 'importMarkdown' })} disabled={!state.root}>Importar .md</Button>
-              <Input
-                className="inline-create-input"
-                aria-label="Nome do novo projeto"
-                placeholder="Novo Projeto"
-                value={projectName}
-                onChange={event => setProjectName(event.target.value)}
-                onPressEnter={() => {
-                  if (projectName.trim()) api.postMessage({ type: 'createProject', name: projectName })
-                  setProjectName('')
-                }}
-              />
-              <Button onClick={() => {
-                if (projectName.trim()) api.postMessage({ type: 'createProject', name: projectName })
-                setProjectName('')
-              }} disabled={!state.root || !projectName.trim()}>Criar projeto</Button>
               <Button type="primary" onClick={() => api.postMessage({ type: 'createSkill' })} disabled={!state.root}>Nova Skill</Button>
             </Space>
           )}
@@ -371,6 +355,8 @@ function App(): React.JSX.Element {
             <Row gutter={[16, 16]}>
               {skills.map(item => {
                 const linked = Boolean(activeProject?.skillIds.includes(item.id))
+                const linkedAnywhere = Boolean(state.projects?.projects.some(project => project.skillIds.includes(item.id)))
+                const lockedTitle = linkedAnywhere ? 'Desative a skill em todos os projetos antes de realizar esta acao.' : undefined
                 const cardColor = item.cardColor ?? categoryColor(item.category)
                 return (
                   <Col key={item.id} xs={24} sm={24} md={12} lg={8} xl={6}>
@@ -425,9 +411,9 @@ function App(): React.JSX.Element {
                               : 'Ative a skill no projeto para executa-la.'}
                             onClick={() => api.postMessage({ type: 'runSkill', id: item.id })}
                           >Executar</Button>
-                          <Button size="small" type="link" onClick={() => api.postMessage({ type: 'openSkill', id: item.id })}>Editar</Button>
-                          <Button size="small" type="link" onClick={() => api.postMessage({ type: 'unlinkSkill', id: item.id })}>Desvincular</Button>
-                          <Button size="small" danger type="link" onClick={() => api.postMessage({ type: 'deleteSkill', id: item.id })}>Excluir</Button>
+                          <Button size="small" type="link" disabled={linkedAnywhere} title={lockedTitle} onClick={() => api.postMessage({ type: 'openSkill', id: item.id })}>Editar</Button>
+                          <Button size="small" type="link" disabled={linkedAnywhere} title={lockedTitle} onClick={() => api.postMessage({ type: 'unlinkSkill', id: item.id })}>Desvincular</Button>
+                          <Button size="small" danger type="link" disabled={linkedAnywhere} title={lockedTitle} onClick={() => api.postMessage({ type: 'deleteSkill', id: item.id })}>Excluir</Button>
                         </Space>
                       </div>
                     </Card>

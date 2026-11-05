@@ -37,7 +37,14 @@ export const skillSchema = z.object({
   status: z.enum(['validated', 'pending', 'blocked']),
   tags: z.array(z.string()),
   cardColor: z.enum(SKILL_CARD_COLORS).optional(),
-  originPath: z.string().optional()
+  originPath: z.string().optional(),
+  publishedFolders: z.array(z.object({
+    projectId: z.string().min(1),
+    projectPath: z.string().min(1),
+    directory: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+    owned: z.boolean(),
+    marker: z.string().regex(/^[a-f0-9]{32}$/).optional()
+  })).max(10000).optional()
 })
 export type Skill = z.infer<typeof skillSchema>
 export const catalogSchema = z.object({

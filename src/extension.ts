@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 import { promises as fs } from 'node:fs'
 import { randomBytes } from 'node:crypto'
-import { basename, join, relative, resolve } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
 import { createVault, readVault, readContained, writeSkillFile } from './vault'
 import { initializeSql, migrateDesktop, rebuildIndex } from './database'
@@ -10,6 +10,7 @@ import { projectMarkdownAgent, readProjectMarkdown, scanProjectMarkdown } from '
 import { createVaultBackup, listVaultBackups, restoreVaultBackup } from './backup'
 import { createDocumentedExamples, reconcileDocumentedExamples } from './documented-examples'
 import { saveProjectSkills } from './project-skills'
+import { assertSkillInactive, deleteSkillFiles, planSkillDeletion } from './skill-deletion'
 import type { SkillCardColor } from './skill-colors'
 
 const messageSchema = z.discriminatedUnion('type', [
@@ -26,7 +27,6 @@ const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('createDocumentedExamples') }),
   z.object({ type: z.literal('importMarkdown') }),
   z.object({ type: z.literal('createCategory'), name: z.string() }),
-  z.object({ type: z.literal('createProject'), name: z.string() }),
   z.object({ type: z.literal('setProjectFolder') }),
   z.object({ type: z.literal('scanProject') }),
   z.object({ type: z.literal('setActiveProject'), id: z.string().nullable() }),
@@ -298,7 +298,7 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!selected?.length) return
     await importFiles(selected.map(file => file.fsPath))
   }
-  async function importFiles(filePaths: string[], projectRoot?: string): Promise<void> {
+  async function importFiles(filePaths: string[], projectRoots?: string[]): Promise<void> {
     const { root, data } = await currentVault()
     const existingPaths = new Set(data.catalog.skills
       .map(item => item.originPath)
@@ -323,14 +323,14 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!data.catalog.categories.includes(category)) data.catalog.categories.push(category)
     const imported: Array<{ skill: z.infer<typeof skillSchema>; content: string }> = []
     for (const filePath of uniqueFiles) {
-      if (!projectRoot) {
+      if (!projectRoots) {
         const stat = await fs.stat(filePath)
         if (!stat.isFile() || stat.size > 2 * 1024 * 1024) {
           throw new Error(`O arquivo precisa ser Markdown e ter no maximo 2 MB: ${filePath}`)
         }
       }
-      const content = projectRoot
-        ? await readProjectMarkdown(projectRoot, filePath)
+      const content = projectRoots
+        ? await readProjectMarkdown(projectRoots, filePath)
         : await fs.readFile(filePath, 'utf8')
       if (Buffer.byteLength(content) > 2 * 1024 * 1024) {
         throw new Error(`Markdown excede o limite de 2 MB: ${filePath}`)
@@ -412,31 +412,43 @@ export function activate(context: vscode.ExtensionContext): void {
     const project = data.projects.projects.find(item => item.id === data.projects.activeProject)
     if (!project) throw new Error('Crie ou selecione um projeto antes de buscar Markdown.')
     if (!project.sourcePath) throw new Error('Associe uma pasta ao projeto antes de buscar Markdown.')
-    const files = await scanProjectMarkdown(project.sourcePath)
+    const projectRoot = await fs.realpath(project.sourcePath)
+    const workspaceRoots = (vscode.workspace.workspaceFolders ?? [])
+      .filter(folder => folder.uri.scheme === 'file')
+      .map(folder => folder.uri.fsPath)
+    const projectRoots = [...new Set([projectRoot, ...workspaceRoots])]
+    const canonicalRoots = [...new Set(await Promise.all(projectRoots.map(path => fs.realpath(path))))]
+    const files = await scanProjectMarkdown(canonicalRoots)
     if (!files.length) {
-      void vscode.window.showInformationMessage('Nenhum Markdown encontrado em .github, .agents ou .agent do projeto.')
+      void vscode.window.showInformationMessage(
+        'Nenhum Markdown de skill encontrado nas pastas dos agentes do projeto ou dos workspaces abertos.'
+      )
       return
     }
     const existing = new Set(data.catalog.skills.map(item => item.originPath)
       .filter((path): path is string => Boolean(path))
       .map(path => resolve(path)))
-    const sourceRoot = await fs.realpath(project.sourcePath)
     const published = new Set((project.deployedSkills ?? []).map(item =>
-      resolve(sourceRoot, '.github', 'skills', item.directory, 'SKILL.md')))
+      resolve(projectRoot, '.github', 'skills', item.directory, 'SKILL.md')))
     const selected = await vscode.window.showQuickPick(files.map(file => {
+      const sourceRoot = canonicalRoots.find(root => {
+        const path = relative(root, file)
+        return path && !isAbsolute(path) && path !== '..' && !path.startsWith(`..${sep}`)
+      })
+      if (!sourceRoot) throw new Error(`A skill encontrada esta fora das pastas verificadas: ${file}`)
       const path = relative(sourceRoot, file)
       const note = existing.has(resolve(file)) ? 'Ja importado na biblioteca'
         : published.has(resolve(file)) ? 'Publicada pelo SkillVortex' : undefined
       return {
         label: basename(file),
-        description: `${projectMarkdownAgent(path) ?? 'Agente'} · ${path}`,
+        description: `${projectMarkdownAgent(path) ?? 'Agente'} · ${basename(sourceRoot)} / ${path}`,
         detail: note ?? file,
         picked: !note,
         file
       }
     }), {
       canPickMany: true,
-      placeHolder: `Selecione Markdown dos agentes (.github, .agents, .agent) para importar (${files.length} encontrados)`
+      placeHolder: `Selecione skills nas pastas do projeto ou dos workspaces abertos (${files.length} encontrados)`
     })
     if (!selected?.length) return
     const fresh = selected.filter(item => !existing.has(resolve(item.file)))
@@ -444,7 +456,7 @@ export function activate(context: vscode.ExtensionContext): void {
       void vscode.window.showInformationMessage('Os arquivos selecionados ja estao na biblioteca.')
       return
     }
-    await importFiles(fresh.map(item => item.file), project.sourcePath)
+    await importFiles(fresh.map(item => item.file), canonicalRoots)
     void vscode.window.showInformationMessage(`${fresh.length} Markdown importado(s) de ${project.name}.`)
   }
   async function chooseDestination(): Promise<string | undefined> {
@@ -543,19 +555,6 @@ export function activate(context: vscode.ExtensionContext): void {
         await persist(root, data)
         await refresh()
       }
-      if (message.type === 'createProject') {
-        const { root, data } = await currentVault()
-        const name = message.name.trim()
-        if (!name || name.length > 60) throw new Error('O projeto deve ter de 1 a 60 caracteres.')
-        if (data.projects.projects.some(item => item.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
-          throw new Error('Ja existe um projeto com esse nome.')
-        }
-        const project = { id: randomBytes(16).toString('hex'), name, skillIds: [] }
-        data.projects.projects.push(project)
-        data.projects.activeProject = project.id
-        await persist(root, data)
-        await refresh()
-      }
       if (message.type === 'setActiveProject') {
         const { root, data } = await currentVault()
         if (message.id !== null && !data.projects.projects.some(item => item.id === message.id)) {
@@ -571,7 +570,8 @@ export function activate(context: vscode.ExtensionContext): void {
         if (!skill) throw new Error('Skill nao encontrada.')
         if (skill.status === 'blocked') throw new Error('Skills bloqueadas nao podem ser vinculadas.')
         let project = data.projects.projects.find(item => item.id === data.projects.activeProject)
-        if (!project?.sourcePath) {
+        const canRemoveLegacyLink = project?.skillIds.includes(skill.id) && !project.deployedSkills?.length
+        if (!project?.sourcePath && !canRemoveLegacyLink) {
           const sourcePath = await chooseProjectFolder()
           if (!sourcePath) return
           if (!project) {
@@ -593,6 +593,7 @@ export function activate(context: vscode.ExtensionContext): void {
             project.sourcePath = sourcePath
           }
         }
+        if (!project) throw new Error('Projeto nao encontrado.')
         project.skillIds = project.skillIds.includes(skill.id)
           ? project.skillIds.filter(id => id !== skill.id)
           : [...project.skillIds, skill.id]
@@ -628,6 +629,7 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         const index = data.catalog.skills.findIndex(item => item.id === message.id)
         if (index < 0) throw new Error('Skill nao encontrada.')
+        assertSkillInactive(data, message.id)
         if (!data.catalog.categories.includes(message.category)) throw new Error('Categoria nao encontrada.')
         const projects = new Set(data.projects.projects.map(project => project.id))
         if (message.projectIds.some(id => !projects.has(id))) throw new Error('Projeto nao encontrado.')
@@ -678,29 +680,44 @@ export function activate(context: vscode.ExtensionContext): void {
           throw error
         }
         if (nextFilePath !== previousFilePath) await fs.unlink(join(root, previousFilePath))
-        editingSkillId = updated.id
+        editingSkillId = data.projects.projects.some(project => project.skillIds.includes(updated.id))
+          ? null : updated.id
         await refresh(true)
       }
       if (message.type === 'unlinkSkill' || message.type === 'deleteSkill') {
         const { root, data } = await currentVault()
         const skill = data.catalog.skills.find(item => item.id === message.id)
         if (!skill) throw new Error('Skill nao encontrada.')
+        assertSkillInactive(data, skill.id)
         const deleting = message.type === 'deleteSkill'
+        const plan = deleting ? await planSkillDeletion(root, data, skill) : undefined
+        const action = deleting ? 'Excluir permanentemente' : 'Desvincular'
         const confirmation = await vscode.window.showWarningMessage(
           deleting
-            ? `Excluir permanentemente o Markdown ${join(root, skill.filePath)}?`
+            ? `Excluir permanentemente ${skill.name}?`
             : `Desvincular ${skill.name} da biblioteca? O arquivo sera preservado.`,
-          { modal: true }, deleting ? 'Excluir arquivo' : 'Desvincular'
+          {
+            modal: true,
+            detail: plan
+              ? `Os seguintes arquivos e pastas serao apagados, incluindo todo o conteudo das pastas. As origens importadas serao preservadas:\n${[plan.vaultFile, ...plan.archives, ...plan.folders].join('\n')}`
+              : undefined
+          }, action
         )
-        if (!confirmation) return
-        if (deleting) await readContained(root, join(root, skill.filePath))
-        data.catalog.skills = data.catalog.skills.filter(item => item.id !== skill.id)
-        for (const project of data.projects.projects) {
-          project.skillIds = project.skillIds.filter(id => id !== skill.id)
-        }
-        await persist(root, data)
-        if (deleting) {
-          await fs.unlink(join(root, skill.filePath))
+        if (confirmation !== action) return
+        if (plan) {
+          try {
+            await deleteSkillFiles(root, plan, persist)
+          } catch (error) {
+            try {
+              await refresh()
+            } catch (refreshError) {
+              throw new AggregateError([error, refreshError], 'Falha ao excluir a skill e atualizar a biblioteca.')
+            }
+            throw error
+          }
+        } else {
+          data.catalog.skills = data.catalog.skills.filter(item => item.id !== skill.id)
+          await persist(root, data)
         }
         if (editingSkillId === skill.id) editingSkillId = null
         await refresh()
@@ -708,6 +725,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (message.type === 'openSkill') {
         const { data } = await currentVault()
         if (!data.catalog.skills.some(item => item.id === message.id)) throw new Error('Skill nao encontrada.')
+        assertSkillInactive(data, message.id)
         editingSkillId = message.id
         await refresh()
       }

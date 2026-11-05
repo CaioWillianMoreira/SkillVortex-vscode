@@ -20,6 +20,8 @@ jest.mock('vscode', () => {
   const postMessage = jest.fn(async () => true)
   const errors = jest.fn()
   const dialog = jest.fn()
+  const warning = jest.fn(async (_message: string, _options: unknown, action: string) => action)
+  const quickPick = jest.fn(async (items: Array<{ picked: boolean }>) => items.filter(item => item.picked))
   const workspace = { isTrusted: true, workspaceFolders: [] }
   const uri = (path: string) => ({ fsPath: path, scheme: 'file', toString: () => path })
   return {
@@ -40,7 +42,9 @@ jest.mock('vscode', () => {
       createStatusBarItem: () => ({ ...disposable, show() {} }),
       showErrorMessage: errors,
       showInformationMessage: jest.fn(),
+      showWarningMessage: warning,
       showOpenDialog: dialog,
+      showQuickPick: quickPick,
       createWebviewPanel: () => ({
         onDidDispose: () => disposable,
         webview: {
@@ -50,7 +54,7 @@ jest.mock('vscode', () => {
         }
       })
     },
-    testing: { commands, executeCommand, postMessage, errors, dialog, dispatch: (message: unknown) => receive(message) }
+    testing: { commands, executeCommand, postMessage, errors, dialog, warning, quickPick, dispatch: (message: unknown) => receive(message) }
   }
 }, { virtual: true })
 
@@ -61,6 +65,8 @@ const mock: {
     executeCommand: ReturnType<typeof jest.fn>
     errors: ReturnType<typeof jest.fn>
     dialog: ReturnType<typeof jest.fn>
+    warning: ReturnType<typeof jest.fn>
+    quickPick: ReturnType<typeof jest.fn>
     postMessage: ReturnType<typeof jest.fn>
     dispatch: (message: unknown) => Promise<void>
   }
@@ -123,6 +129,105 @@ test('the existing toggle message creates a workspace project, publishes, disabl
   expect((await readVault(root)).projects.projects[0].skillIds).toEqual([])
   await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
   expect(await fs.readFile(file, 'utf8')).toContain('Edicao no projeto')
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('project search offers custom skill files and excludes documentation without duplicating imports', async () => {
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
+  const project = (await readVault(root)).projects.projects[0]
+  const sourceRoot = await fs.realpath(projectPath)
+  const published = join(sourceRoot, '.github', 'skills', project.deployedSkills![0].directory, 'SKILL.md')
+  const candidates = [
+    { path: '.github/skills/exemplo/1-skill-de-teste.md', content: '# Skill de teste\n\nTesta algo.' },
+    { path: '.agents/skills/exemplo/ANALISE-SEO.md', content: '# Analise SEO\n\nAnalisa SEO.' },
+    { path: '.agent/skills/exemplo/OUTRA.MD', content: '# Outra skill\n\nOutra descricao.' }
+  ]
+  const ignored = [
+    '.github/skills/exemplo/README.md', '.github/skills/exemplo/CONTRIBUTING.md',
+    '.github/skills/exemplo/docs/nao-importar.md', '.agents/skills/exemplo/CONFIGURACAO.md',
+    '.github/copilot-instructions.md', '.agent/workflows/deploy.md'
+  ]
+  for (const item of [...candidates, ...ignored.map(path => ({ path, content: '# Documento' }))]) {
+    const file = join(sourceRoot, item.path)
+    await fs.mkdir(join(file, '..'), { recursive: true })
+    await fs.writeFile(file, item.content)
+  }
+
+  await mock.testing.dispatch({ type: 'scanProject' })
+
+  expect(mock.testing.quickPick).toHaveBeenCalledTimes(1)
+  const firstSelection = mock.testing.quickPick.mock.calls[0][0]
+  expect(firstSelection).toHaveLength(4)
+  expect(firstSelection).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      file: join(sourceRoot, candidates[0].path), label: '1-skill-de-teste.md',
+      description: expect.stringContaining('Copilot'), picked: true
+    }),
+    expect.objectContaining({
+      file: join(sourceRoot, candidates[1].path), label: 'ANALISE-SEO.md',
+      description: expect.stringContaining('Antigravity'), picked: true
+    }),
+    expect.objectContaining({
+      file: join(sourceRoot, candidates[2].path), label: 'OUTRA.MD', picked: true
+    }),
+    expect.objectContaining({ file: published, detail: 'Publicada pelo SkillVortex', picked: false })
+  ]))
+  const imported = await readVault(root)
+  expect(imported.catalog.skills).toHaveLength(4)
+  for (const item of candidates) {
+    const skill = imported.catalog.skills.find(candidate => candidate.originPath === join(sourceRoot, item.path))
+    expect(skill).toBeDefined()
+    expect(await fs.readFile(join(root, skill!.filePath), 'utf8')).toBe(item.content)
+  }
+
+  await mock.testing.dispatch({ type: 'backToDashboard' })
+  await mock.testing.dispatch({ type: 'scanProject' })
+  expect(mock.testing.quickPick).toHaveBeenCalledTimes(2)
+  const secondSelection = mock.testing.quickPick.mock.calls[1][0]
+  expect(secondSelection).toHaveLength(4)
+  for (const item of candidates) {
+    expect(secondSelection).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        file: join(sourceRoot, item.path), detail: 'Ja importado na biblioteca', picked: false
+      })
+    ]))
+  }
+  expect((await readVault(root)).catalog.skills).toHaveLength(4)
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('project search also discovers skills in other open workspace roots', async () => {
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
+  const project = (await readVault(root)).projects.projects[0]
+  const linkedRoot = await fs.realpath(project.sourcePath!)
+  const workspacePath = join(temporary, 'workspace on another path')
+  await fs.mkdir(join(workspacePath, '.github', 'skills', 'html'), { recursive: true })
+  const openWorkspaceRoot = await fs.realpath(workspacePath)
+  const workspaceSkill = join(openWorkspaceRoot, '.github', 'skills', 'html', '1-skill-de-teste.md')
+  await fs.writeFile(workspaceSkill, '# Skill no workspace\n\nEncontrada fora da pasta associada.')
+  mock.workspace.workspaceFolders = [
+    { uri: { fsPath: projectPath, scheme: 'file' } },
+    { uri: { fsPath: openWorkspaceRoot, scheme: 'file' } }
+  ]
+
+  await mock.testing.dispatch({ type: 'scanProject' })
+
+  expect(mock.testing.quickPick).toHaveBeenCalledTimes(1)
+  const selection = mock.testing.quickPick.mock.calls[0][0]
+  expect(selection).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      file: workspaceSkill,
+      label: '1-skill-de-teste.md',
+      description: expect.stringContaining('Copilot'),
+      detail: workspaceSkill,
+      picked: true
+    })
+  ]))
+  const imported = (await readVault(root)).catalog.skills.find(item => item.originPath === workspaceSkill)
+  expect(imported).toBeDefined()
+  expect(await fs.readFile(join(root, imported!.filePath), 'utf8'))
+    .toBe('# Skill no workspace\n\nEncontrada fora da pasta associada.')
+  expect(linkedRoot).not.toBe(await fs.realpath(openWorkspaceRoot))
   expect(mock.testing.errors).not.toHaveBeenCalled()
 })
 
@@ -242,7 +347,7 @@ test('rejects a card color outside the fixed palette without changing the vault'
   expect(await fs.readFile(join(root, skill.filePath), 'utf8')).toBe(content)
 })
 
-test('changing only a card color preserves local edits to a published skill', async () => {
+test('saving an active skill is rejected and preserves local edits', async () => {
   await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
   const before = await readVault(root)
   const project = before.projects.projects[0]
@@ -256,9 +361,11 @@ test('changing only a card color preserves local edits to a published skill', as
     type: 'saveSkill', ...skill, cardColor: SKILL_CARD_COLORS[7], content, projectIds: [project.id]
   })
 
-  expect((await readVault(root)).catalog.skills[0].cardColor).toBe(SKILL_CARD_COLORS[7])
+  expect(await readVault(root)).toEqual(before)
   expect(await fs.readFile(file, 'utf8')).toBe(projectContent)
-  expect(mock.testing.errors).not.toHaveBeenCalled()
+  expect(mock.testing.errors).toHaveBeenCalledWith(
+    'SkillVortex: Desative a skill em todos os projetos antes de editar, desvincular ou excluir.'
+  )
 })
 
 test('run skill opens Copilot chat with the published slash command without sending it', async () => {
@@ -273,6 +380,99 @@ test('run skill opens Copilot chat with the published slash command without send
     isPartialQuery: true
   })
   expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('active skills cannot be edited, unlinked or deleted even when another project is selected', async () => {
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
+  const data = await readVault(root)
+  data.projects.projects.push({ id: 'other', name: 'Other', skillIds: [] })
+  data.projects.activeProject = 'other'
+  await saveVaultData(root, data)
+  const before = await readVault(root)
+
+  for (const type of ['openSkill', 'unlinkSkill', 'deleteSkill']) {
+    await mock.testing.dispatch({ type, id: skillId })
+  }
+  await mock.testing.dispatch({ type: 'runSkill', id: skillId })
+
+  expect(mock.testing.warning).not.toHaveBeenCalled()
+  expect(mock.testing.executeCommand).not.toHaveBeenCalled()
+  expect(mock.testing.errors).toHaveBeenCalledTimes(4)
+  expect(mock.testing.errors).toHaveBeenLastCalledWith(
+    'SkillVortex: Ative a skill no projeto antes de executa-la.'
+  )
+  expect(await readVault(root)).toEqual(before)
+})
+
+test('saving an inactive skill with a project selected returns to the dashboard', async () => {
+  const data = await readVault(root)
+  data.projects.projects.push({ id: 'project', name: 'Project', sourcePath: projectPath, skillIds: [] })
+  data.projects.activeProject = 'project'
+  await saveVaultData(root, data)
+  const skill = data.catalog.skills[0]
+  const content = await fs.readFile(join(root, skill.filePath), 'utf8')
+  await mock.testing.dispatch({ type: 'openSkill', id: skillId })
+  await mock.testing.dispatch({
+    type: 'saveSkill', ...skill, cardColor: null, content, projectIds: ['project']
+  })
+
+  expect((await readVault(root)).projects.projects[0].skillIds).toEqual([skillId])
+  expect(mock.testing.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+    editingSkillId: null, saved: true
+  }))
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('confirmed deletion removes the card, archived Markdown and whole published folder', async () => {
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
+  const active = await readVault(root)
+  const folder = join(projectPath, '.github/skills', active.projects.projects[0].deployedSkills![0].directory)
+  await fs.writeFile(join(folder, 'extra.txt'), 'Delete with generated folder')
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
+  const disabled = await readVault(root)
+  const vaultFile = join(root, disabled.catalog.skills[0].filePath)
+
+  await mock.testing.dispatch({ type: 'deleteSkill', id: skillId })
+
+  expect(mock.testing.warning).toHaveBeenCalledWith(
+    expect.stringContaining('Excluir permanentemente'),
+    expect.objectContaining({ modal: true, detail: expect.stringContaining(folder) }),
+    'Excluir permanentemente'
+  )
+  expect((await readVault(root)).catalog.skills).toHaveLength(0)
+  await expect(fs.stat(folder)).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(fs.stat(vaultFile)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('deleting after deactivation leaves neither the Markdown nor its published directory', async () => {
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
+  const active = await readVault(root)
+  const folder = join(projectPath, '.github/skills', active.projects.projects[0].deployedSkills![0].directory)
+  const vaultFile = join(root, active.catalog.skills[0].filePath)
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
+  await expect(fs.stat(folder)).rejects.toMatchObject({ code: 'ENOENT' })
+  await mock.testing.dispatch({ type: 'deleteSkill', id: skillId })
+  expect((await readVault(root)).catalog.skills).toHaveLength(0)
+  await expect(fs.stat(folder)).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(fs.stat(vaultFile)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('manual project creation is no longer accepted', async () => {
+  const before = await readVault(root)
+  await mock.testing.dispatch({ type: 'createProject', name: 'Manual project' })
+  expect(await readVault(root)).toEqual(before)
+  expect(mock.testing.errors).toHaveBeenCalled()
+})
+
+test('cancelling deletion preserves the skill and all files', async () => {
+  const data = await readVault(root)
+  const file = join(root, data.catalog.skills[0].filePath)
+  mock.testing.warning.mockReturnValueOnce(Promise.resolve(undefined))
+  await mock.testing.dispatch({ type: 'deleteSkill', id: skillId })
+  expect(await readVault(root)).toEqual(data)
+  expect(await fs.readFile(file, 'utf8')).toContain('Testes Unitários com Vitest')
 })
 
 test('run skill requires its project folder to be open in the workspace', async () => {
@@ -292,6 +492,22 @@ test('cancelling folder selection does not create a project or link', async () =
   await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
   expect(mock.testing.dialog).toHaveBeenCalled()
   expect((await readVault(root)).projects.projects).toEqual([])
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('a legacy link without a project folder can be disabled without selecting a folder', async () => {
+  const data = await readVault(root)
+  data.projects.projects.push({ id: 'legacy', name: 'Legacy', skillIds: [skillId] })
+  data.projects.activeProject = 'legacy'
+  await saveVaultData(root, data)
+  mock.workspace.workspaceFolders = []
+
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
+  await mock.testing.dispatch({ type: 'openSkill', id: skillId })
+
+  expect(mock.testing.dialog).not.toHaveBeenCalled()
+  expect((await readVault(root)).projects.projects[0].skillIds).toEqual([])
+  expect(mock.testing.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ editingSkillId: skillId }))
   expect(mock.testing.errors).not.toHaveBeenCalled()
 })
 

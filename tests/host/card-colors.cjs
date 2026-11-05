@@ -17,6 +17,7 @@ module.exports = async function testCardColors(extension) {
   let skill
   let colorIndex = 0
   let projectLinked = false
+  let otherProjectLinked = false
   let stage = 'create'
   const state = (editingSkillId = null, saved = false) => ({
     type: 'state', root: '/test-vault',
@@ -26,6 +27,9 @@ module.exports = async function testCardColors(extension) {
       projects: [{
         id: 'color-project', name: 'Color project', sourcePath: '/test-project',
         skillIds: projectLinked ? [skill.id] : []
+      }, {
+        id: 'other-project', name: 'Other project', sourcePath: '/other-project',
+        skillIds: otherProjectLinked ? [skill.id] : []
       }]
     },
     editingSkillId, content: editingSkillId ? '# Nova Skill\n\n' : '', saved
@@ -99,7 +103,9 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.categoryTextColor, rgb(skillCardTextColor(SKILL_CARD_COLORS[colorIndex])))
           assert.notEqual(message.backgroundImage, 'none')
           assert.deepEqual(message.actions, ['Executar', 'Editar', 'Desvincular', 'Excluir'])
+          assert.deepEqual(message.disabledActions, [true, false, false, false])
           assert.equal(message.hasProjectSwitch, true)
+          assert.equal(message.hasCreateProject, false)
         } else if (message.type === 'openSkill') {
           assert.equal(stage, 'manual-dashboard')
           assert.equal(message.id, skill.id)
@@ -119,6 +125,7 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.borderColor, rgb(categoryColor('Geral')))
           assert.equal(message.categoryColor, rgb(categoryColor('Geral')))
           assert.equal(message.backgroundImage, 'none')
+          assert.deepEqual(message.disabledActions, [true, false, false, false])
           assert.equal(message.backgroundColor, 'rgb(27, 27, 27)')
           assert.equal(message.linked, false)
           stage = 'linking'
@@ -140,11 +147,24 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.borderColor, rgb(categoryColor('Geral')))
           assert.equal(message.categoryColor, rgb(categoryColor('Geral')))
           assert.equal(message.backgroundImage, 'none')
+          assert.deepEqual(message.disabledActions, projectLinked
+            ? [false, true, true, true]
+            : otherProjectLinked ? [true, true, true, true] : [true, false, false, false])
           if (projectLinked) {
             stage = 'unlinking'
             assert.ok(await webview.postMessage({ type: 'color-test-toggle-project' }))
+          } else if (stage === 'unlinked') {
+            otherProjectLinked = true
+            stage = 'other-project'
+            assert.ok(await webview.postMessage(state()))
+            assert.ok(await webview.postMessage({
+              type: 'color-test-project-state',
+              linked: false,
+              expectedBackground: 'rgb(27, 27, 27)',
+              expectedDisabledActions: [true, true, true, true]
+            }))
           } else {
-            assert.equal(stage, 'unlinked')
+            assert.equal(stage, 'other-project')
             resolve()
           }
         } else if (message.type === 'color-test-error') {
@@ -224,6 +244,10 @@ module.exports = async function testCardColors(extension) {
           categoryTextColor: getComputedStyle(category).color,
           actions: Array.from(card.querySelectorAll('.skill-card-actions button'))
             .map(item => item.textContent.trim()),
+          disabledActions: Array.from(card.querySelectorAll('.skill-card-actions button'))
+            .map(item => item.disabled),
+          hasCreateProject: Boolean(document.querySelector('input[placeholder="Novo Projeto"]')) ||
+            Array.from(document.querySelectorAll('button')).some(item => item.textContent.trim() === 'Criar projeto'),
           hasProjectSwitch: Boolean(card.querySelector('[role="switch"]'))
         };
       }
@@ -307,7 +331,9 @@ module.exports = async function testCardColors(extension) {
           waitFor('project card highlighting', () => {
             const appearance = cardAppearance();
             if (!appearance || appearance.linked !== event.data.linked ||
-                appearance.backgroundColor !== event.data.expectedBackground) return false;
+                appearance.backgroundColor !== event.data.expectedBackground ||
+                (event.data.expectedDisabledActions &&
+                  JSON.stringify(appearance.disabledActions) !== JSON.stringify(event.data.expectedDisabledActions))) return false;
             bridge.postMessage({type:'color-test-project-card', ...appearance});
             return true;
           });

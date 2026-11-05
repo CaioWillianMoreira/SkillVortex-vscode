@@ -12,11 +12,11 @@ permanece intacto em sua pasta e repositorio.
 - Importacao explicita do banco SQLite do desktop para um **cofre novo**.
 - Preservacao de IDs, categorias, tags, agentes, status e vinculos dos projetos.
 - Criacao e importacao de skills Markdown para o cofre.
-- Associacao de pastas locais aos projetos e varredura das pastas de agentes
-  (`.github`, `.agents`, `.agent`) com selecao previa dos Markdown encontrados.
+- Associacao de pastas locais aos projetos e varredura das pastas `skills` dos
+  agentes com selecao previa dos Markdown encontrados.
 - Editor integrado com Monaco local, titulo, descricao, categoria, tags, agentes,
   governanca, conteudo Markdown, pre-visualizacao GFM e projetos vinculados.
-- Criacao de categorias e projetos, selecao do projeto ativo e gerenciamento
+- Criacao de categorias, associacao automatica de projetos, selecao do projeto ativo e gerenciamento
   dos vinculos por skill.
 - Inclusao opcional dos oito cards da captura de dashboard, com metadados e
   Markdown editaveis; IDs, caminhos e conteudo Markdown existentes sao preservados.
@@ -114,8 +114,9 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   `Verifica consistencia do HTML` usa `skills/verifica-consistencia-do-html.md`.
 - **Importar .md**: copia arquivos Markdown selecionados para o cofre; arquivos
   acima de 2 MB sao recusados.
-- **Nova Categoria** e **Novo Projeto**: adicionam metadados ao catalogo. O
-  projeto ativo controla os switches **Usar no Projeto** dos cards.
+- **Nova Categoria**: adiciona uma categoria ao catalogo. Os projetos sao
+  cadastrados automaticamente ao ativar **Usar no Projeto** para uma pasta,
+  sem formulario de criacao manual. O projeto ativo controla os switches dos cards.
 - Cards ativos no projeto ficam com o fundo um pouco mais claro, preservando
   a cor escolhida. Ao passar o cursor, os cards aumentam levemente com uma
   transicao suave; o efeito respeita a preferencia por movimento reduzido.
@@ -128,9 +129,16 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   associada precisa estar aberta como pasta do workspace no VS Code.
   Ao desativar, move o Markdown para `.skillvortex/disabled-skills/` no cofre,
   preservando inclusive edicoes feitas no projeto. Reativar restaura esse arquivo.
+  A pasta publicada tambem e removida quando nao contem arquivos adicionais;
+  pastas com outros arquivos ficam registradas para a exclusao confirmada do card.
   O cofre deve ficar fora da pasta do projeto. Arquivos existentes e links
-  simbolicos nao sao sobrescritos. Salvar uma skill ativa sincroniza o Markdown
-  se o arquivo do projeto nao tiver sido editado; conflitos geram erro.
+  simbolicos nao sao sobrescritos. Pastas criadas pelo SkillVortex recebem uma
+  identificacao oculta para permitir a exclusao segura posterior.
+- **Acoes do card**: **Executar** fica habilitado somente quando a skill esta
+  ativa no projeto selecionado. **Editar**, **Desvincular** e **Excluir** ficam
+  desabilitados enquanto a skill estiver ativa em qualquer projeto. Desative-a
+  em todos eles antes de usar essas acoes. Ao salvar o editor com projetos
+  selecionados, a skill e ativada e o dashboard e exibido.
 - **Carregar exemplos**: apos confirmacao, cria no cofre os cards ausentes e sincroniza titulo,
   categoria, descricao, etiquetas, agentes e status dos exemplos que ja existem
   para corresponder a captura (acessibilidade, REST, arquitetura, seguranca,
@@ -138,16 +146,24 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   Skills bloqueadas sao desvinculadas dos projetos. Nao busca arquivos na pasta
   do projeto nem exige um projeto ativo.
 - **Associar pasta** vincula uma pasta local ao projeto ativo. **Buscar skills
-  no projeto** procura Markdown nas pastas dos agentes (`.github`, `.agents`,
-  `.agent`) e mostra os encontrados antes de importar os selecionados.
+  no projeto** procura Markdown nas pastas `skills` dos agentes e mostra os
+  encontrados antes de importar os selecionados.
 - **Biblioteca**: pesquise por texto e filtre por status, categoria e agente.
 - **Editor**: altere metadados e Markdown, confira a pre-visualizacao e ajuste
   os projetos vinculados. Monaco fornece realce Markdown e permite colar texto
   com `Ctrl+V` / `Cmd+V`; `Ctrl+S` / `Cmd+S` ou **Salvar** grava as alteracoes
   no cofre.
 - **Bloqueada**: ao salvar, remove os vinculos dessa skill em todos os projetos.
-- **Desvincular**: remove a skill do catalogo e dos projetos, preservando o
-  Markdown. **Excluir** remove o cadastro e, apos confirmacao, apaga o arquivo.
+- **Desvincular**: remove a skill do catalogo, preservando seus arquivos.
+  **Excluir** remove o cadastro e, apos confirmacao, apaga o Markdown do cofre,
+  as copias desativadas e as pastas publicadas identificadas em todos os projetos,
+  inclusive outros arquivos dentro dessas pastas. O arquivo original importado
+  e preservado; se ele estiver dentro de uma pasta a excluir, a operacao e
+  recusada. Pastas preexistentes ou sem identificacao confiavel nao sao apagadas.
+  Quando uma dessas pastas existir, a exclusao e bloqueada ate que ela seja
+  preservada ou removida manualmente. Em cofres antigos, se uma skill ja havia
+  sido desativada sem registrar a pasta, preserve ou remova a pasta antiga
+  manualmente e ative e desative a skill novamente para registrar uma nova pasta.
 
 O editor Monaco e seus workers sao empacotados localmente; a extensao nao baixa
 o editor de um CDN. A pre-visualizacao suporta GitHub Flavored Markdown sem
@@ -161,18 +177,27 @@ serem publicados. A restauracao de backups tambem sincroniza os arquivos ativos;
 as copias desativadas permanecem no cofre, mas nao fazem parte do snapshot dos
 Markdown da biblioteca.
 
-A varredura procura apenas nas pastas ocultas dos agentes na raiz do projeto:
-`.github` (GitHub Copilot: skills, prompts, instructions, agents e
-`copilot-instructions.md`), `.agents` (Antigravity: `.agents/skills`) e `.agent`
-(regras e workflows legados do Antigravity), alem de `AGENTS.md` e `GEMINI.md`
-na raiz. Inclui arquivos `.md` em qualquer capitalizacao e subpastas; exclui
-README, links simbolicos e diretorios `.git`, `node_modules`, `vendor`, `dist`,
-`out`, `build`, `release`, `.next`, `.venv`, `venv` e `coverage`. Cada item
-mostra o agente de origem; skills publicadas pelo proprio SkillVortex em
-`.github/skills` aparecem desmarcadas. A busca para
-com erro acima de 50.000 entradas ou 1.000 Markdown. Arquivos selecionados
-maiores que 2 MB sao recusados. Arquivos ja importados aparecem na selecao e
-sao ignorados ao importar novamente.
+A varredura procura `.github/skills`, `.agents/skills` e `.agent/skills` na raiz
+do projeto associado e em todas as pastas locais abertas como workspace no VS
+Code. Assim, encontra as skills mesmo quando a pasta associada esta em outro
+caminho ou volume. Inclui Markdown com qualquer nome, como `SKILL.md`,
+`1-skill-de-teste.md` ou `ANALISE-SEO.md`, inclusive em subpastas, sem exigir
+metadados. Ignora nomes convencionais de documentacao ou configuracao, como
+`README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `SECURITY.md` e `CONFIG.md`, e
+pastas como `docs`, `references`, `examples`, `assets` e `config`. Tambem ignora
+links simbolicos e diretorios gerados como `.git`, `node_modules`, `vendor`,
+`dist`, `out`, `build`, `release`, `.next`, `.venv`, `venv` e `coverage`.
+Prompts, instrucoes, workflows e arquivos fora das pastas `skills` nao aparecem
+na busca. Ela nao percorre todo o disco: considera apenas o projeto associado e
+as pastas locais que estao abertas no workspace.
+
+A classificacao usa convencoes: um documento com nome incomum ainda pode
+aparecer, e uma skill com nome reservado pode ser omitida. Nesse caso, use
+**Importar .md** para seleciona-la manualmente. Cada item mostra o agente de
+origem; skills publicadas pelo proprio SkillVortex em `.github/skills` aparecem
+desmarcadas. A busca para com erro acima de 50.000 entradas ou 1.000 Markdown.
+Arquivos selecionados maiores que 2 MB sao recusados. Arquivos ja importados
+aparecem na selecao e sao ignorados ao importar novamente.
 
 O backup cria uma copia completa do catalogo, projetos e Markdown dentro de
 `.skillvortex/backups/`. A restauracao substitui os metadados, preserva arquivos

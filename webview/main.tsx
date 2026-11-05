@@ -121,6 +121,11 @@ function App(): React.JSX.Element {
   }, [])
 
   const activeProject = state.projects?.projects.find(project => project.id === state.projects?.activeProject)
+  useEffect(() => {
+    if (categoryFilter && state.catalog && !state.catalog.categories.includes(categoryFilter)) {
+      setCategoryFilter(undefined)
+    }
+  }, [state.catalog, categoryFilter])
   const skill = state.catalog?.skills.find(item => item.id === state.editingSkillId)
   useEffect(() => {
     if (!skill || !state.projects) {
@@ -381,6 +386,26 @@ function App(): React.JSX.Element {
                   options={(state.catalog?.categories ?? []).map(category => ({ value: category, label: category }))}
                   onChange={setCategoryFilter}
                 />
+                <ActionButton action="delete" disabled={!categoryFilter} onClick={() => {
+                  if (!categoryFilter) return
+                  if (state.catalog?.skills.some(item => item.category === categoryFilter)) {
+                    modal.info({
+                      title: 'Categoria em uso',
+                      content: 'Esta categoria possui skills. Mova todas para outra categoria no editor antes de excluir.',
+                      okText: 'Entendi'
+                    })
+                    return
+                  }
+                  modal.confirm({
+                    title: 'Excluir categoria?',
+                    content: `A categoria "${categoryFilter}" sera removida. Nenhuma skill sera excluida.`,
+                    okText: 'Excluir categoria',
+                    cancelText: 'Cancelar',
+                    okButtonProps: { className: 'action-button action-delete', icon: <ActionIcon action="delete" /> },
+                    cancelButtonProps: { className: 'action-button action-back', icon: <ActionIcon action="back" /> },
+                    onOk: () => api.postMessage({ type: 'deleteCategory', name: categoryFilter })
+                  })
+                }}>Excluir categoria</ActionButton>
                 <Select
                   allowClear
                   className="filter-select"

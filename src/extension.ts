@@ -31,6 +31,7 @@ const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('createDocumentedExamples') }),
   z.object({ type: z.literal('importMarkdown') }),
   z.object({ type: z.literal('createCategory'), name: z.string() }),
+  z.object({ type: z.literal('deleteCategory'), name: z.string().trim().min(1).max(60) }),
   z.object({ type: z.literal('setProjectFolder') }),
   z.object({ type: z.literal('scanProject') }),
   z.object({ type: z.literal('setActiveProject'), id: z.string().nullable() }),
@@ -609,6 +610,16 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         data.projects.activeProject = message.id
         await persist(root, data)
+        await refresh()
+      }
+      if (message.type === 'deleteCategory') {
+        const { root, data } = await currentVault()
+        if (!data.catalog.categories.includes(message.name)) throw new Error('Categoria nao encontrada.')
+        if (data.catalog.skills.some(skill => skill.category === message.name)) {
+          throw new Error('Esta categoria possui skills. Mova todas para outra categoria antes de excluir.')
+        }
+        data.catalog.categories = data.catalog.categories.filter(category => category !== message.name)
+        await saveVaultData(root, data)
         await refresh()
       }
       if (message.type === 'toggleProjectSkill') {

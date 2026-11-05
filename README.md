@@ -16,7 +16,7 @@ permanece intacto em sua pasta e repositorio.
   agentes com selecao previa dos Markdown encontrados.
 - Editor integrado com Monaco local, titulo, descricao, categoria, tags, agentes,
   governanca, conteudo Markdown, pre-visualizacao GFM e projetos vinculados.
-- Criacao de categorias, associacao automatica de projetos, selecao do projeto ativo e gerenciamento
+- Criacao e exclusao de categorias vazias, associacao automatica de projetos, selecao do projeto ativo e gerenciamento
   dos vinculos por skill.
 - Inclusao opcional dos oito cards da captura de dashboard, com metadados e
   Markdown editaveis; IDs, caminhos e conteudo Markdown existentes sao preservados.
@@ -120,6 +120,10 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   cadastrados automaticamente ao ativar **Usar no Projeto** para uma pasta,
   sem formulario de criacao manual. O campo **Projeto** e somente leitura e
   exibe o projeto ativo, que controla os switches dos cards.
+- **Excluir categoria**: selecione a categoria no filtro e clique no botao.
+  Categorias vazias sao removidas apos confirmacao. Se houver skills, mova
+  todas para outra categoria pelo editor antes de excluir. Nenhuma skill e
+  excluida nessa operacao; o filtro volta para todas as categorias apos a remocao.
 - Cards ativos no projeto ficam com o fundo um pouco mais claro, preservando
   a cor escolhida. Ao passar o cursor, os cards aumentam levemente com uma
   transicao suave; o efeito respeita a preferencia por movimento reduzido.

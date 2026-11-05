@@ -224,6 +224,46 @@ test('saving a shared registration keeps one vault file and publishes both selec
   expect(mock.testing.errors).not.toHaveBeenCalled()
 })
 
+test('deleting an empty category persists the removal without changing skills', async () => {
+  await mock.testing.dispatch({ type: 'createCategory', name: 'Remover' })
+  const before = await readVault(root)
+  const content = await fs.readFile(join(root, before.catalog.skills[0].filePath))
+  await mock.testing.dispatch({ type: 'deleteCategory', name: 'Remover' })
+  const saved = await readVault(root)
+  expect(saved.catalog.categories).toEqual(['Geral'])
+  expect(saved.catalog.skills).toEqual(before.catalog.skills)
+  expect(saved.projects).toEqual(before.projects)
+  expect(await fs.readFile(join(root, before.catalog.skills[0].filePath))).toEqual(content)
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('deleting an occupied category is blocked even when its skills are inactive', async () => {
+  const before = await readVault(root)
+  await mock.testing.dispatch({ type: 'deleteCategory', name: 'Geral' })
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Mova todas'))
+  expect(await readVault(root)).toEqual(before)
+})
+
+test('deleting an unknown category reports an error without changing the vault', async () => {
+  const before = await readVault(root)
+  await mock.testing.dispatch({ type: 'deleteCategory', name: 'Ausente' })
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Categoria nao encontrada'))
+  expect(await readVault(root)).toEqual(before)
+})
+
+test('the last empty category can be deleted and new skills still receive a valid category', async () => {
+  const data = await readVault(root)
+  data.catalog.skills = []
+  await saveVaultData(root, data)
+  await mock.testing.dispatch({ type: 'deleteCategory', name: 'Geral' })
+  expect((await readVault(root)).catalog.categories).toEqual([])
+  await mock.testing.dispatch({ type: 'createSkill', cardColor: null })
+  const saved = await readVault(root)
+  expect(saved.catalog.categories).toEqual(['Geral'])
+  expect(saved.catalog.skills[0].category).toBe('Geral')
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
 test('loading examples rejects an existing card without changing the vault', async () => {
   const before = await readVault(root)
   const files = await fs.readdir(join(root, 'skills'))

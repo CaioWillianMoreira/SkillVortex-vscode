@@ -124,20 +124,35 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   a cor escolhida. Ao passar o cursor, os cards aumentam levemente com uma
   transicao suave; o efeito respeita a preferencia por movimento reduzido.
 - Os botoes gerais mantem os icones e o padrao vermelho com bordas.
-  Apenas Salvar (verde) e Restaurar backup (laranja) recebem destaque diferente.
+  Nova Skill (verde claro), Salvar e Criar backup (verde escuro),
+  Restaurar backup (laranja), Importar .md e Voltar ao Dashboard (azul claro) recebem destaque diferente.
+  Carregar exemplos so e permitido quando nao existe nenhum card na biblioteca,
+  independentemente dos filtros, e o botao so aparece se tambem nao existem Markdown de skills nas
+  pastas `.github/skills`, `.agents/skills` e `.agent/skills` do projeto ativo
+  (ou das pastas abertas, quando nenhum projeto esta associado).
   As acoes dos cards nao possuem bordas: Executar em verde, Editar em azul,
   Desvincular em laranja e Excluir em vermelho.
   As quatro acoes dos cards ficam alinhadas em uma unica linha; em cards
   estreitos, os icones preservam os nomes acessiveis e dicas de cada acao.
   Acoes indisponiveis permanecem visualmente desabilitadas.
-- **Usar no Projeto**: o botao existente publica a skill como
-  `.github/skills/<nome-legivel>/SKILL.md`, com frontmatter para o GitHub
-  Copilot. Sem projeto ativo ou pasta associada, usa a unica pasta local aberta
+- **Cadastro compartilhado por agente**: uma regra tem um unico Markdown no
+  cofre e um card para cada agente associado. O filtro de agentes so muda a
+  exibicao; as acoes levam o agente do proprio card. Conteudo, titulo, descricao,
+  etiquetas, status e cor sao compartilhados. O editor informa esse compartilhamento
+  e exige desativar a regra em todos os agentes antes de editar.
+  Vinculos, publicacoes e arquivos desativados sao independentes por agente.
+  Registros antigos continuam vinculados ao GitHub Copilot; abrir um cofre nao
+  copia nem move arquivos automaticamente para outro agente.
+- **Usar no Projeto**: o card GitHub Copilot publica em
+  `.github/skills/<nome-legivel>/SKILL.md`; o card Antigravity publica em
+  `.agents/skills/<nome-legivel>/SKILL.md`. Importacoes antigas de `.agent/skills`
+  continuam usando esse caminho. Uma acao no card de um agente nao sincroniza
+  nem altera as publicacoes do outro. Sem projeto ativo ou pasta associada, usa a unica pasta local aberta
   no VS Code ou solicita uma pasta; cria o cadastro do projeto quando necessario.
   Se o `SKILL.md` ja existir e for a origem importada ou tiver conteudo identico
   ao da skill, ativa o vinculo sem sobrescrever o arquivo. Arquivos diferentes
   e conflitos com copias desativadas sao preservados e informados para revisao.
-  **Executar** abre o chat do Copilot com o comando `/<nome-legivel>`
+  **Executar**, disponivel apenas no card GitHub Copilot, abre o chat com o comando `/<nome-legivel>`
   preenchido para a skill ativa; revise o pedido e envie no chat. A pasta
   associada precisa estar aberta como pasta do workspace no VS Code.
   Ao desativar, move o Markdown para `.skillvortex/disabled-skills/` no cofre,
@@ -148,18 +163,19 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   A pasta publicada tambem e removida quando nao contem arquivos adicionais;
   pastas com outros arquivos ficam registradas para a exclusao confirmada do card.
   O cofre deve ficar fora da pasta do projeto. Arquivos existentes e links
-  simbolicos nao sao sobrescritos. Pastas criadas pelo SkillVortex recebem uma
-  identificacao oculta para permitir a exclusao segura posterior.
-- **Acoes do card**: **Executar** fica habilitado somente quando a skill esta
-  ativa no projeto selecionado. **Editar**, **Desvincular** e **Excluir** ficam
-  desabilitados enquanto a skill estiver ativa em qualquer projeto. Desative-a
-  em todos eles antes de usar essas acoes. Ao salvar o editor com projetos
-  selecionados, a skill e ativada e o dashboard e exibido.
-- **Carregar exemplos**: apos confirmacao, cria no cofre os cards ausentes e sincroniza titulo,
-  categoria, descricao, etiquetas, agentes e status dos exemplos que ja existem
-  para corresponder a captura (acessibilidade, REST, arquitetura, seguranca,
-  Git, SEO, CI e Vitest). Preserva IDs, caminhos e conteudo Markdown existentes.
-  Skills bloqueadas sao desvinculadas dos projetos. Nao busca arquivos na pasta
+  simbolicos nao sao sobrescritos. A propriedade das pastas e registrada no
+  cofre, sem criar arquivos de identificacao no projeto.
+- **Acoes do card**: **Executar** exige ativacao do GitHub Copilot no projeto
+  selecionado. **Desvincular** remove apenas a associacao daquele agente,
+  preservando seus arquivos publicados. **Excluir** exige desativar aquele
+  agente em todos os projetos e remove somente suas pastas e arquivos arquivados.
+  O Markdown compartilhado continua no cofre enquanto houver outro agente
+  associado; a confirmacao lista os arquivos que serao apagados.
+  Ao salvar o editor com projetos selecionados, todos os agentes suportados
+  associados a regra sao ativados nesses projetos.
+- **Carregar exemplos**: disponivel somente com a biblioteca sem cards. Apos
+  confirmacao, cria os oito exemplos da captura (acessibilidade, REST,
+  arquitetura, seguranca, Git, SEO, CI e Vitest). Nao busca arquivos na pasta
   do projeto nem exige um projeto ativo.
 - **Associar pasta** vincula uma pasta local ao projeto ativo. **Buscar skills
   no projeto** procura Markdown nas pastas `skills` dos agentes e mostra os

@@ -6,7 +6,7 @@ import { createVault, readVault, saveVaultData, writeSkillFile } from '../src/va
 import { saveProjectSkills } from '../src/project-skills'
 import { createDocumentedExamples } from '../src/documented-examples'
 import { createVaultBackup, restoreVaultBackup } from '../src/backup'
-import type { VaultData } from '../src/model'
+import { isAgentLinked, projectBindings, setProjectBindings, type VaultData } from '../src/model'
 
 let temporary: string
 let root: string
@@ -47,6 +47,78 @@ test('the pending Vitest example is published as a discoverable Copilot skill', 
   expect(data.catalog.skills[0].publishedFolders![0].marker).toBeUndefined()
   expect((await fs.readdir(join(file, '..'))).some(name => name.startsWith('.skillvortex-'))).toBe(false)
   expect(await readVault(root)).toEqual(data)
+})
+
+test('shared content has independent deployments and archives for each agent', async () => {
+  const skill = original.catalog.skills[0]
+  skill.agents = ['GitHub Copilot', 'Antigravity']
+  await saveVaultData(root, original)
+  const github = structuredClone(original)
+  setProjectBindings(github.projects.projects[0], [{ skillId: skill.id, agent: 'GitHub Copilot' }])
+  await saveProjectSkills(root, original, github)
+  const file = join(projectPath, '.github/skills/testes-unitarios-com-vitest/SKILL.md')
+  const agentsFile = join(projectPath, '.agents/skills/testes-unitarios-com-vitest/SKILL.md')
+  await expect(fs.stat(agentsFile)).rejects.toMatchObject({ code: 'ENOENT' })
+  const both = structuredClone(github)
+  setProjectBindings(both.projects.projects[0], [
+    ...projectBindings(both.projects.projects[0]), { skillId: skill.id, agent: 'Antigravity' }
+  ])
+  await saveProjectSkills(root, github, both)
+  expect(await fs.readFile(agentsFile)).toEqual(await fs.readFile(file))
+  await fs.appendFile(file, '\nCopilot-only edit')
+  await fs.appendFile(agentsFile, '\nAntigravity-only edit')
+  const githubContent = await fs.readFile(file)
+  const agentsContent = await fs.readFile(agentsFile)
+  const onlyAgents = structuredClone(both)
+  setProjectBindings(onlyAgents.projects.projects[0], [{ skillId: skill.id, agent: 'Antigravity' }])
+  await saveProjectSkills(root, both, onlyAgents)
+  await expect(fs.stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await fs.readFile(agentsFile)).toEqual(agentsContent)
+  expect(isAgentLinked(onlyAgents.projects.projects[0], skill.id, 'Antigravity')).toBe(true)
+  const neither = structuredClone(onlyAgents)
+  setProjectBindings(neither.projects.projects[0], [])
+  await saveProjectSkills(root, onlyAgents, neither)
+  await expect(fs.stat(agentsFile)).rejects.toMatchObject({ code: 'ENOENT' })
+  const again = structuredClone(neither)
+  setProjectBindings(again.projects.projects[0], [
+    { skillId: skill.id, agent: 'GitHub Copilot' }, { skillId: skill.id, agent: 'Antigravity' }
+  ])
+  await saveProjectSkills(root, neither, again)
+  expect(await fs.readFile(file)).toEqual(githubContent)
+  expect(await fs.readFile(agentsFile)).toEqual(agentsContent)
+})
+
+test('legacy deployments stay in .github even when their shared registration has both agents', async () => {
+  original.catalog.skills[0].agents = ['GitHub Copilot', 'Antigravity']
+  const { data, file } = await activateSkill()
+  expect(projectBindings(data.projects.projects[0])).toEqual([
+    { skillId: data.catalog.skills[0].id, agent: 'GitHub Copilot' }
+  ])
+  expect(await fs.readFile(file, 'utf8')).toContain('name: testes-unitarios-com-vitest')
+  await expect(fs.stat(join(projectPath, '.agents'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+test('imported legacy Antigravity skills retain their .agent path through disable and restore', async () => {
+  const skill = original.catalog.skills[0]
+  skill.agents = ['Antigravity']
+  const file = join(projectPath, '.agent/skills/testes-unitarios-com-vitest/SKILL.md')
+  await fs.mkdir(join(file, '..'), { recursive: true })
+  await fs.writeFile(file, '# Legacy Antigravity')
+  skill.originPath = file
+  await saveVaultData(root, original)
+  const active = structuredClone(original)
+  setProjectBindings(active.projects.projects[0], [{ skillId: skill.id, agent: 'Antigravity' }])
+  await saveProjectSkills(root, original, active)
+  expect(active.projects.projects[0].deployedSkills![0].agentDirectory).toBe('.agent')
+  const disabled = structuredClone(active)
+  setProjectBindings(disabled.projects.projects[0], [])
+  await saveProjectSkills(root, active, disabled)
+  await expect(fs.stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+  const restored = structuredClone(disabled)
+  setProjectBindings(restored.projects.projects[0], [{ skillId: skill.id, agent: 'Antigravity' }])
+  await saveProjectSkills(root, disabled, restored)
+  expect(await fs.readFile(file, 'utf8')).toBe('# Legacy Antigravity')
+  await expect(fs.stat(join(projectPath, '.github'))).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
 test('activation reuses an imported project Markdown without overwriting local edits', async () => {

@@ -27,6 +27,20 @@ export function uniqueSkillFilePath(name: string, existingPaths: Iterable<string
   return `skills/${slug}.md`
 }
 const names = z.array(z.string().trim().min(1).max(60)).refine(unique)
+export const skillAgentSchema = z.enum(['GitHub Copilot', 'Antigravity'])
+export type SkillAgent = z.infer<typeof skillAgentSchema>
+export const agentRoot = (agent: SkillAgent): '.github' | '.agents' =>
+  agent === 'Antigravity' ? '.agents' : '.github'
+export const deploymentAgent = (item: { agent?: SkillAgent }): SkillAgent =>
+  item.agent ?? 'GitHub Copilot'
+export function deploymentRoot(item: { agent?: SkillAgent; agentDirectory?: '.github' | '.agents' | '.agent' }): '.github' | '.agents' | '.agent' {
+  const root = item.agentDirectory ?? agentRoot(deploymentAgent(item))
+  if ((deploymentAgent(item) === 'GitHub Copilot') !== (root === '.github')) {
+    throw new Error('Pasta de publicacao incompativel com o agente da skill.')
+  }
+  return root
+}
+export const agentSkillKey = (skillId: string, agent: SkillAgent): string => `${agent}:${skillId}`
 export const skillSchema = z.object({
   id: z.string().min(1).max(200),
   name: z.string().trim().min(1).max(100),
@@ -43,6 +57,8 @@ export const skillSchema = z.object({
     projectPath: z.string().min(1),
     directory: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
     owned: z.boolean(),
+    agent: skillAgentSchema.optional(),
+    agentDirectory: z.enum(['.github', '.agents', '.agent']).optional(),
     marker: z.string().regex(/^[a-f0-9]{32}$/).optional()
   })).max(10000).optional()
 })
@@ -81,13 +97,18 @@ export const projectsSchema = z.object({
     name: z.string().trim().min(1).max(60),
     sourcePath: z.string().optional(),
     skillIds: z.array(z.string()).refine(unique),
+    agentBindings: z.array(z.object({
+      skillId: z.string(), agent: skillAgentSchema
+    })).refine(items => unique(items.map(item => agentSkillKey(item.skillId, item.agent)))).optional(),
     deployedSkills: z.array(z.object({
       skillId: z.string(),
+      agent: skillAgentSchema.optional(),
+      agentDirectory: z.enum(['.github', '.agents', '.agent']).optional(),
       directory: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
       hash: z.string().regex(/^[a-f0-9]{64}$/),
       sourceHash: z.string().regex(/^[a-f0-9]{64}$/)
-    })).refine(items => unique(items.map(item => item.skillId)) &&
-      unique(items.map(item => item.directory))).optional()
+    })).refine(items => unique(items.map(item => agentSkillKey(item.skillId, deploymentAgent(item)))) &&
+      unique(items.map(item => `${deploymentRoot(item)}:${item.directory}`))).optional()
   })).max(10000)
 }).superRefine((data, context) => {
   if (!unique(data.projects.map(project => project.id)) ||
@@ -97,6 +118,17 @@ export const projectsSchema = z.object({
 })
 export type Catalog = z.infer<typeof catalogSchema>
 export type Projects = z.infer<typeof projectsSchema>
+export type Project = Projects['projects'][number]
+export function projectBindings(project: Project): Array<{ skillId: string; agent: SkillAgent }> {
+  return project.agentBindings ?? project.skillIds.map(skillId => ({ skillId, agent: 'GitHub Copilot' }))
+}
+export function setProjectBindings(project: Project, bindings: ReturnType<typeof projectBindings>): void {
+  project.agentBindings = bindings
+  project.skillIds = [...new Set(bindings.map(item => item.skillId))]
+}
+export function isAgentLinked(project: Project, skillId: string, agent: SkillAgent): boolean {
+  return projectBindings(project).some(item => item.skillId === skillId && item.agent === agent)
+}
 export interface VaultData { catalog: Catalog; projects: Projects }
 
 export function validateVault(catalog: unknown, projects: unknown): VaultData {
@@ -116,6 +148,13 @@ export function validateVault(catalog: unknown, projects: unknown): VaultData {
   const available = new Set(data.catalog.skills.filter(s => s.status !== 'blocked').map(s => s.id))
   if (data.projects.projects.some(p => p.skillIds.some(id => !available.has(id)))) {
     throw new Error('Vinculo aponta para skill ausente ou bloqueada.')
+  }
+  for (const project of data.projects.projects) {
+    if (project.agentBindings && (!unique(project.skillIds) ||
+        project.agentBindings.some(item => !project.skillIds.includes(item.skillId)) ||
+        project.skillIds.some(id => !project.agentBindings!.some(item => item.skillId === id)))) {
+      throw new Error('Vinculos de agentes inconsistentes com as skills do projeto.')
+    }
   }
   return data
 }

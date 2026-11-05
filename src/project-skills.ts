@@ -2,8 +2,11 @@ import { promises as fs } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
-import { hasErrorCode, skillSlug, type Skill, type VaultData } from './model'
-import { assertImportedOriginsPreserved } from './skill-deletion'
+import {
+  agentRoot, deploymentAgent, deploymentRoot, hasErrorCode, isAgentLinked,
+  projectBindings, skillSlug, type Skill, type SkillAgent, type VaultData
+} from './model'
+import { assertImportedOriginsPreserved, skillArchiveName } from './skill-deletion'
 import { readContained, saveVaultData } from './vault'
 
 type Project = VaultData['projects']['projects'][number]
@@ -82,7 +85,8 @@ function isDirectoryVariant(base: string, candidate: string): boolean {
 function rememberFolder(skill: Skill, folder: NonNullable<Skill['publishedFolders']>[number]): void {
   const folders = skill.publishedFolders ?? []
   const existing = folders.find(item => item.projectId === folder.projectId &&
-    item.projectPath === folder.projectPath && item.directory === folder.directory)
+    item.projectPath === folder.projectPath && item.directory === folder.directory &&
+    deploymentRoot(item) === deploymentRoot(folder))
   if (existing) {
     existing.owned = existing.owned && folder.owned
     existing.marker = existing.owned ? folder.marker ?? existing.marker : undefined
@@ -124,7 +128,8 @@ export async function saveProjectSkills(
   root: string,
   previous: VaultData,
   next: VaultData,
-  save: (root: string, data: VaultData) => Promise<void> = saveVaultData
+  save: (root: string, data: VaultData) => Promise<void> = saveVaultData,
+  agentScope?: SkillAgent
 ): Promise<void> {
   const canonicalRoot = await fs.realpath(root)
   const undo: Array<() => Promise<void>> = []
@@ -142,9 +147,9 @@ export async function saveProjectSkills(
     await fs.unlink(path)
     undo.push(() => fs.writeFile(path, content, { flag: 'wx' }))
   }
-  const archivedPath = async (project: Project, skillId: string) =>
+  const archivedPath = async (project: Project, skillId: string, agent: SkillAgent) =>
     join(await directory(canonicalRoot, ['.skillvortex', 'disabled-skills', hash(project.id)]),
-      `${hash(skillId)}.md`)
+      skillArchiveName(skillId, agent))
   const projectRoot = async (project: Project): Promise<string> => {
     if (!project.sourcePath) throw new Error(`Associe uma pasta ao projeto ${project.name}.`)
     const path = await fs.realpath(project.sourcePath)
@@ -158,20 +163,25 @@ export async function saveProjectSkills(
     for (const skill of next.catalog.skills) {
       const oldSkill = previous.catalog.skills.find(item => item.id === skill.id)
       for (const folder of oldSkill?.publishedFolders ?? []) {
+        if (oldSkill?.agents.includes(deploymentAgent(folder)) &&
+            !skill.agents.includes(deploymentAgent(folder))) continue
         skill.publishedFolders = (skill.publishedFolders ?? []).filter(item =>
           item.projectId !== folder.projectId || item.projectPath !== folder.projectPath ||
-          item.directory !== folder.directory)
+          item.directory !== folder.directory || deploymentRoot(item) !== deploymentRoot(folder))
         rememberFolder(skill, folder)
       }
     }
     for (const oldProject of previous.projects.projects) {
       const newProject = next.projects.projects.find(item => item.id === oldProject.id)
       for (const deployed of oldProject.deployedSkills ?? []) {
+        const agent = deploymentAgent(deployed)
+        if (agentScope && agent !== agentScope) continue
+        const agentDirectory = deploymentRoot(deployed)
         if (newProject && newProject.sourcePath === oldProject.sourcePath &&
-            newProject.skillIds.includes(deployed.skillId)) continue
+            isAgentLinked(newProject, deployed.skillId, agent)) continue
         const path = await projectRoot(oldProject)
         const skill = next.catalog.skills.find(item => item.id === deployed.skillId)
-        const folderPath = await directory(path, ['.github', 'skills', deployed.directory])
+        const folderPath = await directory(path, [agentDirectory, 'skills', deployed.directory])
         const source = join(folderPath, 'SKILL.md')
         const content = await readFile(source)
         const originsToPreserve: Skill[] = []
@@ -181,7 +191,8 @@ export async function saveProjectSkills(
         }
         if (skill) {
           const known = skill.publishedFolders?.find(item => item.projectId === oldProject.id &&
-            item.projectPath === path && item.directory === deployed.directory)
+            item.projectPath === path && item.directory === deployed.directory &&
+            deploymentRoot(item) === agentDirectory)
           let marker = known?.marker
           let owned = known?.owned ?? false
           if (owned && marker &&
@@ -191,11 +202,11 @@ export async function saveProjectSkills(
           }
           rememberFolder(skill, {
             projectId: oldProject.id, projectPath: path, directory: deployed.directory,
-            owned, marker
+            owned, marker, ...(deployed.agent ? { agent, agentDirectory } : {})
           })
         }
         if (content) {
-          const archived = await archivedPath(oldProject, deployed.skillId)
+          const archived = await archivedPath(oldProject, deployed.skillId, agent)
           await assertImportedOriginsPreserved(originsToPreserve, [], [source])
           await assertImportedOriginsPreserved(
             [...previous.catalog.skills, ...next.catalog.skills], [], [archived]
@@ -205,7 +216,7 @@ export async function saveProjectSkills(
         }
         const knownFolder = skill?.publishedFolders?.find(item =>
           item.projectId === oldProject.id && item.projectPath === path &&
-          item.directory === deployed.directory)
+          item.directory === deployed.directory && deploymentRoot(item) === agentDirectory)
         const markerName = knownFolder?.owned && knownFolder.marker
           ? `.skillvortex-${knownFolder.marker}` : undefined
         const remaining = await fs.readdir(folderPath)
@@ -228,36 +239,67 @@ export async function saveProjectSkills(
     for (const project of next.projects.projects) {
       const oldProject = previous.projects.projects.find(item => item.id === project.id)
       if (!project.sourcePath && !project.deployedSkills?.length && oldProject &&
-          project.skillIds.every(id => oldProject.skillIds.includes(id))) continue
-      const deployedSkills: NonNullable<Project['deployedSkills']> = []
+          projectBindings(project).every(item => isAgentLinked(oldProject, item.skillId, item.agent))) continue
+      const deployedSkills: NonNullable<Project['deployedSkills']> = agentScope
+        ? (project.deployedSkills ?? []).filter(item => deploymentAgent(item) !== agentScope) : []
       const usedDirectories = new Set<string>()
-      for (const skillId of project.skillIds) {
+      for (const { skillId, agent } of projectBindings(project)) {
+        if (agentScope && agent !== agentScope) continue
         const skill = next.catalog.skills.find(item => item.id === skillId)
         if (!skill || skill.status === 'blocked') throw new Error('Skill ausente ou bloqueada.')
         const path = await projectRoot(project)
         const existing = oldProject && oldProject.sourcePath === project.sourcePath
-          ? oldProject.deployedSkills?.find(item => item.skillId === skillId)
+          ? oldProject.deployedSkills?.find(item => item.skillId === skillId && deploymentAgent(item) === agent)
           : undefined
-        const archived = existing ? undefined : await archivedPath(project, skillId)
+        if (existing && isDirectoryVariant(skillDirectory(skill), existing.directory)) {
+          const unchanged = markdown(skill, existing.directory,
+            await readContained(canonicalRoot, join(canonicalRoot, skill.filePath)))
+          if (hash(unchanged) === existing.sourceHash) {
+            usedDirectories.add(`${deploymentRoot(existing)}:${existing.directory}`)
+            deployedSkills.push(existing)
+            continue
+          }
+        }
+        const archived = existing ? undefined : await archivedPath(project, skillId, agent)
         const preserved = archived ? await readFile(archived) : undefined
         const baseName = (preserved ? archivedSkillDirectory(preserved) : undefined) ??
           skillDirectory(skill)
+        const knownAgentFolder = skill.publishedFolders?.find(item => item.projectId === project.id &&
+          item.projectPath === path && deploymentAgent(item) === agent)
+        let canonicalOrigin = skill.originPath?.startsWith('~/')
+          ? join(homedir(), skill.originPath.slice(2)) : skill.originPath
+        if (canonicalOrigin && isAbsolute(canonicalOrigin)) {
+          try {
+            canonicalOrigin = await fs.realpath(canonicalOrigin)
+          } catch (error) {
+            if (!hasErrorCode(error, 'ENOENT')) throw error
+          }
+        }
+        const importedRelativePath = canonicalOrigin && isAbsolute(canonicalOrigin)
+          ? relative(path, canonicalOrigin).split(sep) : []
+        const importedAgentDirectory = agent === 'Antigravity' &&
+          importedRelativePath[0] === '.agent' && importedRelativePath[1] === 'skills' ? '.agent' : undefined
+        const agentDirectory = existing ? deploymentRoot(existing)
+          : knownAgentFolder ? deploymentRoot(knownAgentFolder) : importedAgentDirectory ?? agentRoot(agent)
         let name = existing && isDirectoryVariant(baseName, existing.directory)
           ? existing.directory : baseName
         let suffix = 2
         const claimedByAnotherSkill = (candidate: string) => next.catalog.skills.some(other =>
           other.id !== skillId && other.publishedFolders?.some(folder =>
-            folder.projectPath === path && folder.directory === candidate))
-        while (usedDirectories.has(name) || claimedByAnotherSkill(name)) {
+            folder.projectPath === path && folder.directory === candidate &&
+            deploymentRoot(folder) === agentDirectory))
+        while (usedDirectories.has(`${agentDirectory}:${name}`) || claimedByAnotherSkill(name)) {
           const tail = `-${suffix++}`
           name = `${baseName.slice(0, 64 - tail.length).replace(/-+$/g, '')}${tail}`
         }
-        usedDirectories.add(name)
-        const skillsRoot = await directory(path, ['.github', 'skills'])
+        usedDirectories.add(`${agentDirectory}:${name}`)
+        const skillsRoot = await directory(path, [agentDirectory, 'skills'])
         const previousFolder = existing && skill.publishedFolders?.find(item =>
-          item.projectId === project.id && item.projectPath === path && item.directory === existing.directory)
+          item.projectId === project.id && item.projectPath === path && item.directory === existing.directory &&
+          deploymentRoot(item) === agentDirectory)
         const knownFolder = skill.publishedFolders?.find(item =>
-          item.projectId === project.id && item.projectPath === path && item.directory === name)
+          item.projectId === project.id && item.projectPath === path && item.directory === name &&
+          deploymentRoot(item) === agentDirectory)
         if (existing && name !== existing.directory) {
           const previousDirectory = join(skillsRoot, existing.directory)
           const nextDirectory = join(skillsRoot, name)
@@ -281,7 +323,8 @@ export async function saveProjectSkills(
           await fs.rename(previousDirectory, nextDirectory)
           undo.push(() => fs.rename(nextDirectory, previousDirectory))
           skill.publishedFolders = skill.publishedFolders?.filter(item =>
-            item.projectId !== project.id || item.projectPath !== path || item.directory !== existing.directory)
+            item.projectId !== project.id || item.projectPath !== path || item.directory !== existing.directory ||
+            deploymentRoot(item) !== agentDirectory)
         }
         const folderPath = join(skillsRoot, name)
         let created = false
@@ -310,7 +353,8 @@ export async function saveProjectSkills(
           marker = undefined
         }
         const destination = join(folderPath, 'SKILL.md')
-        rememberFolder(skill, { projectId: project.id, projectPath: path, directory: name, owned, marker })
+        const agentMetadata = project.agentBindings || agent !== 'GitHub Copilot' ? { agent, agentDirectory } : {}
+        rememberFolder(skill, { projectId: project.id, projectPath: path, directory: name, owned, marker, ...agentMetadata })
         const sourceContent = await readContained(canonicalRoot, join(canonicalRoot, skill.filePath))
         const content = markdown(skill, name, sourceContent)
         if (existing) {
@@ -362,7 +406,7 @@ export async function saveProjectSkills(
           }
           await remove(destination, current)
           await write(destination, content)
-          deployedSkills.push({ skillId, directory: name, hash: hash(content), sourceHash: hash(content) })
+          deployedSkills.push({ skillId, directory: name, hash: hash(content), sourceHash: hash(content), ...agentMetadata })
         } else {
           const published = preserved ?? content
           const current = await readFile(destination)
@@ -376,7 +420,7 @@ export async function saveProjectSkills(
           }
           if (!current) await write(destination, published)
           if (preserved && archived && (!current || current.equals(preserved))) await remove(archived, preserved)
-          deployedSkills.push({ skillId, directory: name, hash: hash(current ?? published), sourceHash: hash(content) })
+          deployedSkills.push({ skillId, directory: name, hash: hash(current ?? published), sourceHash: hash(content), ...agentMetadata })
         }
       }
       if (deployedSkills.length || project.deployedSkills) project.deployedSkills = deployedSkills

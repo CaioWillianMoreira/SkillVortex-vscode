@@ -5,7 +5,11 @@ import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
 import { createVault, readVault, readContained, saveVaultData, writeSkillFile } from './vault'
 import { initializeSql, migrateDesktop, rebuildIndex } from './database'
-import { hasErrorCode, skillRegistrationSchema, skillSchema, uniqueSkillFilePath } from './model'
+import {
+  agentSkillKey, deploymentAgent, deploymentRoot, hasErrorCode, isAgentLinked, projectBindings,
+  setProjectBindings, skillAgentSchema, skillRegistrationSchema, skillSchema, uniqueSkillFilePath
+} from './model'
+import type { SkillAgent } from './model'
 import { projectMarkdownAgent, readProjectMarkdown, scanProjectMarkdown } from './project-scan'
 import { createVaultBackup, listVaultBackups, restoreVaultBackup } from './backup'
 import { createDocumentedExamples, reconcileDocumentedExamples } from './documented-examples'
@@ -30,16 +34,16 @@ const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('setProjectFolder') }),
   z.object({ type: z.literal('scanProject') }),
   z.object({ type: z.literal('setActiveProject'), id: z.string().nullable() }),
-  z.object({ type: z.literal('toggleProjectSkill'), id: z.string() }),
-  z.object({ type: z.literal('runSkill'), id: z.string() }),
+  z.object({ type: z.literal('toggleProjectSkill'), id: z.string(), agent: skillAgentSchema.optional() }),
+  z.object({ type: z.literal('runSkill'), id: z.string(), agent: skillAgentSchema.optional() }),
   z.object({
     type: z.literal('saveSkill'), id: z.string(),
     ...skillRegistrationSchema.shape,
     cardColor: skillSchema.shape.cardColor.nullable(),
     projectIds: z.array(z.string()).max(10000)
   }),
-  z.object({ type: z.literal('unlinkSkill'), id: z.string() }),
-  z.object({ type: z.literal('deleteSkill'), id: z.string() })
+  z.object({ type: z.literal('unlinkSkill'), id: z.string(), agent: skillAgentSchema.optional() }),
+  z.object({ type: z.literal('deleteSkill'), id: z.string(), agent: skillAgentSchema.optional() })
 ])
 
 async function availableSkillFilePath(
@@ -100,10 +104,13 @@ export function activate(context: vscode.ExtensionContext): void {
         throw error
       }
       for (const deployed of project.deployedSkills) {
-        const markdown = join(projectPath, '.github', 'skills', deployed.directory, 'SKILL.md')
+        const markdown = join(projectPath, deploymentRoot(deployed), 'skills', deployed.directory, 'SKILL.md')
         try {
           const stat = await fs.lstat(markdown)
-          if (stat.isFile() && !stat.isSymbolicLink()) skillIds.add(deployed.skillId)
+          if (stat.isFile() && !stat.isSymbolicLink()) {
+            skillIds.add(deployed.skillId)
+            skillIds.add(agentSkillKey(deployed.skillId, deploymentAgent(deployed)))
+          }
         } catch (error) {
           if (!hasErrorCode(error, 'ENOENT') && !hasErrorCode(error, 'ENOTDIR')) throw error
         }
@@ -158,8 +165,22 @@ export function activate(context: vscode.ExtensionContext): void {
       : undefined
     const content = skill ? await readContained(canonical, join(canonical, skill.filePath)) : ''
     if (editingSkillId && !skill) editingSkillId = null
+    const activeProject = data.projects.projects.find(project => project.id === data.projects.activeProject)
+    const projectPaths = activeProject?.sourcePath ? [activeProject.sourcePath]
+      : (vscode.workspace.workspaceFolders ?? [])
+        .filter(folder => folder.uri.scheme === 'file').map(folder => folder.uri.fsPath)
+    const existingProjectPaths: string[] = []
+    for (const path of projectPaths) {
+      try {
+        existingProjectPaths.push(await fs.realpath(path))
+      } catch (error) {
+        if (!hasErrorCode(error, 'ENOENT')) throw error
+        output.appendLine(`Pasta de projeto nao encontrada ao verificar skills: ${path}`)
+      }
+    }
     await panel?.webview.postMessage({
       type: 'state', root: canonical, ...data, editingSkillId, content,
+      hasProjectMarkdown: (await scanProjectMarkdown(existingProjectPaths)).length > 0,
       publishedMarkdown: await publishedMarkdownSkills(data), saved
     })
   }
@@ -169,8 +190,8 @@ export function activate(context: vscode.ExtensionContext): void {
     const root = await fs.realpath(selected)
     return { root, data: await readVault(root) }
   }
-  async function persist(root: string, data: Awaited<ReturnType<typeof readVault>>): Promise<void> {
-    await saveProjectSkills(root, await readVault(root), data)
+  async function persist(root: string, data: Awaited<ReturnType<typeof readVault>>, agent?: SkillAgent): Promise<void> {
+    await saveProjectSkills(root, await readVault(root), data, saveVaultData, agent)
   }
   async function chooseProjectFolder(): Promise<string | undefined> {
     const folders = vscode.workspace.workspaceFolders ?? []
@@ -249,6 +270,9 @@ export function activate(context: vscode.ExtensionContext): void {
   }
   async function createExamples(): Promise<void> {
     const { root, data } = await currentVault()
+    if (data.catalog.skills.length > 0) {
+      throw new Error('Carregar exemplos so e permitido quando nao existe nenhum card na biblioteca.')
+    }
     const examples = createDocumentedExamples()
     const { toCreate, updated, blockedSkillIds, orderedSkillIds } =
       reconcileDocumentedExamples(data.catalog.skills, examples)
@@ -270,6 +294,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const blockedIds = new Set(blockedSkillIds)
     for (const project of data.projects.projects) {
       project.skillIds = project.skillIds.filter(id => !blockedIds.has(id))
+      if (project.agentBindings) project.agentBindings = project.agentBindings.filter(item => !blockedIds.has(item.skillId))
     }
     const written: string[] = []
     try {
@@ -357,6 +382,8 @@ export function activate(context: vscode.ExtensionContext): void {
       const description = content.split(/\r?\n/).map(line => line.trim())
         .find(line => line && !line.startsWith('#'))?.slice(0, 1000) ||
         `Instrucoes para ${title.slice(0, 100)}.`
+      const agentPath = filePath.replace(/\\/g, '/').match(/(?:^|\/)(\.(?:github|agents|agent)\/skills\/.+)$/)?.[1]
+      const importedAgent = agentPath ? projectMarkdownAgent(agentPath) : undefined
       imported.push({
         skill: {
           id: randomBytes(16).toString('hex'), name: title.slice(0, 100) || 'Markdown importado',
@@ -365,7 +392,9 @@ export function activate(context: vscode.ExtensionContext): void {
             ...data.catalog.skills.map(item => item.filePath),
             ...imported.map(item => item.skill.filePath)
           ]),
-          originPath: filePath, agents: [], status: 'pending', tags: []
+          originPath: filePath,
+          agents: importedAgent ? [importedAgent === 'Antigravity' ? 'Antigravity' : 'GitHub Copilot'] : [],
+          status: 'pending', tags: []
         },
         content
       })
@@ -447,7 +476,7 @@ export function activate(context: vscode.ExtensionContext): void {
       .filter((path): path is string => Boolean(path))
       .map(path => resolve(path)))
     const published = new Set((project.deployedSkills ?? []).map(item =>
-      resolve(projectRoot, '.github', 'skills', item.directory, 'SKILL.md')))
+      resolve(projectRoot, deploymentRoot(item), 'skills', item.directory, 'SKILL.md')))
     const selected = await vscode.window.showQuickPick(files.map(file => {
       const sourceRoot = canonicalRoots.find(root => {
         const path = relative(root, file)
@@ -587,6 +616,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const skill = data.catalog.skills.find(item => item.id === message.id)
         if (!skill) throw new Error('Skill nao encontrada.')
         if (skill.status === 'blocked') throw new Error('Skills bloqueadas nao podem ser vinculadas.')
+        if (message.agent && !skill.agents.includes(message.agent)) throw new Error('Agente nao associado a esta skill.')
         let project = data.projects.projects.find(item => item.id === data.projects.activeProject)
         const canRemoveLegacyLink = project?.skillIds.includes(skill.id) && !project.deployedSkills?.length
         if (!project?.sourcePath && !canRemoveLegacyLink) {
@@ -612,19 +642,38 @@ export function activate(context: vscode.ExtensionContext): void {
           }
         }
         if (!project) throw new Error('Projeto nao encontrado.')
-        project.skillIds = project.skillIds.includes(skill.id)
-          ? project.skillIds.filter(id => id !== skill.id)
-          : [...project.skillIds, skill.id]
-        await persist(root, data)
+        if (message.agent) {
+          const agent = message.agent
+          const bindings = projectBindings(project)
+          setProjectBindings(project, isAgentLinked(project, skill.id, agent)
+            ? bindings.filter(item => item.skillId !== skill.id || item.agent !== agent)
+            : [...bindings, { skillId: skill.id, agent }])
+        } else {
+          project.skillIds = project.skillIds.includes(skill.id)
+            ? project.skillIds.filter(id => id !== skill.id)
+            : [...project.skillIds, skill.id]
+          if (project.agentBindings) {
+            const bindings = project.agentBindings.filter(item => project!.skillIds.includes(item.skillId))
+            if (project.skillIds.includes(skill.id) && !bindings.some(item => item.skillId === skill.id)) {
+              bindings.push({ skillId: skill.id, agent: 'GitHub Copilot' })
+            }
+            setProjectBindings(project, bindings)
+          }
+        }
+        await persist(root, data, message.agent)
         await refresh()
       }
       if (message.type === 'runSkill') {
+        if (message.agent === 'Antigravity') {
+          throw new Error('A execucao automatica esta disponivel somente para GitHub Copilot. Use esta skill no Antigravity.')
+        }
         const { data } = await currentVault()
         const project = data.projects.projects.find(item => item.id === data.projects.activeProject)
-        if (!project?.sourcePath || !project.skillIds.includes(message.id)) {
+        if (!project?.sourcePath || !isAgentLinked(project, message.id, message.agent ?? 'GitHub Copilot')) {
           throw new Error('Ative a skill no projeto antes de executa-la.')
         }
-        const deployed = project.deployedSkills?.find(item => item.skillId === message.id)
+        const deployed = project.deployedSkills?.find(item => item.skillId === message.id &&
+          deploymentAgent(item) === (message.agent ?? 'GitHub Copilot'))
         if (!deployed) throw new Error('A skill ainda nao foi publicada no projeto.')
         const projectPath = await fs.realpath(project.sourcePath)
         const workspaceContainsProject = await Promise.all(
@@ -664,9 +713,18 @@ export function activate(context: vscode.ExtensionContext): void {
         })
         data.catalog.skills[index] = updated
         const linked = new Set(message.projectIds)
+        if (updated.status !== 'blocked' && linked.size &&
+            !skillAgentSchema.options.some(agent => updated.agents.includes(agent))) {
+          throw new Error('Selecione GitHub Copilot ou Antigravity para publicar a skill no projeto.')
+        }
         for (const project of data.projects.projects) {
-          project.skillIds = project.skillIds.filter(id => id !== updated.id)
-          if (updated.status !== 'blocked' && linked.has(project.id)) project.skillIds.push(updated.id)
+          const bindings = projectBindings(project).filter(item => item.skillId !== updated.id)
+          if (updated.status !== 'blocked' && linked.has(project.id)) {
+            for (const agent of skillAgentSchema.options) {
+              if (updated.agents.includes(agent)) bindings.push({ skillId: updated.id, agent })
+            }
+          }
+          setProjectBindings(project, bindings)
         }
         for (const project of data.projects.projects) {
           if (project.skillIds.includes(updated.id) && !project.sourcePath) {
@@ -707,29 +765,34 @@ export function activate(context: vscode.ExtensionContext): void {
         const skill = data.catalog.skills.find(item => item.id === message.id)
         if (!skill) throw new Error('Skill nao encontrada.')
         const deleting = message.type === 'deleteSkill'
-        if (deleting) assertSkillInactive(data, skill.id)
-        const linkedProjects = data.projects.projects.filter(project => project.skillIds.includes(skill.id))
+        if (!message.agent && skillAgentSchema.options.filter(agent => skill.agents.includes(agent)).length > 1) {
+          throw new Error('Escolha o card do agente para desvincular ou excluir. Recarregue a biblioteca se necessario.')
+        }
+        if (message.agent && !skill.agents.includes(message.agent)) throw new Error('Agente nao associado a esta skill.')
+        if (deleting && !message.agent) assertSkillInactive(data, skill.id)
+        const linkedProjects = data.projects.projects.filter(project => message.agent
+          ? isAgentLinked(project, skill.id, message.agent) : project.skillIds.includes(skill.id))
         if (!deleting && linkedProjects.length &&
-            !(await publishedMarkdownSkills(data)).includes(skill.id)) {
+            !(await publishedMarkdownSkills(data)).includes(message.agent ? agentSkillKey(skill.id, message.agent) : skill.id)) {
           throw new Error('Nao existe um SKILL.md publicado para preservar no projeto.')
         }
-        const plan = deleting ? await planSkillDeletion(root, data, skill) : undefined
+        const plan = deleting ? await planSkillDeletion(root, data, skill, message.agent) : undefined
         const action = deleting ? 'Excluir permanentemente' : 'Desvincular'
         const confirmation = await vscode.window.showWarningMessage(
           deleting
-            ? `Excluir permanentemente ${skill.name}?`
-            : `Desvincular ${skill.name} da biblioteca? O arquivo sera preservado.`,
+            ? `Excluir permanentemente ${skill.name}${message.agent ? ` (${message.agent})` : ''}?`
+            : `Desvincular ${skill.name}${message.agent ? ` (${message.agent})` : ''} da biblioteca? O arquivo sera preservado.`,
           {
             modal: true,
             detail: plan
-              ? `Os seguintes arquivos e pastas serao apagados, incluindo todo o conteudo das pastas. As origens importadas serao preservadas:\n${[plan.vaultFile, ...plan.archives, ...plan.folders].join('\n')}`
+              ? `Os seguintes arquivos e pastas serao apagados, incluindo todo o conteudo das pastas. As origens importadas serao preservadas:\n${[...(plan.deleteVault === false ? [] : [plan.vaultFile]), ...plan.archives, ...plan.folders].join('\n')}`
               : undefined
           }, action
         )
         if (confirmation !== action) return
         if (plan) {
           try {
-            await deleteSkillFiles(root, plan, persist)
+            await deleteSkillFiles(root, plan, (path, next) => persist(path, next, message.agent))
           } catch (error) {
             try {
               await refresh()
@@ -739,10 +802,16 @@ export function activate(context: vscode.ExtensionContext): void {
             throw error
           }
         } else {
-          data.catalog.skills = data.catalog.skills.filter(item => item.id !== skill.id)
+          if (message.agent) {
+            skill.agents = skill.agents.filter(agent => agent !== message.agent)
+            skill.publishedFolders = skill.publishedFolders?.filter(item => deploymentAgent(item) !== message.agent)
+          }
+          if (!message.agent || !skill.agents.length) data.catalog.skills = data.catalog.skills.filter(item => item.id !== skill.id)
           for (const project of data.projects.projects) {
-            project.skillIds = project.skillIds.filter(id => id !== skill.id)
-            project.deployedSkills = project.deployedSkills?.filter(item => item.skillId !== skill.id)
+            setProjectBindings(project, projectBindings(project).filter(item =>
+              item.skillId !== skill.id || Boolean(message.agent && item.agent !== message.agent)))
+            project.deployedSkills = project.deployedSkills?.filter(item =>
+              item.skillId !== skill.id || Boolean(message.agent && deploymentAgent(item) !== message.agent))
           }
           await saveVaultData(root, data)
         }

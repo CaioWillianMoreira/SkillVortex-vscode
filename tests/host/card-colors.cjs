@@ -113,6 +113,9 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.generalButtonsHaveBorders, true)
           assert.equal(message.cardActionsHaveNoBorders, true)
           assert.equal(message.secondaryButtonsAreRed, true, JSON.stringify(message.secondaryButtonColors))
+          assert.equal(message.importMarkdownColor, 'rgb(105, 177, 255)')
+          assert.equal(message.newSkillColor, 'rgb(115, 209, 61)')
+          assert.equal(message.backupColor, 'rgb(56, 158, 13)')
           assert.ok(message.cardLayouts.every(layout => layout.oneRow && layout.contained),
             JSON.stringify(message.cardLayouts))
           assert.equal(message.hasProjectSwitch, true)
@@ -143,6 +146,11 @@ module.exports = async function testCardColors(extension) {
           assert.ok(await webview.postMessage({ type: 'color-test-toggle-project' }))
         } else if (message.type === 'toggleProjectSkill') {
           assert.equal(message.id, skill.id)
+          if (stage === 'agent-filter') {
+            assert.equal(message.agent, 'Antigravity')
+            resolve()
+            return
+          }
           assert.ok(stage === 'linking' || stage === 'unlinking')
           projectLinked = stage === 'linking'
           stage = projectLinked ? 'linked' : 'unlinked'
@@ -176,8 +184,28 @@ module.exports = async function testCardColors(extension) {
             }))
           } else {
             assert.equal(stage, 'other-project')
-            resolve()
+            skill.agents = ['GitHub Copilot', 'Antigravity']
+            otherProjectLinked = false
+            const shared = state()
+            shared.projects.projects[0].skillIds = [skill.id]
+            shared.projects.projects[0].agentBindings = [{ skillId: skill.id, agent: 'Antigravity' }]
+            shared.publishedMarkdown = ['Antigravity:' + skill.id]
+            stage = 'agent-filter'
+            assert.ok(await webview.postMessage(shared))
+            assert.ok(await webview.postMessage({ type: 'agent-test-filter' }))
           }
+        } else if (message.type === 'agent-test-cards') {
+          assert.equal(message.shared, true)
+          assert.equal(message.examplesVisible, false)
+          assert.deepEqual(message.cards, [
+            { agent: 'GitHub Copilot', active: false },
+            { agent: 'Antigravity', active: true }
+          ])
+        } else if (message.type === 'agent-test-filtered') {
+          assert.equal(message.examplesVisible, false)
+          assert.equal(message.count, 1)
+          assert.equal(message.active, true)
+          assert.equal(message.agent, 'Antigravity')
         } else if (message.type === 'color-test-error') {
           reject(new Error(message.message))
         }
@@ -271,11 +299,14 @@ module.exports = async function testCardColors(extension) {
           cardActionsHaveNoBorders: Array.from(card.querySelectorAll('.skill-card-actions button'))
             .every(button => parseFloat(getComputedStyle(button).borderTopWidth) === 0),
           secondaryButtonsAreRed: actionButtons.filter(button => !button.closest('.skill-card-actions') &&
-              !button.matches('.action-save, .action-restore') && !button.disabled)
+              !button.matches('.action-save, .action-backup, .action-restore, .import-markdown-button, .new-skill-button') && !button.disabled)
             .every(button => getComputedStyle(button).color === 'rgb(255, 120, 117)'),
           secondaryButtonColors: actionButtons.filter(button => !button.closest('.skill-card-actions') &&
-              !button.matches('.action-save, .action-restore') && !button.disabled)
+              !button.matches('.action-save, .action-backup, .action-restore, .import-markdown-button, .new-skill-button') && !button.disabled)
             .map(button => ({label: button.textContent, color: getComputedStyle(button).color})),
+          importMarkdownColor: getComputedStyle(document.querySelector('.import-markdown-button')).color,
+          newSkillColor: getComputedStyle(document.querySelector('.new-skill-button')).color,
+          backupColor: getComputedStyle(document.querySelector('.action-backup')).color,
           borderColor: getComputedStyle(card).borderTopColor,
           backgroundColor: getComputedStyle(card).backgroundColor,
           backgroundImage: getComputedStyle(card).backgroundImage,
@@ -296,7 +327,40 @@ module.exports = async function testCardColors(extension) {
         };
       }
       window.addEventListener('message', event => {
-        if (event.data.type === 'color-test-create') {
+        if (event.data.type === 'agent-test-filter') {
+          waitFor('independent agent cards', () => {
+            const cards = Array.from(document.querySelectorAll('.skill-card'));
+            if (cards.length !== 2) return false;
+            bridge.postMessage({ type: 'agent-test-cards', cards: cards.map(card => ({
+              agent: card.querySelector('.skill-file .ant-tag').textContent.trim(),
+              active: card.querySelector('[role="switch"]').getAttribute('aria-checked') === 'true'
+            })), shared: cards.every(card => card.textContent.includes('Regra compartilhada')),
+              examplesVisible: Boolean(button('Carregar exemplos')) });
+            const select = document.querySelector('[aria-label="Filtrar por agente"]').closest('.ant-select');
+            select.querySelector('.ant-select-selector').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            waitFor('agent filter option', () => {
+              const option = Array.from(document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'))
+                .find(item => item.textContent.trim() === 'Antigravity');
+              if (!option) return false;
+              option.click();
+              waitFor('only Antigravity card', () => {
+                const remaining = document.querySelectorAll('.skill-card');
+                if (remaining.length !== 1) return false;
+                const toggle = remaining[0].querySelector('[role="switch"]');
+                bridge.postMessage({
+                  type: 'agent-test-filtered', count: remaining.length,
+                  examplesVisible: Boolean(button('Carregar exemplos')),
+                  agent: remaining[0].querySelector('.skill-file .ant-tag').textContent.trim(),
+                  active: toggle.getAttribute('aria-checked') === 'true'
+                });
+                toggle.click();
+                return true;
+              });
+              return true;
+            });
+            return true;
+          });
+        } else if (event.data.type === 'color-test-create') {
           waitFor('new skill button', () => {
             const create = button('Nova Skill');
             if (!create) return false;
@@ -334,6 +398,7 @@ module.exports = async function testCardColors(extension) {
             const back = button('Voltar ao Dashboard');
             const enabledSave = button('Salvar');
             if (!selected || selected.textContent.trim() !== event.data.expectedLabel || !back || enabledSave) return false;
+            if (getComputedStyle(back).color !== 'rgb(105, 177, 255)') return false;
             const swatch = selected.querySelector('.skill-color-swatch');
             if (event.data.expectedColor &&
                 (!swatch || getComputedStyle(swatch).backgroundColor !== event.data.expectedColor)) return false;
@@ -345,7 +410,8 @@ module.exports = async function testCardColors(extension) {
           waitFor('colored card', () => {
             const appearance = cardAppearance();
             const edit = button('Editar');
-            if (!appearance || !edit || !appearance.secondaryButtonsAreRed) return false;
+            if (!appearance || !edit || !appearance.secondaryButtonsAreRed ||
+                appearance.newSkillColor !== 'rgb(115, 209, 61)') return false;
             bridge.postMessage({type:'color-test-manual-card', ...appearance});
             edit.click();
             return true;

@@ -7,6 +7,7 @@ import { activate } from '../src/extension'
 import { createVault, readVault, saveVaultData, writeSkillFile } from '../src/vault'
 import { createDocumentedExamples } from '../src/documented-examples'
 import { SKILL_CARD_COLORS } from '../src/skill-colors'
+import { isAgentLinked } from '../src/model'
 
 jest.mock('../src/database', () => ({
   initializeSql: jest.fn(async () => ({})),
@@ -130,6 +131,139 @@ test('the existing toggle message creates a workspace project, publishes, disabl
   await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
   expect(await fs.readFile(file, 'utf8')).toContain('Edicao no projeto')
   expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('agent card actions isolate activation, unlinking and deletion while keeping shared content', async () => {
+  const data = await readVault(root)
+  data.catalog.skills[0].agents = ['GitHub Copilot', 'Antigravity']
+  await saveVaultData(root, data)
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId, agent: 'Antigravity' })
+  const agentsFile = join(projectPath, '.agents/skills/testes-unitarios-com-vitest/SKILL.md')
+  const githubFile = join(projectPath, '.github/skills/testes-unitarios-com-vitest/SKILL.md')
+  const agentsContent = await fs.readFile(agentsFile)
+  await expect(fs.stat(githubFile)).rejects.toMatchObject({ code: 'ENOENT' })
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId, agent: 'GitHub Copilot' })
+  await mock.testing.dispatch({ type: 'unlinkSkill', id: skillId, agent: 'GitHub Copilot' })
+  const unlinked = await readVault(root)
+  expect(unlinked.catalog.skills[0].agents).toEqual(['Antigravity'])
+  expect(isAgentLinked(unlinked.projects.projects[0], skillId, 'Antigravity')).toBe(true)
+  expect(isAgentLinked(unlinked.projects.projects[0], skillId, 'GitHub Copilot')).toBe(false)
+  expect(await fs.readFile(agentsFile)).toEqual(agentsContent)
+  expect(await fs.readFile(githubFile)).toEqual(agentsContent)
+  expect(await fs.readFile(join(root, unlinked.catalog.skills[0].filePath), 'utf8')).toContain('Vitest')
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('deleting one inactive agent preserves the other active agent and shared vault Markdown', async () => {
+  const data = await readVault(root)
+  data.catalog.skills[0].agents = ['GitHub Copilot', 'Antigravity']
+  await saveVaultData(root, data)
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId, agent: 'GitHub Copilot' })
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId, agent: 'Antigravity' })
+  const agentsFile = join(projectPath, '.agents/skills/testes-unitarios-com-vitest/SKILL.md')
+  const githubFolder = join(projectPath, '.github/skills/testes-unitarios-com-vitest')
+  const githubFile = join(githubFolder, 'SKILL.md')
+  await fs.writeFile(join(githubFolder, 'extra.txt'), 'Remove only for Copilot')
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId, agent: 'GitHub Copilot' })
+  const content = await fs.readFile(agentsFile)
+  await mock.testing.dispatch({ type: 'deleteSkill', id: skillId, agent: 'GitHub Copilot' })
+  const deleted = await readVault(root)
+  expect(deleted.catalog.skills[0].agents).toEqual(['Antigravity'])
+  expect(deleted.catalog.skills[0].publishedFolders!.every(folder => folder.agent === 'Antigravity')).toBe(true)
+  expect(isAgentLinked(deleted.projects.projects[0], skillId, 'Antigravity')).toBe(true)
+  expect(await fs.readFile(agentsFile)).toEqual(content)
+  await expect(fs.stat(githubFolder)).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(fs.stat(githubFile)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await fs.readFile(join(root, deleted.catalog.skills[0].filePath), 'utf8')).toContain('Vitest')
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('executing an Antigravity card never opens the Copilot chat', async () => {
+  await mock.testing.dispatch({ type: 'runSkill', id: skillId, agent: 'Antigravity' })
+  expect(mock.testing.executeCommand).not.toHaveBeenCalled()
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('somente para GitHub Copilot'))
+})
+
+test('a Copilot toggle never synchronizes or rewrites another agent deployment', async () => {
+  const data = await readVault(root)
+  data.catalog.skills[0].agents = ['GitHub Copilot', 'Antigravity']
+  await saveVaultData(root, data)
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId, agent: 'Antigravity' })
+  const agentsFile = join(projectPath, '.agents/skills/testes-unitarios-com-vitest/SKILL.md')
+  const original = await fs.readFile(agentsFile)
+  const active = await readVault(root)
+  await writeSkillFile(root, active.catalog.skills[0].filePath, '# Updated shared source')
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId, agent: 'GitHub Copilot' })
+  expect(await fs.readFile(agentsFile)).toEqual(original)
+  expect(await fs.readFile(join(projectPath, '.github/skills/testes-unitarios-com-vitest/SKILL.md'), 'utf8'))
+    .toContain('# Updated shared source')
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('saving a shared registration keeps one vault file and publishes both selected agents', async () => {
+  const data = await readVault(root)
+  data.projects.projects.push({
+    id: 'shared-project', name: 'Shared project', sourcePath: projectPath, skillIds: []
+  })
+  await saveVaultData(root, data)
+  const skill = data.catalog.skills[0]
+  await mock.testing.dispatch({
+    type: 'saveSkill', ...skill, agents: ['GitHub Copilot', 'Antigravity'],
+    cardColor: null, content: '# Shared rule', projectIds: ['shared-project']
+  })
+  const saved = await readVault(root)
+  expect(saved.catalog.skills).toHaveLength(1)
+  expect(saved.projects.projects[0].agentBindings).toEqual([
+    { skillId, agent: 'GitHub Copilot' }, { skillId, agent: 'Antigravity' }
+  ])
+  const github = await fs.readFile(join(projectPath, '.github/skills/testes-unitarios-com-vitest/SKILL.md'))
+  const agents = await fs.readFile(join(projectPath, '.agents/skills/testes-unitarios-com-vitest/SKILL.md'))
+  expect(github).toEqual(agents)
+  expect(github.toString()).toContain('# Shared rule')
+  expect(await fs.readdir(join(root, 'skills'))).toEqual([saved.catalog.skills[0].filePath.slice('skills/'.length)])
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('loading examples rejects an existing card without changing the vault', async () => {
+  const before = await readVault(root)
+  const files = await fs.readdir(join(root, 'skills'))
+  await mock.testing.dispatch({ type: 'createDocumentedExamples' })
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('nenhum card'))
+  expect(await readVault(root)).toEqual(before)
+  expect(await fs.readdir(join(root, 'skills'))).toEqual(files)
+})
+
+test('loading examples is allowed only once in an empty library', async () => {
+  const data = await readVault(root)
+  data.catalog.skills = []
+  await saveVaultData(root, data)
+  await mock.testing.dispatch({ type: 'createDocumentedExamples' })
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+  const saved = await readVault(root)
+  expect(saved.catalog.skills).toHaveLength(8)
+  await mock.testing.dispatch({ type: 'createDocumentedExamples' })
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('nenhum card'))
+  expect(await readVault(root)).toEqual(saved)
+})
+
+test('example visibility follows project skill Markdown, not root documentation', async () => {
+  await fs.writeFile(join(projectPath, 'README.md'), '# Project')
+  await mock.testing.dispatch({ type: 'refresh' })
+  expect(mock.testing.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+    hasProjectMarkdown: false
+  }))
+  const markdown = join(projectPath, '.agents/skills/custom/SKILL.md')
+  await fs.mkdir(join(markdown, '..'), { recursive: true })
+  await fs.writeFile(markdown, '# Custom skill')
+  await mock.testing.dispatch({ type: 'refresh' })
+  expect(mock.testing.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+    hasProjectMarkdown: true
+  }))
+  await fs.unlink(markdown)
+  await mock.testing.dispatch({ type: 'refresh' })
+  expect(mock.testing.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+    hasProjectMarkdown: false
+  }))
 })
 
 test('project search offers custom skill files and excludes documentation without duplicating imports', async () => {
@@ -463,7 +597,7 @@ test('unlinking an active card preserves the published project Markdown', async 
   const markdown = join(projectPath, '.github/skills', deployed.directory, 'SKILL.md')
   const originalMarkdown = await fs.readFile(markdown)
   expect(mock.testing.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
-    publishedMarkdown: [skillId]
+    publishedMarkdown: expect.arrayContaining([skillId, `GitHub Copilot:${skillId}`])
   }))
 
   await mock.testing.dispatch({ type: 'unlinkSkill', id: skillId })

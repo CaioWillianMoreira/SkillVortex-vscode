@@ -65,12 +65,19 @@ main {
   border-color: var(--action-color);
 }
 
-.action-save,
+.new-skill-button,
 .skill-card-actions .action-run {
   --action-color: #73d13d;
 }
 
-.skill-card-actions .action-edit {
+.action-save,
+.action-backup {
+  --action-color: #389e0d;
+}
+
+.skill-card-actions .action-edit,
+.dashboard-back-button,
+.import-markdown-button {
   --action-color: #69b1ff;
 }
 

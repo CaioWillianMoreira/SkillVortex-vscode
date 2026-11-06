@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import {
   agentSkillKey, deploymentAgent, deploymentRoot, hasErrorCode, isAgentLinked, projectBindings,
-  setProjectBindings, type Skill, type SkillAgent, type VaultData
+  removeSkillFromCollections, setProjectBindings, type Skill, type SkillAgent, type VaultData
 } from './model'
 import { readContained, readVault } from './vault'
 
@@ -201,7 +201,10 @@ export async function deleteSkillFiles(
     if (plan.deleteVault === false && plan.agent) {
       skill.agents = skill.agents.filter(agent => agent !== plan.agent)
       skill.publishedFolders = skill.publishedFolders?.filter(folder => deploymentAgent(folder) !== plan.agent)
-    } else data.catalog.skills = data.catalog.skills.filter(item => item.id !== skill.id)
+    } else {
+      data.catalog.skills = data.catalog.skills.filter(item => item.id !== skill.id)
+      removeSkillFromCollections(data.catalog, skill.id)
+    }
     if (plan.agent) {
       for (const project of data.projects.projects) {
         setProjectBindings(project, projectBindings(project).filter(item =>

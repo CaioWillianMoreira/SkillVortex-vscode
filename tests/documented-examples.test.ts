@@ -1,7 +1,41 @@
 import { test, expect } from '@jest/globals'
-import { skillSchema, skillSlug, uniqueSkillFilePath } from '../src/model'
-import { createDocumentedExamples, reconcileDocumentedExamples } from '../src/documented-examples'
+import { catalogSchema, skillCards, skillSchema, skillSlug, uniqueSkillFilePath } from '../src/model'
+import { createCardExamples, createDocumentedExamples, reconcileDocumentedExamples } from '../src/documented-examples'
+import { skillMarkdownMetadata } from '../src/project-skills'
 import { SKILL_CARD_COLORS } from '../src/skill-colors'
+
+test('creates exactly four fully populated cards with 1, 4, 2 and 0 independent skills', () => {
+  const categories = ['Geral', 'Arquitetura', 'Git', 'DevOps', 'SEO']
+  const examples = createCardExamples(categories)
+  const catalog = catalogSchema.parse({ version: 1, categories, collections: examples.cards,
+    skills: examples.skills.map(item => item.skill) })
+  expect(skillCards(catalog)).toHaveLength(4)
+  expect(skillCards(catalog).map(card => card.skillIds.length)).toEqual([1, 4, 2, 0])
+  expect(examples.skills).toHaveLength(7)
+  expect(new Set(examples.skills.map(item => item.skill.filePath)).size).toBe(7)
+  expect(new Set(examples.skills.map(item => item.skill.category))).toEqual(new Set(categories))
+  for (const card of skillCards(catalog)) {
+    expect(card.name.trim()).not.toBe('')
+    expect(card.description.trim()).not.toBe('')
+    expect(card.tags.length).toBeGreaterThan(0)
+    expect(card.agents).toEqual(['GitHub Copilot', 'Antigravity'])
+    expect(card.status).toBe('pending')
+    expect(card.cardColor).toBeDefined()
+    expect(categories).toContain(card.category)
+  }
+  for (const { skill, content } of examples.skills) {
+    expect(skillMarkdownMetadata(content)).toEqual({ name: skillSlug(skill.name), description: skill.description })
+    expect(content).toContain('## Procedimento')
+    expect(categories).toContain(skill.category)
+  }
+})
+
+test('example cards use only available categories and require at least one', () => {
+  const examples = createCardExamples(['Custom'])
+  expect(examples.cards.every(card => card.category === 'Custom')).toBe(true)
+  expect(examples.skills.every(item => item.skill.category === 'Custom')).toBe(true)
+  expect(() => createCardExamples([])).toThrow('categoria')
+})
 
 test('creates the eight documented, editable skill cards with valid metadata and Markdown', () => {
   const examples = createDocumentedExamples()

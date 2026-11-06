@@ -1,14 +1,14 @@
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
-  Alert, Button, Card, Checkbox, Col, ConfigProvider, Empty, Input, Modal, Row,
-  Select, Space, Switch, Tabs, Tag, Typography, theme
+  Alert, Button, Card, Checkbox, Col, ConfigProvider, Dropdown, Empty, Input, Modal, Row,
+  Select, Space, Switch, Tabs, Tag, Tooltip, Typography, theme
 } from 'antd'
 import type { ButtonProps } from 'antd'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { Catalog, Projects, Skill } from '../src/model'
-import { agentRoot, agentSkillKey, isAgentLinked, skillAgentSchema, skillRegistrationSchema } from '../src/model'
+import type { Catalog, Projects, Skill, SkillCard } from '../src/model'
+import { skillCards, skillRegistrationSchema } from '../src/model'
 import {
   categoryColor, isSkillCardColor, SKILL_CARD_COLOR_LABELS, SKILL_CARD_COLORS, skillCardTextColor
 } from '../src/skill-colors'
@@ -39,10 +39,12 @@ const actionIcons = {
   filter: 'M3 4h18l-7 8v7l-4 2v-9z',
   validated: 'm5 12 4 4L20 5',
   pending: 'M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
-  blocked: 'm6 6 12 12M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0'
+  blocked: 'm6 6 12 12M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
+  info: 'M12 11v6M12 7h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
+  more: 'M5 12h.01M12 12h.01M19 12h.01'
 }
 function ActionIcon({ action }: { action: keyof typeof actionIcons }): React.JSX.Element {
-  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d={actionIcons[action]} />
   </svg>
@@ -54,6 +56,13 @@ function ActionButton({
     icon={<ActionIcon action={action} />} />
 }
 const statusNames = ['validated', 'pending', 'blocked'] as const
+function HelpTip({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  return <Tooltip title={children} trigger={['hover', 'focus']} destroyOnHidden open={open} onOpenChange={setOpen}>
+    <Button type="text" size="small" aria-label={label} icon={<ActionIcon action="info" />}
+      onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(false) } }} />
+  </Tooltip>
+}
 type Status = typeof statusNames[number]
 type AppState = {
   root: string | null
@@ -64,6 +73,7 @@ type AppState = {
   editingSkillId: string | null
   content: string
   saved?: boolean
+  creating?: boolean
 }
 type Draft = Skill & { content: string; projectIds: string[] }
 
@@ -92,8 +102,20 @@ function App(): React.JSX.Element {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>()
-  const [agentFilter, setAgentFilter] = useState<string>()
   const [categoryName, setCategoryName] = useState('')
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false)
+  const [collectionFilter, setCollectionFilter] = useState<string>()
+  const [collectionEditorOpen, setCollectionEditorOpen] = useState(false)
+  const [collectionId, setCollectionId] = useState<string>()
+  const [collectionName, setCollectionName] = useState('')
+  const [collectionSkillIds, setCollectionSkillIds] = useState<string[]>([])
+  const [collectionCategory, setCollectionCategory] = useState('')
+  const [collectionDescription, setCollectionDescription] = useState('')
+  const [collectionTags, setCollectionTags] = useState<string[]>([])
+  const [collectionAgents, setCollectionAgents] = useState<string[]>([])
+  const [collectionStatus, setCollectionStatus] = useState<Skill['status']>('pending')
+  const [collectionColor, setCollectionColor] = useState<Skill['cardColor']>()
+  const [runningCard, setRunningCard] = useState<SkillCard | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [saving, setSaving] = useState(false)
   const baseline = useRef('')
@@ -110,6 +132,7 @@ function App(): React.JSX.Element {
         setSaving(false)
       }
       if (event.data.saved) {
+        setCollectionEditorOpen(false)
         setNotice('Alteracoes salvas no cofre.')
         setSaving(false)
       }
@@ -121,11 +144,17 @@ function App(): React.JSX.Element {
   }, [])
 
   const activeProject = state.projects?.projects.find(project => project.id === state.projects?.activeProject)
+  const allCards = useMemo(() => state.catalog ? skillCards(state.catalog) : [], [state.catalog])
   useEffect(() => {
     if (categoryFilter && state.catalog && !state.catalog.categories.includes(categoryFilter)) {
       setCategoryFilter(undefined)
     }
   }, [state.catalog, categoryFilter])
+  useEffect(() => {
+    if (collectionFilter && state.catalog && !state.catalog.collections?.some(item => item.id === collectionFilter)) {
+      setCollectionFilter(undefined)
+    }
+  }, [state.catalog, collectionFilter])
   const skill = state.catalog?.skills.find(item => item.id === state.editingSkillId)
   useEffect(() => {
     if (!skill || !state.projects) {
@@ -144,18 +173,45 @@ function App(): React.JSX.Element {
     baseline.current = JSON.stringify(next)
   }, [state.editingSkillId, state.content, state.catalog, state.projects])
 
-  const dirty = Boolean(draft && JSON.stringify(draft) !== baseline.current)
-  const skills = useMemo(() => (state.catalog?.skills ?? []).filter(item => {
+  const dirty = Boolean(draft && (state.creating || JSON.stringify(draft) !== baseline.current))
+  const cards = useMemo(() => allCards.filter(item => {
     const matchesText = [
-      item.name, item.description, item.category, item.filePath, ...item.tags, ...item.agents
+      item.name, item.description, item.category, ...item.tags, ...item.agents,
+      ...(state.catalog?.skills.filter(skill => item.skillIds.includes(skill.id)).map(skill => skill.name) ?? [])
     ].join(' ').toLocaleLowerCase().includes(search.toLocaleLowerCase())
     return matchesText &&
       (statusFilter === 'all' || item.status === statusFilter) &&
       (!categoryFilter || item.category === categoryFilter) &&
-      (!agentFilter || item.agents.includes(agentFilter))
-  }), [state.catalog, search, statusFilter, categoryFilter, agentFilter])
-  const cardCount = skills.reduce((count, item) => count +
-    (item.agents.length ? item.agents : ['Sem agente']).filter(agent => !agentFilter || agent === agentFilter).length, 0)
+      (!collectionFilter || item.id === collectionFilter)
+  }), [allCards, state.catalog, search, statusFilter, categoryFilter, collectionFilter])
+  const cardCount = cards.length
+  const editCollection = (existing?: SkillCard) => {
+    setCollectionId(existing?.id)
+    setCollectionName(existing?.name ?? '')
+    setCollectionSkillIds(existing?.skillIds ?? [])
+    setCollectionCategory(existing?.category ?? state.catalog?.categories[0] ?? '')
+    setCollectionDescription(existing?.description ?? 'Conjunto de skills para usar no projeto.')
+    setCollectionTags(existing?.tags ?? ['conjunto'])
+    setCollectionAgents(existing?.agents ?? ['GitHub Copilot', 'Antigravity'])
+    setCollectionStatus(existing?.status ?? 'pending')
+    setCollectionColor(existing?.cardColor)
+    setError('')
+    setCollectionEditorOpen(true)
+  }
+  const deleteCategory = (category: string) => {
+    if (state.catalog?.skills.some(item => item.category === category) ||
+        allCards.some(item => item.category === category)) {
+      modal.info({ title: 'Categoria em uso',
+        content: 'Mova as skills e cards para outra categoria antes de excluir.', okText: 'Entendi' })
+      return
+    }
+    modal.confirm({
+      title: 'Excluir categoria?', content: `Excluir "${category}"? Nenhuma skill sera apagada.`,
+      okText: 'Excluir categoria', cancelText: 'Cancelar',
+      okButtonProps: { className: 'action-button action-delete', icon: <ActionIcon action="delete" /> },
+      onOk: () => api.postMessage({ type: 'deleteCategory', name: category })
+    })
+  }
 
   const updateDraft = <K extends keyof Draft>(key: K, value: Draft[K]) => {
     setDraft(current => current ? { ...current, [key]: value } : current)
@@ -211,7 +267,9 @@ function App(): React.JSX.Element {
   return (
     <ConfigProvider theme={{
       algorithm: theme.darkAlgorithm,
-      token: { colorPrimary: '#ff4d4f', colorBgContainer: '#171717', borderRadius: 8 }
+      token: { colorPrimary: '#ff4d4f', colorBgContainer: '#171717', borderRadius: 8,
+        fontSize: 15, controlHeight: 38, controlHeightSM: 34, colorTextSecondary: '#b8b8b8' },
+      components: { Select: { optionHeight: 38 }, Dropdown: { paddingBlock: 8 } }
     }}>
       {modalContext}
       <main>
@@ -227,19 +285,14 @@ function App(): React.JSX.Element {
                 placeholder="Nenhum projeto associado"
                 title={activeProject?.sourcePath}
               />
-              {activeProject && (
-                <Space wrap>
-                  <ActionButton action="folder" onClick={() => api.postMessage({ type: 'setProjectFolder' })}>
-                    {activeProject.sourcePath ? 'Alterar pasta' : 'Associar pasta'}
-                  </ActionButton>
-                  <ActionButton action="search"
-                    disabled={!activeProject.sourcePath}
-                    onClick={() => api.postMessage({ type: 'scanProject' })}
-                  >
-                    Buscar skills no projeto
-                  </ActionButton>
-                </Space>
-              )}
+              {activeProject && <Dropdown trigger={['click']} menu={{ items: [
+                { key: 'folder', label: activeProject.sourcePath ? 'Alterar pasta' : 'Associar pasta',
+                  icon: <ActionIcon action="folder" />, onClick: () => api.postMessage({ type: 'setProjectFolder' }) },
+                { key: 'scan', label: 'Buscar skills no projeto', icon: <ActionIcon action="search" />,
+                  disabled: !activeProject.sourcePath, onClick: () => api.postMessage({ type: 'scanProject' }) }
+              ] }}>
+                <ActionButton action="folder">Projeto</ActionButton>
+              </Dropdown>}
             </>
           )}
           {!state.editingSkillId && (
@@ -252,15 +305,17 @@ function App(): React.JSX.Element {
             />
           )}
           {!state.editingSkillId && <div className="toolbar-spacer" />}
-          {state.editingSkillId && draft ? (
-            <Space className="editor-top-actions" wrap>
-              <ActionButton action="back" className="dashboard-back-button" onClick={leaveEditor} disabled={saving}>Voltar ao Dashboard</ActionButton>
-              <ActionButton action="save" type="primary" onClick={saveDraft} loading={saving} disabled={!dirty}>Salvar</ActionButton>
-            </Space>
-          ) : (
-            <Space wrap>
+          {!state.editingSkillId && (
+            <Space wrap size={12}>
               <ActionButton action="import" className="import-markdown-button" onClick={() => api.postMessage({ type: 'importMarkdown' })} disabled={!state.root}>Importar .md</ActionButton>
-              <ActionButton action="add" className="new-skill-button" type="primary" onClick={() => api.postMessage({ type: 'createSkill' })} disabled={!state.root}>Nova Skill</ActionButton>
+              <Dropdown trigger={['click']} disabled={!state.root} menu={{ items: [
+                { key: 'card', label: <div className="menu-description"><span>Novo card</span><small>Organize uma ou varias skills em um conjunto</small></div>,
+                  icon: <ActionIcon action="add" />, onClick: () => editCollection() },
+                { key: 'skill', label: <div className="menu-description"><span>Nova Skill</span><small>Crie uma regra com seu proprio Markdown</small></div>,
+                  icon: <ActionIcon action="edit" />, onClick: () => api.postMessage({ type: 'createSkill' }) }
+              ] }}>
+                <ActionButton action="add" className="new-skill-button" type="primary" disabled={!state.root}>Novo</ActionButton>
+              </Dropdown>
             </Space>
           )}
         </header>
@@ -317,30 +372,35 @@ function App(): React.JSX.Element {
           <>
             <div className="vault-path">
               <Typography.Text type="secondary" title={state.root}>{state.root}</Typography.Text>
-              <ActionButton action="refresh" size="small" onClick={() => api.postMessage({ type: 'refresh' })}>Atualizar</ActionButton>
-              <ActionButton action="backup" size="small" onClick={() => api.postMessage({ type: 'createBackup' })}>Criar backup</ActionButton>
-              <ActionButton action="restore" size="small" onClick={() => api.postMessage({ type: 'restoreBackup' })}>Restaurar backup</ActionButton>
-              <ActionButton action="folder" size="small" onClick={() => api.postMessage({ type: 'openVault' })}>Abrir outro cofre</ActionButton>
-              <ActionButton action="import" size="small" onClick={() => api.postMessage({ type: 'migrateDesktop' })}>Importar desktop</ActionButton>
+              <Dropdown trigger={['click']} menu={{ items: [
+                { key: 'refresh', label: 'Atualizar', icon: <ActionIcon action="refresh" />, onClick: () => api.postMessage({ type: 'refresh' }) },
+                { key: 'backup', label: <span className="vault-menu-backup">Criar backup</span>, icon: <ActionIcon action="backup" />, onClick: () => api.postMessage({ type: 'createBackup' }) },
+                { key: 'restore', label: <span className="vault-menu-restore">Restaurar backup</span>, icon: <ActionIcon action="restore" />, onClick: () => api.postMessage({ type: 'restoreBackup' }) },
+                { type: 'divider' },
+                { key: 'open', label: 'Abrir outro cofre', icon: <ActionIcon action="folder" />, onClick: () => api.postMessage({ type: 'openVault' }) },
+                { key: 'desktop', label: 'Importar desktop', icon: <ActionIcon action="import" />, onClick: () => api.postMessage({ type: 'migrateDesktop' }) }
+              ] }}>
+                <ActionButton action="more" size="small">Cofre</ActionButton>
+              </Dropdown>
             </div>
             <section className="library-heading">
               <div>
-                <Typography.Title level={2}>Biblioteca de Skills</Typography.Title>
-                <Typography.Text type="secondary">
-                  Gerencie as skills disponiveis para os agentes do projeto.
-                  {activeProject ? ` Projeto ativo: ${activeProject.name}.` : ' Ative Usar no Projeto para associar a pasta aberta ou escolher um projeto.'}
-                </Typography.Text>
-                {activeProject?.sourcePath && (
-                  <Typography.Paragraph className="active-project-path" type="secondary" title={activeProject.sourcePath}>
-                    Pasta do projeto: {activeProject.sourcePath}
-                  </Typography.Paragraph>
-                )}
+                <Space>
+                  <Typography.Title level={2}>Gerenciador de Skills</Typography.Title>
+                  <HelpTip label="Sobre o gerenciador">
+                    Gerencie as skills disponiveis para os agentes do projeto.
+                    {activeProject ? ` Projeto ativo: ${activeProject.name}.` : ' Ative Usar no Projeto para associar uma pasta.'}
+                    Novas ativacoes usam .agents/skills, compartilhado pelos agentes compativeis.
+                    Publicacoes antigas permanecem no local original ate desativar e reativar.
+                    {activeProject?.sourcePath && ` Pasta: ${activeProject.sourcePath}`}
+                  </HelpTip>
+                </Space>
               </div>
               <Space wrap>
                 <Tag>{cardCount} {cardCount === 1 ? 'card' : 'cards'}</Tag>
-                {state.catalog?.skills.length === 0 && !state.hasProjectMarkdown && <ActionButton action="examples" type="primary" title="Criar os oito cards da documentação no cofre" onClick={() => modal.confirm({
+                {allCards.length === 0 && <ActionButton action="examples" type="primary" title="Criar quatro cards de exemplo no cofre" onClick={() => modal.confirm({
                   title: 'Carregar exemplos do dashboard?',
-                  content: 'Cria no cofre os oito cards de exemplo da documentação.',
+                  content: 'Cria quatro cards com 1, 4, 2 e 0 skills, usando somente as categorias cadastradas.',
                   okText: 'Carregar exemplos',
                   cancelText: 'Cancelar',
                   okButtonProps: { className: 'action-button action-examples', icon: <ActionIcon action="examples" /> },
@@ -354,29 +414,9 @@ function App(): React.JSX.Element {
 
             <section className="filters">
               <Space wrap>
-                <ActionButton action="filter" type={statusFilter === 'all' ? 'primary' : 'default'} onClick={() => setStatusFilter('all')}>Todas</ActionButton>
-                {statusNames.map(status => (
-                  <ActionButton action={status} key={status} type={statusFilter === status ? 'primary' : 'default'} onClick={() => setStatusFilter(status)}>
-                    {labels[status]}
-                  </ActionButton>
-                ))}
-              </Space>
-              <Space wrap>
-                <Input
-                  className="inline-create-input"
-                  aria-label="Nome da nova categoria"
-                  placeholder="Nova Categoria"
-                  value={categoryName}
-                  onChange={event => setCategoryName(event.target.value)}
-                  onPressEnter={() => {
-                    if (categoryName.trim()) api.postMessage({ type: 'createCategory', name: categoryName })
-                    setCategoryName('')
-                  }}
-                />
-                <ActionButton action="add" onClick={() => {
-                  if (categoryName.trim()) api.postMessage({ type: 'createCategory', name: categoryName })
-                  setCategoryName('')
-                }} disabled={!categoryName.trim()}>Criar categoria</ActionButton>
+                <Select aria-label="Filtrar por status" className="filter-select" value={statusFilter}
+                  options={[{ value: 'all', label: 'Todos os status' },
+                    ...statusNames.map(value => ({ value, label: labels[value] }))]} onChange={setStatusFilter} />
                 <Select
                   allowClear
                   className="filter-select"
@@ -386,53 +426,118 @@ function App(): React.JSX.Element {
                   options={(state.catalog?.categories ?? []).map(category => ({ value: category, label: category }))}
                   onChange={setCategoryFilter}
                 />
-                <ActionButton action="delete" disabled={!categoryFilter} onClick={() => {
-                  if (!categoryFilter) return
-                  if (state.catalog?.skills.some(item => item.category === categoryFilter)) {
-                    modal.info({
-                      title: 'Categoria em uso',
-                      content: 'Esta categoria possui skills. Mova todas para outra categoria no editor antes de excluir.',
-                      okText: 'Entendi'
-                    })
-                    return
-                  }
-                  modal.confirm({
-                    title: 'Excluir categoria?',
-                    content: `A categoria "${categoryFilter}" sera removida. Nenhuma skill sera excluida.`,
-                    okText: 'Excluir categoria',
-                    cancelText: 'Cancelar',
-                    okButtonProps: { className: 'action-button action-delete', icon: <ActionIcon action="delete" /> },
-                    cancelButtonProps: { className: 'action-button action-back', icon: <ActionIcon action="back" /> },
-                    onOk: () => api.postMessage({ type: 'deleteCategory', name: categoryFilter })
-                  })
-                }}>Excluir categoria</ActionButton>
                 <Select
-                  allowClear
-                  className="filter-select"
-                  aria-label="Filtrar por agente"
-                  placeholder="Todos os agentes"
-                  value={agentFilter}
-                  options={[...new Set((state.catalog?.skills ?? []).flatMap(item => item.agents))]
-                    .map(agent => ({ value: agent, label: agent }))}
-                  onChange={setAgentFilter}
+                  allowClear className="filter-select collection-filter" aria-label="Filtrar por colecao"
+                  placeholder="Todos os conjuntos" value={collectionFilter}
+                  options={allCards.map(item => ({
+                    value: item.id, label: `${item.name} (${item.skillIds.length})`
+                  }))}
+                  onChange={setCollectionFilter}
                 />
+                <ActionButton action="filter" onClick={() => setCategoryManagerOpen(true)}>Categorias</ActionButton>
+                <HelpTip label="Como funcionam os conjuntos">
+                  Cada card pode conter nenhuma, uma ou varias skills. O switch aplica a acao ao conjunto no projeto.
+                  Skills compartilhadas com outros conjuntos tem a mesma ativacao.
+                </HelpTip>
               </Space>
             </section>
-
+            <Modal title="Categorias" open={categoryManagerOpen} footer={null} onCancel={() => setCategoryManagerOpen(false)}>
+              <Space direction="vertical" className="full-width">
+                <Space.Compact className="full-width">
+                  <Input aria-label="Nome da nova categoria" placeholder="Nova categoria" maxLength={60}
+                    value={categoryName} onChange={event => setCategoryName(event.target.value)} />
+                  <ActionButton action="add" disabled={!categoryName.trim()} onClick={() => {
+                    api.postMessage({ type: 'createCategory', name: categoryName }); setCategoryName('')
+                  }}>Criar categoria</ActionButton>
+                </Space.Compact>
+                {state.catalog.categories.map(category => <div key={category} className="category-row">
+                  <Typography.Text>{category}</Typography.Text>
+                  <Tooltip title="Excluir categoria" destroyOnHidden>
+                    <ActionButton action="delete" size="small" aria-label={`Excluir categoria ${category}`}
+                      onClick={() => deleteCategory(category)} />
+                  </Tooltip>
+                </div>)}
+              </Space>
+            </Modal>
+            <Modal title={collectionId ? 'Editar card' : 'Novo card'} open={collectionEditorOpen} width={680}
+              okText="Salvar" cancelText="Cancelar"
+              okButtonProps={{ disabled: !collectionName.trim() || !collectionCategory || !collectionDescription.trim() || !collectionTags.length, className: 'action-button action-save', icon: <ActionIcon action="save" /> }}
+              onCancel={() => setCollectionEditorOpen(false)} onOk={() => {
+                api.postMessage({ type: 'saveCollection', id: collectionId, name: collectionName, skillIds: collectionSkillIds,
+                  category: collectionCategory, description: collectionDescription, tags: collectionTags,
+                  agents: collectionAgents, status: collectionStatus, cardColor: collectionColor ?? null })
+              }}>
+              <div className="card-form">
+                <Typography.Text className="form-full-line" type="secondary">Defina o conjunto e selecione suas skills. Os campos com * sao obrigatorios.</Typography.Text>
+                {error && <Alert className="form-full-line" type="error" message={error} />}
+                <div className="card-form-field">
+                  <label htmlFor="card-name">Nome do conjunto *</label>
+                  <Input id="card-name" aria-label="Nome da colecao" placeholder="Ex.: Qualidade do codigo" maxLength={60}
+                    value={collectionName} onChange={event => setCollectionName(event.target.value)} />
+                </div>
+                <div className="card-form-field">
+                  <label htmlFor="card-category">Categoria *</label>
+                  <Select id="card-category" aria-label="Categoria do card" className="full-width" value={collectionCategory}
+                    options={state.catalog.categories.map(value => ({ value, label: value }))} onChange={setCollectionCategory} />
+                </div>
+                <div className="card-form-field form-full-line">
+                  <label htmlFor="card-description">Descricao *</label>
+                  <Input.TextArea id="card-description" rows={3} aria-label="Descricao do card" value={collectionDescription} maxLength={1000}
+                    placeholder="Descreva quando e para que usar este conjunto."
+                    onChange={event => setCollectionDescription(event.target.value)} />
+                </div>
+                <div className="card-form-field form-full-line">
+                  <label htmlFor="card-tags">Etiquetas *</label>
+                  <Select id="card-tags" mode="tags" aria-label="Etiquetas do card" className="full-width"
+                    placeholder="Digite uma etiqueta e pressione Enter" value={collectionTags}
+                    onChange={values => setCollectionTags(values.map(value => value.trim()).filter(Boolean))} />
+                </div>
+                <div className="card-form-field">
+                  <label htmlFor="card-agents">Agentes compativeis (opcional)</label>
+                  <Select id="card-agents" mode="tags" aria-label="Agentes do card" className="full-width" value={collectionAgents}
+                    placeholder="Selecione os agentes"
+                    options={['GitHub Copilot', 'Antigravity'].map(value => ({ value, label: value }))} onChange={setCollectionAgents} />
+                </div>
+                <div className="card-form-field">
+                  <label htmlFor="card-status">Status *</label>
+                  <Select id="card-status" aria-label="Status do card" className="full-width" value={collectionStatus}
+                    options={statusNames.map(value => ({ value, label: labels[value] }))} onChange={setCollectionStatus} />
+                </div>
+                <div className="card-form-field">
+                  <label htmlFor="card-color">Cor do card</label>
+                  <Select id="card-color" aria-label="Cor do card" className="full-width" value={collectionColor ?? AUTOMATIC_COLOR}
+                    options={cardColorOptions} onChange={value => setCollectionColor(isSkillCardColor(value) ? value : undefined)} />
+                </div>
+                <div className="card-form-field form-full-line">
+                  <label htmlFor="card-skills">Skills do conjunto (opcional)</label>
+                  <Select id="card-skills" mode="multiple" aria-label="Skills da colecao" placeholder="Busque e selecione uma ou mais skills"
+                    className="full-width" value={collectionSkillIds} onChange={setCollectionSkillIds}
+                    options={state.catalog.skills.map(item => ({ value: item.id, label: item.name }))} />
+                </div>
+              </div>
+            </Modal>
+            <Modal title="Escolha a skill para executar" open={Boolean(runningCard)}
+              footer={null} onCancel={() => setRunningCard(null)}>
+              <Space direction="vertical">
+                {state.catalog.skills.filter(item => runningCard?.skillIds.includes(item.id)).map(item =>
+                  <ActionButton key={item.id} action="run"
+                    disabled={!activeProject?.skillIds.includes(item.id) || item.status === 'blocked'}
+                    onClick={() => { api.postMessage({ type: 'runSkill', id: item.id }); setRunningCard(null) }}>
+                    {item.name}
+                  </ActionButton>)}
+              </Space>
+            </Modal>
             <div className="skills-grid">
-              {skills.flatMap(item => (item.agents.length ? item.agents : ['Sem agente'])
-                .filter(agent => !agentFilter || agent === agentFilter)
-                .map(agentName => {
-                const parsedAgent = skillAgentSchema.safeParse(agentName)
-                const agent = parsedAgent.success ? parsedAgent.data : undefined
-                const linked = Boolean(agent && activeProject && isAgentLinked(activeProject, item.id, agent))
-                const linkedAnywhere = Boolean(agent && state.projects?.projects.some(project => isAgentLinked(project, item.id, agent)))
-                const sharedActive = Boolean(state.projects?.projects.some(project => project.skillIds.includes(item.id)))
-                const lockedTitle = linkedAnywhere ? 'Desative a skill deste agente em todos os projetos antes de excluir.' : undefined
-                const hasPublishedMarkdown = Boolean(agent && state.publishedMarkdown?.includes(agentSkillKey(item.id, agent)))
+              {cards.map(item => {
+                const members = state.catalog!.skills.filter(skill => item.skillIds.includes(skill.id))
+                const linkedCount = members.filter(skill => activeProject?.skillIds.includes(skill.id)).length
+                const linked = members.length > 0 && linkedCount === members.length
+                const linkedAnywhere = Boolean(state.projects?.projects.some(project => item.skillIds.some(id => project.skillIds.includes(id))))
+                const sharedActive = linkedAnywhere
+                const lockedTitle = linkedAnywhere ? 'Desative as skills em todos os projetos antes de editar ou excluir.' : undefined
                 const cardColor = item.cardColor ?? categoryColor(item.category)
                 return (
-                  <div key={`${item.id}:${agentName}`} className="skill-grid-item">
+                  <div key={item.id} className="skill-grid-item">
                     <Card className={`skill-card${linked ? ' skill-card-linked' : ''}`} style={{
                       borderTop: `3px solid ${cardColor}`,
                       ...(item.cardColor ? { backgroundImage: `linear-gradient(180deg, ${cardColor}33 0%, transparent 180px)` } : {})
@@ -451,28 +556,37 @@ function App(): React.JSX.Element {
                         {item.description || 'Sem descricao.'}
                       </Typography.Paragraph>
                       <div className="skill-file">
-                        <Typography.Text type="secondary" title={item.originPath ?? item.filePath}>
-                          ▱ {item.originPath ?? item.filePath}
+                        <Typography.Text type="secondary">
+                          {members.length} {members.length === 1 ? 'skill' : 'skills'}
+                          {linkedCount > 0 && !linked ? ` (${linkedCount} ativa${linkedCount > 1 ? 's' : ''})` : ''}
                         </Typography.Text>
+                        <Space direction="vertical" size={4}>
+                          {members.map(member => <Button key={member.id} type="link" size="small"
+                            disabled={Boolean(state.projects?.projects.some(project => project.skillIds.includes(member.id)))}
+                            title="Editar Markdown desta skill"
+                            onClick={() => api.postMessage({ type: 'openSkill', id: member.id })}>{member.name}</Button>)}
+                          {!members.length && <Typography.Text type="secondary">Adicione uma skill ou selecione skills em Editar.</Typography.Text>}
+                        </Space>
                         <Space wrap size={[4, 4]}>
-                          <Tag>{agentName}</Tag>
-                          {item.agents.length > 1 && <Typography.Text type="secondary">Regra compartilhada</Typography.Text>}
+                          <Tag>Agent Skills</Tag>
+                          <HelpTip label="Compatibilidade da skill">Skill compartilhada entre agentes compativeis com Agent Skills.</HelpTip>
                         </Space>
                       </div>
                       <div className="skill-card-footer">
                         <Space className="skill-card-project">
                           <Switch
                             size="small"
-                            aria-label={`Usar ${item.name} (${agentName}) no projeto`}
+                            aria-label={`Usar ${item.name} no projeto`}
                             title={item.status === 'blocked'
                               ? 'Edite o status da skill para permitir seu uso no projeto.'
                               : linked
                                 ? 'Desativar e preservar o SKILL.md no cofre.'
-                                : agent ? `Criar ${agentRoot(agent)}/skills/<nome>/SKILL.md na pasta do projeto.`
-                                  : 'Publicacao nao suportada para este agente.'}
+                                : 'Publicar em .agents/skills/<nome>/SKILL.md para agentes compativeis.'}
                             checked={linked}
-                            disabled={item.status === 'blocked' || !agent}
-                            onChange={() => api.postMessage({ type: 'toggleProjectSkill', id: item.id, agent })}
+                            disabled={(!linkedCount && (item.status === 'blocked' || members.some(member => member.status === 'blocked'))) || !members.length}
+                            onChange={() => api.postMessage(item.standaloneSkillId
+                              ? { type: 'toggleProjectSkill', id: item.standaloneSkillId }
+                              : { type: 'toggleCollection', id: item.id, enabled: !linked })}
                           />
                           <Typography.Text type="secondary">Usar no Projeto</Typography.Text>
                         </Space>
@@ -480,37 +594,48 @@ function App(): React.JSX.Element {
                           <ActionButton action="run"
                             aria-label="Executar"
                             size="small"
-                            disabled={!linked || item.status === 'blocked' || agent !== 'GitHub Copilot'}
+                            disabled={!linked || item.status === 'blocked'}
                             title={linked
                               ? 'Abrir o chat do Copilot com esta skill; revise o pedido e envie.'
                               : 'Ative a skill no projeto para executa-la.'}
-                            onClick={() => api.postMessage({ type: 'runSkill', id: item.id, agent })}
+                            onClick={() => members.length === 1
+                              ? api.postMessage({ type: 'runSkill', id: members[0].id }) : setRunningCard(item)}
                           >Executar</ActionButton>
                           <ActionButton action="edit" aria-label="Editar" size="small" disabled={sharedActive}
-                            title={sharedActive ? 'Desative em todos os agentes antes de editar a regra compartilhada.' : 'Editar a regra compartilhada entre os agentes.'}
-                            onClick={() => api.postMessage({ type: 'openSkill', id: item.id })}>Editar</ActionButton>
-                          <ActionButton action="unlink"
-                            aria-label="Desvincular"
+                            title={sharedActive ? 'Desative em todos os projetos antes de editar a skill.' : 'Editar a skill compartilhada entre os agentes.'}
+                            onClick={() => item.standaloneSkillId
+                              ? api.postMessage({ type: 'openSkill', id: item.standaloneSkillId }) : editCollection(item)}>Editar</ActionButton>
+                          {!item.standaloneSkillId && <ActionButton action="add"
+                            aria-label="Adicionar skill"
                             size="small"
-                            disabled={(!agent && item.agents.length > 0) || (linkedAnywhere && !hasPublishedMarkdown)}
-                            title={linkedAnywhere && hasPublishedMarkdown
-                              ? 'Remover o card da biblioteca e manter o SKILL.md no projeto.'
-                              : linkedAnywhere ? lockedTitle : 'Desvincular'}
-                            onClick={() => api.postMessage({ type: 'unlinkSkill', id: item.id, agent })}
-                          >Desvincular</ActionButton>
-                          <ActionButton action="delete" aria-label="Excluir" size="small" danger disabled={(!agent && item.agents.length > 0) || linkedAnywhere} title={lockedTitle ?? (agent ? `Excluir somente ${agentName}` : 'Excluir cadastro')} onClick={() => api.postMessage({ type: 'deleteSkill', id: item.id, agent })}>Excluir</ActionButton>
+                            disabled={sharedActive}
+                            title={sharedActive ? lockedTitle : 'Criar uma skill neste card'}
+                            onClick={() => api.postMessage({ type: 'createSkill', collectionId: item.id, cardColor: null })}
+                          >Adicionar skill</ActionButton>}
+                          <ActionButton action="delete" aria-label="Excluir" size="small" danger disabled={linkedAnywhere}
+                            title={lockedTitle ?? 'Excluir card'} onClick={() => {
+                              if (item.standaloneSkillId) {
+                                api.postMessage({ type: 'deleteSkill', id: item.standaloneSkillId })
+                              } else modal.confirm({
+                                title: 'Excluir card?',
+                                content: 'Remove somente o conjunto. As skills serao preservadas e exibidas individualmente se nao estiverem em outros cards.',
+                                okText: 'Excluir card', cancelText: 'Cancelar',
+                                okButtonProps: { className: 'action-button action-delete', icon: <ActionIcon action="delete" /> },
+                                onOk: () => api.postMessage({ type: 'deleteCollection', id: item.id })
+                              })
+                            }}>Excluir</ActionButton>
                         </div>
                       </div>
                     </Card>
                   </div>
                 )
-              }))}
+              })}
             </div>
-            {!skills.length && (
+            {!cards.length && (
               <Empty className="empty-library" description={
-                state.catalog.skills.length
+                allCards.length
                   ? 'Nenhuma skill corresponde aos filtros'
-                  : 'Seu cofre ainda nao tem skills. Use Carregar exemplos para ver os oito cards da documentacao, Importar .md para adicionar seus arquivos ou Nova Skill para criar uma.'
+                  : 'Seu cofre ainda nao tem cards. Use Carregar exemplos para criar quatro conjuntos, Novo card para um conjunto vazio ou Importar .md para adicionar skills.'
               } />
             )}
           </>
@@ -521,21 +646,23 @@ function App(): React.JSX.Element {
             <div className="editor-heading">
               <div>
                 <Typography.Title level={3}>Editando: {draft.name}</Typography.Title>
-                {draft.agents.length > 1 && <Typography.Paragraph type="secondary">
-                  Regra compartilhada: alteracoes de conteudo e metadados se aplicam a todos os agentes deste cadastro.
-                </Typography.Paragraph>}
                 <Typography.Text type="secondary">{dirty ? 'Nao salvo' : 'Todas as alteracoes salvas'}</Typography.Text>
               </div>
-              <ActionButton action="save" type="primary" onClick={saveDraft} loading={saving} disabled={!dirty}>Salvar</ActionButton>
+              <Space className="editor-top-actions" size={12} wrap>
+                <ActionButton action="save" type="primary" onClick={saveDraft} loading={saving} disabled={!dirty}>Salvar</ActionButton>
+                <ActionButton action="back" className="dashboard-back-button" onClick={leaveEditor} disabled={saving}>Voltar ao Dashboard</ActionButton>
+              </Space>
             </div>
             <Card className="metadata-card">
-              <Typography.Paragraph type="secondary">Campos com * sao obrigatorios. Cor automatica e projetos sao opcionais.</Typography.Paragraph>
-              <Row gutter={[12, 12]}>
-                <Col xs={24} md={12} xl={6}>
+              <div className="metadata-heading"><Typography.Text strong>Detalhes da skill</Typography.Text>
+                <HelpTip label="Campos obrigatorios">Campos com * sao obrigatorios. Cor automatica e projetos sao opcionais.</HelpTip>
+              </div>
+              <Row gutter={[20, 20]}>
+                <Col xs={24} md={12} xl={8}>
                   <label htmlFor="skill-name">Titulo *</label>
                   <Input id="skill-name" required value={draft.name} maxLength={100} disabled={saving} onChange={event => updateDraft('name', event.target.value)} />
                 </Col>
-                <Col xs={24} md={12} xl={6}>
+                <Col xs={24} md={12} xl={8}>
                   <label htmlFor="skill-category">Categoria *</label>
                   <Select
                     id="skill-category"
@@ -547,13 +674,13 @@ function App(): React.JSX.Element {
                     onChange={value => updateDraft('category', value)}
                   />
                 </Col>
-                <Col xs={24} md={12} xl={6}>
-                  <label htmlFor="skill-tags">Etiquetas (separadas por virgula) *</label>
-                  <Input id="skill-tags" required value={draft.tags.join(', ')} disabled={saving} onChange={event =>
+                <Col xs={24} md={12} xl={8}>
+                  <label htmlFor="skill-tags">Etiquetas *</label>
+                  <Input id="skill-tags" required placeholder="Ex.: testes, qualidade (separe por virgulas)" value={draft.tags.join(', ')} disabled={saving} onChange={event =>
                     updateDraft('tags', event.target.value.split(',').map(tag => tag.trim()).filter(Boolean))
                   } />
                 </Col>
-                <Col xs={24} md={12} xl={3}>
+                <Col xs={24} md={12} xl={8}>
                   <label htmlFor="skill-status">Status *</label>
                   <Select
                     id="skill-status"
@@ -565,11 +692,10 @@ function App(): React.JSX.Element {
                     onChange={value => updateDraft('status', value as Status)}
                   />
                 </Col>
-                <Col xs={24} md={12} xl={3}>
-                  <label htmlFor="skill-agents">Agentes *</label>
+                <Col xs={24} md={12} xl={16}>
+                  <label htmlFor="skill-agents">Agentes compativeis (opcional)</label>
                   <Select
                     id="skill-agents"
-                    aria-required="true"
                     className="full-width"
                     mode="tags"
                     value={draft.agents}
@@ -585,7 +711,7 @@ function App(): React.JSX.Element {
                   <Input.TextArea id="skill-description" rows={2} maxLength={1000} required value={draft.description} disabled={saving}
                     onChange={event => updateDraft('description', event.target.value)} />
                 </Col>
-                <Col xs={24} md={8} xl={6}>
+                <Col xs={24} md={12} xl={8}>
                   <label htmlFor="skill-card-color">Cor do card</label>
                   <Select
                     id="skill-card-color"
@@ -601,7 +727,7 @@ function App(): React.JSX.Element {
                     }}
                   />
                 </Col>
-                <Col xs={24} md={16} xl={18}>
+                <Col xs={24} md={12} xl={16}>
                   <label>Caminho do arquivo</label>
                   <Input readOnly value={`${state.root}/${draft.filePath}`} />
                 </Col>

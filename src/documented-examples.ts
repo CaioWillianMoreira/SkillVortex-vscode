@@ -1,5 +1,50 @@
 import { randomBytes } from 'node:crypto'
-import { uniqueSkillFilePath, type Skill } from './model'
+import { skillSlug, uniqueSkillFilePath, type Catalog, type Skill } from './model'
+
+export function createCardExamples(categories: string[]): {
+  cards: NonNullable<Catalog['collections']>; skills: Array<{ skill: Skill; content: string }>
+} {
+  if (!categories.length) throw new Error('Crie pelo menos uma categoria antes de carregar exemplos.')
+  const category = (preferred: string) => categories.includes(preferred) ? preferred : categories[0]
+  const definitions = [
+    { name: 'Arquitetura essencial', category: category('Arquitetura'), description: 'Uma skill para revisar a organizacao do codigo.', tags: ['arquitetura', 'revisao'], color: '#1677ff' as const,
+      skills: [{ name: 'Revisar arquitetura', category: category('Arquitetura'), description: 'Revise a separacao de responsabilidades ao alterar a estrutura do projeto.', steps: ['Separe dominio, aplicacao e infraestrutura.', 'Evite dependencias circulares.', 'Execute os testes afetados.'] }] },
+    { name: 'Colecao de qualidade', category: category('DevOps'), description: 'Quatro skills independentes para um fluxo de desenvolvimento confiavel.', tags: ['qualidade', 'colecao'], color: '#52c41a' as const,
+      skills: [
+        { name: 'Revisar alteracoes', category: category('Geral'), description: 'Revise uma alteracao antes de concluir a tarefa.', steps: ['Confira os requisitos.', 'Revise os casos limite.', 'Valide o comportamento com testes.'] },
+        { name: 'Organizar modulos', category: category('Arquitetura'), description: 'Organize modulos quando uma funcionalidade crescer.', steps: ['Agrupe responsabilidades relacionadas.', 'Defina interfaces claras.', 'Preserve o comportamento existente.'] },
+        { name: 'Preparar commit', category: category('Git'), description: 'Prepare um commit pequeno e verificavel.', steps: ['Revise o diff.', 'Nao inclua credenciais.', 'Escreva uma mensagem objetiva.'] },
+        { name: 'Validar pipeline', category: category('DevOps'), description: 'Valide o pipeline antes de integrar uma alteracao.', steps: ['Execute lint, testes e build.', 'Exiba falhas de forma explicita.', 'Mantenha etapas reproduziveis.'] }
+      ] },
+    { name: 'Publicacao e descoberta', category: category('SEO'), description: 'Duas skills para preparar o conteudo e versionar a entrega.', tags: ['seo', 'publicacao'], color: '#fa8c16' as const,
+      skills: [
+        { name: 'Revisar SEO', category: category('SEO'), description: 'Revise a descoberta de uma pagina antes de publicar.', steps: ['Defina titulo e descricao claros.', 'Use cabecalhos semanticos.', 'Confira links e URLs.'] },
+        { name: 'Versionar entrega', category: category('Git'), description: 'Versione uma entrega pronta para publicacao.', steps: ['Confirme os testes.', 'Revise os arquivos da entrega.', 'Registre a versao e as alteracoes.'] }
+      ] },
+    { name: 'Meu proximo conjunto', category: category('Geral'), description: 'Card vazio, pronto para receber novas skills ou skills existentes.', tags: ['planejamento', 'vazio'], color: '#8c8c8c' as const, skills: [] }
+  ]
+  const skills: Array<{ skill: Skill; content: string }> = []
+  const cards = definitions.map(definition => {
+    const skillIds = definition.skills.map(item => {
+      const skill: Skill = {
+        id: randomBytes(16).toString('hex'), name: item.name, category: item.category,
+        description: item.description, agents: ['GitHub Copilot', 'Antigravity'],
+        status: 'pending', tags: [skillSlug(item.category), 'exemplo'],
+        filePath: uniqueSkillFilePath(item.name, skills.map(entry => entry.skill.filePath))
+      }
+      const content = `---\nname: ${skillSlug(skill.name)}\ndescription: ${JSON.stringify(skill.description)}\n---\n\n# ${skill.name}\n\n## Quando usar\n\n${skill.description}\n\n## Procedimento\n\n${item.steps.map(step => `- ${step}`).join('\n')}\n`
+      skills.push({ skill, content })
+      return skill.id
+    })
+    return {
+      id: randomBytes(16).toString('hex'), name: definition.name, category: definition.category,
+      description: definition.description, tags: definition.tags,
+      agents: ['GitHub Copilot', 'Antigravity'], status: 'pending' as const,
+      cardColor: definition.color, skillIds
+    }
+  })
+  return { cards, skills }
+}
 
 const examples: Array<Omit<Skill, 'id' | 'filePath'> & { markdown: string; aliases?: string[] }> = [
   {

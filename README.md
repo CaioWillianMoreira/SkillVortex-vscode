@@ -7,7 +7,7 @@ permanece intacto em sua pasta e repositorio.
 ## Funcionalidades implementadas
 
 - Dashboard React + Ant Design em Webview, tema escuro, busca, filtros de status,
-  categoria e agente, e cards responsivos de skills.
+  categoria e colecao, e cards responsivos de skills.
 - Criacao e abertura de cofres locais, com validacao de metadados.
 - Importacao explicita do banco SQLite do desktop para um **cofre novo**.
 - Preservacao de IDs, categorias, tags, agentes, status e vinculos dos projetos.
@@ -18,7 +18,7 @@ permanece intacto em sua pasta e repositorio.
   governanca, conteudo Markdown, pre-visualizacao GFM e projetos vinculados.
 - Criacao e exclusao de categorias vazias, associacao automatica de projetos, selecao do projeto ativo e gerenciamento
   dos vinculos por skill.
-- Inclusao opcional dos oito cards da captura de dashboard, com metadados e
+- Inclusao opcional de quatro cards de conjuntos (1, 4, 2 e 0 skills), com metadados e
   Markdown editaveis; IDs, caminhos e conteudo Markdown existentes sao preservados.
 - Desvinculacao do catalogo preservando o arquivo ou exclusao fisica confirmada.
 - Gravacao validada dos metadados e do Markdown no cofre.
@@ -78,7 +78,7 @@ comando da Paleta de Comandos continua disponivel como alternativa.
 
 Um cofre novo comeca vazio: instalar a extensao nao importa seus Markdown nem
 adiciona exemplos automaticamente. Depois de criar ou abrir o cofre, clique em
-**Carregar exemplos** para adicionar os oito cards da captura de referencia.
+**Carregar exemplos** para adicionar quatro cards com 1, 4, 2 e 0 skills.
 Os exemplos sao editaveis e nao constituem validacao automatica de qualidade.
 
 Alternativamente:
@@ -104,23 +104,26 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
 
 - **SkillVortex: Criar cofre**: selecione uma pasta pai e um nome novo.
 - **SkillVortex: Abrir cofre**: selecione uma pasta com os dois JSON validos.
-- **Nova Skill**: cria um Markdown no cofre e abre o editor integrado.
+- **Novo > Nova Skill**: abre um rascunho no editor. O cadastro, o Markdown e a
+  associacao a um conjunto so sao gravados ao clicar em **Salvar**.
+  Voltar e confirmar o descarte nao cria cards nem arquivos.
 - **Cor do card**: no editor de uma skill nova ou existente, escolha uma das 10
   cores no seletor e clique em **Salvar**. A opcao **Automatica (categoria)**
   usa a cor da categoria, como nas skills existentes sem uma cor escolhida.
 - **Campos obrigatorios**: ao salvar uma skill, informe titulo, categoria,
-  pelo menos uma etiqueta, status, pelo menos um agente, descricao e conteudo
+  pelo menos uma etiqueta, status, descricao e conteudo
   Markdown. Cor automatica e vinculos com projetos continuam opcionais.
   O nome legivel da skill determina o nome do arquivo e da pasta publicada,
   convertendo acentos e espacos para kebab-case; por exemplo,
   `Verifica consistencia do HTML` usa `skills/verifica-consistencia-do-html.md`.
 - **Importar .md**: copia arquivos Markdown selecionados para o cofre; arquivos
   acima de 2 MB sao recusados.
-- **Nova Categoria**: adiciona uma categoria ao catalogo. Os projetos sao
+- **Categorias**: abre uma janela para criar categorias ou excluir as vazias.
+  Os projetos sao
   cadastrados automaticamente ao ativar **Usar no Projeto** para uma pasta,
   sem formulario de criacao manual. O campo **Projeto** e somente leitura e
   exibe o projeto ativo, que controla os switches dos cards.
-- **Excluir categoria**: selecione a categoria no filtro e clique no botao.
+- **Excluir categoria**: abra **Categorias** e use a lixeira ao lado do nome.
   Categorias vazias sao removidas apos confirmacao. Se houver skills, mova
   todas para outra categoria pelo editor antes de excluir. Nenhuma skill e
   excluida nessa operacao; o filtro volta para todas as categorias apos a remocao.
@@ -128,35 +131,46 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   a cor escolhida. Ao passar o cursor, os cards aumentam levemente com uma
   transicao suave; o efeito respeita a preferencia por movimento reduzido.
 - Os botoes gerais mantem os icones e o padrao vermelho com bordas.
-  Nova Skill (verde claro), Salvar e Criar backup (verde escuro),
+  Novo (verde claro), Salvar e Criar backup (verde escuro),
   Restaurar backup (laranja), Importar .md e Voltar ao Dashboard (azul claro) recebem destaque diferente.
   Carregar exemplos so e permitido quando nao existe nenhum card na biblioteca,
-  independentemente dos filtros, e o botao so aparece se tambem nao existem Markdown de skills nas
-  pastas `.github/skills`, `.agents/skills` e `.agent/skills` do projeto ativo
-  (ou das pastas abertas, quando nenhum projeto esta associado).
-  As acoes dos cards nao possuem bordas: Executar em verde, Editar em azul,
-  Desvincular em laranja e Excluir em vermelho.
-  As quatro acoes dos cards ficam alinhadas em uma unica linha; em cards
+  independentemente dos filtros ou de Markdown ainda existentes nos projetos.
+  As acoes dos cards nao possuem bordas: Executar em verde, Editar em azul
+  e Excluir em vermelho. Conjuntos tambem possuem **Adicionar skill**.
+  As acoes dos cards ficam alinhadas em uma unica linha; em cards
   estreitos, os icones preservam os nomes acessiveis e dicas de cada acao.
   Acoes indisponiveis permanecem visualmente desabilitadas.
-- **Cadastro compartilhado por agente**: uma regra tem um unico Markdown no
-  cofre e um card para cada agente associado. O filtro de agentes so muda a
-  exibicao; as acoes levam o agente do proprio card. Conteudo, titulo, descricao,
-  etiquetas, status e cor sao compartilhados. O editor informa esse compartilhamento
-  e exige desativar a regra em todos os agentes antes de editar.
-  Vinculos, publicacoes e arquivos desativados sao independentes por agente.
-  Registros antigos continuam vinculados ao GitHub Copilot; abrir um cofre nao
-  copia nem move arquivos automaticamente para outro agente.
-- **Usar no Projeto**: o card GitHub Copilot publica em
-  `.github/skills/<nome-legivel>/SKILL.md`; o card Antigravity publica em
-  `.agents/skills/<nome-legivel>/SKILL.md`. Importacoes antigas de `.agent/skills`
-  continuam usando esse caminho. Uma acao no card de um agente nao sincroniza
-  nem altera as publicacoes do outro. Sem projeto ativo ou pasta associada, usa a unica pasta local aberta
+- **Skill independente do agente**: cada skill tem um unico Markdown, mesmo
+  quando usada por varios agentes ou conjuntos. A compatibilidade declarada
+  no editor e opcional e serve como metadado, nao como controle de
+  descoberta. Edicoes exigem desativar a skill em todos os projetos.
+- **Cards de conjuntos**: cada card possui titulo, categoria, descricao,
+  etiquetas, compatibilidade, status e cor, contendo de zero a varias skills
+  com Markdown independentes. **Novo > Novo card** cria um conjunto vazio; **Editar**
+  permite selecionar skills existentes e **Adicionar skill** cria uma skill
+  dentro dele. Clique no nome de uma skill para editar seu Markdown.
+  Skills antigas/importadas sem conjunto aparecem em cards individuais.
+  **Ativar colecao** e **Desativar colecao** aplicam a
+  acao ao conjunto no projeto em uma transacao: falhas restauram os arquivos.
+  Uma skill pode participar de varias colecoes; o switch pertence a skill,
+  nao a colecao. Desativar um conjunto tambem desativa seus membros presentes
+  em outros conjuntos. Excluir um card de conjunto remove somente o agrupamento:
+  as skills sao preservadas e reaparecem individualmente se nao estiverem em
+  outros conjuntos. Cards vazios nao podem ser ativados ou executados.
+- **Usar no Projeto**: novas ativacoes publicam uma unica pasta padrao em
+  `.agents/skills/<nome-legivel>/SKILL.md`, compartilhada por GitHub Copilot,
+  Antigravity e outros agentes que suportem esse local. O switch controla a
+  disponibilidade no projeto, nao a ativacao exclusiva por agente.
+  Publicacoes antigas em `.github/skills` e `.agent/skills` nao sao movidas ao
+  abrir o cofre. Desativar arquiva as publicacoes antigas; reativar consolida em
+  `.agents/skills`. Copias arquivadas divergentes bloqueiam a consolidacao com
+  erro explicito, sem descartar edicoes. Revise as copias antes de reativar.
+  Sem projeto ativo ou pasta associada, usa a unica pasta local aberta
   no VS Code ou solicita uma pasta; cria o cadastro do projeto quando necessario.
   Se o `SKILL.md` ja existir e for a origem importada ou tiver conteudo identico
   ao da skill, ativa o vinculo sem sobrescrever o arquivo. Arquivos diferentes
   e conflitos com copias desativadas sao preservados e informados para revisao.
-  **Executar**, disponivel apenas no card GitHub Copilot, abre o chat com o comando `/<nome-legivel>`
+  **Executar** abre o chat do GitHub Copilot com o comando `/<nome-legivel>`
   preenchido para a skill ativa; revise o pedido e envie no chat. A pasta
   associada precisa estar aberta como pasta do workspace no VS Code.
   Ao desativar, move o Markdown para `.skillvortex/disabled-skills/` no cofre,
@@ -169,29 +183,39 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   O cofre deve ficar fora da pasta do projeto. Arquivos existentes e links
   simbolicos nao sao sobrescritos. A propriedade das pastas e registrada no
   cofre, sem criar arquivos de identificacao no projeto.
-- **Acoes do card**: **Executar** exige ativacao do GitHub Copilot no projeto
-  selecionado. **Desvincular** remove apenas a associacao daquele agente,
-  preservando seus arquivos publicados. **Excluir** exige desativar aquele
-  agente em todos os projetos e remove somente suas pastas e arquivos arquivados.
-  O Markdown compartilhado continua no cofre enquanto houver outro agente
-  associado; a confirmacao lista os arquivos que serao apagados.
-  Ao salvar o editor com projetos selecionados, todos os agentes suportados
-  associados a regra sao ativados nesses projetos.
-- **Carregar exemplos**: disponivel somente com a biblioteca sem cards. Apos
-  confirmacao, cria os oito exemplos da captura (acessibilidade, REST,
-  arquitetura, seguranca, Git, SEO, CI e Vitest). Nao busca arquivos na pasta
-  do projeto nem exige um projeto ativo.
+- **Acoes da skill individual**: **Executar** exige publicacao no projeto selecionado.
+  **Excluir** exige desativar em todos os projetos e remove o
+  Markdown do cofre, suas pastas publicadas identificadas e arquivos arquivados;
+  a confirmacao lista o que sera apagado. A exclusao remove o membro das colecoes,
+  sem excluir os conjuntos. Salvar com projetos selecionados publica a skill
+  no destino compartilhado.
+- **Carregar exemplos**: disponivel somente com a biblioteca sem cards, inclusive
+  sem cards vazios. Apos confirmacao, cria exatamente quatro conjuntos com 1,
+  4, 2 e 0 skills (sete Markdown com frontmatter `name`/`description`).
+  Usa somente categorias ja cadastradas, sem criar categorias extras.
+  Todos os metadados dos exemplos sao preenchidos; o card vazio nao tem Markdown
+  ficticio. Nao busca arquivos na pasta do projeto nem exige um projeto ativo.
+  **Executar** em conjuntos com varias skills permite escolher qual executar.
 - **Associar pasta** vincula uma pasta local ao projeto ativo. **Buscar skills
   no projeto** procura Markdown nas pastas `skills` dos agentes e mostra os
   encontrados antes de importar os selecionados.
-- **Biblioteca**: pesquise por texto e filtre por status, categoria e agente.
+- **Gerenciador de Skills**: pesquise por texto e filtre por status, categoria
+  e conjunto numa unica barra. As acoes de conjuntos ficam nos proprios cards,
+  sem botoes duplicados de editar/excluir/ativar acima da grade.
+  O menu **Projeto** concentra alteracao de pasta e busca de skills.
+  O menu **Cofre** concentra atualizacao, backups e importacao do desktop.
+  Dicas nos icones de informacao aparecem por foco ou hover e fecham ao sair
+  ou pressionar Escape. A opcao **Desvincular** nao aparece na interface.
+  Seletores mais largos, menus descritivos e campos alinhados facilitam a leitura.
+  O formulario de cards usa duas colunas em telas maiores e uma em telas pequenas.
 - **Editor**: altere metadados e Markdown, confira a pre-visualizacao e ajuste
   os projetos vinculados. Monaco fornece realce Markdown e permite colar texto
   com `Ctrl+V` / `Cmd+V`; `Ctrl+S` / `Cmd+S` ou **Salvar** grava as alteracoes
-  no cofre.
+  no cofre. Existe somente um botao **Salvar**, ao lado de **Voltar ao Dashboard**,
+  na linha do titulo **Editando**. Em telas pequenas, as acoes ficam abaixo do titulo.
+  Abrir uma skill para editar ou voltar sem salvar nao altera os dados.
 - **Bloqueada**: ao salvar, remove os vinculos dessa skill em todos os projetos.
-- **Desvincular**: remove a skill do catalogo, preservando seus arquivos.
-  **Excluir** remove o cadastro e, apos confirmacao, apaga o Markdown do cofre,
+- **Excluir** remove o cadastro e, apos confirmacao, apaga o Markdown do cofre,
   as copias desativadas e as pastas publicadas identificadas em todos os projetos,
   inclusive outros arquivos dentro dessas pastas. O arquivo original importado
   e preservado; se ele estiver dentro de uma pasta a excluir, a operacao e
@@ -205,8 +229,9 @@ O editor Monaco e seus workers sao empacotados localmente; a extensao nao baixa
 o editor de um CDN. A pre-visualizacao suporta GitHub Flavored Markdown sem
 permitir HTML embutido. Skills ativadas sao publicadas para descoberta automatica
 do GitHub Copilot; os nomes de agentes no catalogo continuam sendo metadados.
-Desativar, bloquear ou desvincular uma skill retira o `SKILL.md` do projeto e
-preserva seu conteudo no cofre. Isso nao remove instrucoes ja carregadas numa
+Desativar ou bloquear uma skill retira o `SKILL.md` do projeto e preserva seu
+conteudo no cofre.
+Isso nao remove instrucoes ja carregadas numa
 conversa nem impede um agente de ler explicitamente arquivos acessiveis.
 Vinculos antigos sem pasta associada precisam de **Associar pasta** antes de
 serem publicados. A restauracao de backups tambem sincroniza os arquivos ativos;
@@ -216,7 +241,8 @@ Markdown da biblioteca.
 A varredura procura `.github/skills`, `.agents/skills` e `.agent/skills` na raiz
 do projeto associado e em todas as pastas locais abertas como workspace no VS
 Code. Assim, encontra as skills mesmo quando a pasta associada esta em outro
-caminho ou volume. Inclui Markdown com qualquer nome, como `SKILL.md`,
+caminho ou volume. Inclui Markdown solto diretamente nas pastas `skills` ou
+em subpastas, com qualquer nome, como `SKILL.md`,
 `1-skill-de-teste.md` ou `ANALISE-SEO.md`, inclusive em subpastas, sem exigir
 metadados. Ignora nomes convencionais de documentacao ou configuracao, como
 `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `SECURITY.md` e `CONFIG.md`, e
@@ -230,8 +256,17 @@ as pastas locais que estao abertas no workspace.
 A classificacao usa convencoes: um documento com nome incomum ainda pode
 aparecer, e uma skill com nome reservado pode ser omitida. Nesse caso, use
 **Importar .md** para seleciona-la manualmente. Cada item mostra o agente de
-origem; skills publicadas pelo proprio SkillVortex em `.github/skills` aparecem
-desmarcadas. A busca para com erro acima de 50.000 entradas ou 1.000 Markdown.
+origem; skills publicadas pelo proprio SkillVortex em `.github/skills` ou
+`.agents/skills` aparecem desmarcadas. A busca para com erro acima de 50.000
+entradas ou 1.000 Markdown.
+Importar copia o Markdown para o cofre sem alterar o original. A publicacao
+converte Markdown solto para uma pasta com `SKILL.md` e frontmatter YAML
+`name`/`description`, preservando outros campos YAML quando existentes.
+YAML invalido gera erro explicito. Encontrar um Markdown solto nao significa
+que o agente o reconheca como skill. A importacao ainda e de Markdown, nao de
+pacotes completos com scripts/assets; recursos externos precisam ser revisados.
+Skills sao procedimentos carregados por relevancia, nao instrucoes permanentes
+como `AGENTS.md` ou `copilot-instructions.md`; estes continuam fora da busca.
 Arquivos selecionados maiores que 2 MB sao recusados. Arquivos ja importados
 aparecem na selecao e sao ignorados ao importar novamente.
 

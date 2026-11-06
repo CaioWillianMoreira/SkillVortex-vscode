@@ -18,10 +18,11 @@ module.exports = async function testCardColors(extension) {
   let colorIndex = 0
   let projectLinked = false
   let otherProjectLinked = false
+  let collections = []
   let stage = 'create'
   const state = (editingSkillId = null, saved = false) => ({
     type: 'state', root: '/test-vault',
-    catalog: { version: 1, categories: ['Geral'], skills: skill ? [skill] : [] },
+    catalog: { version: 1, categories: ['Geral'], collections, skills: skill ? [skill] : [] },
     projects: {
       version: 1, activeProject: 'color-project',
       projects: [{
@@ -32,7 +33,8 @@ module.exports = async function testCardColors(extension) {
         skillIds: otherProjectLinked ? [skill.id] : []
       }]
     },
-    editingSkillId, content: editingSkillId ? '# Nova Skill\n\n' : '', saved
+    editingSkillId, content: editingSkillId ? '# Nova Skill\n\n' : '', saved,
+    hasProjectMarkdown: true
   })
 
   let timeout
@@ -44,7 +46,22 @@ module.exports = async function testCardColors(extension) {
         if (message.type === 'ready') {
           assert.ok(await webview.postMessage(state()))
           assert.ok(await webview.postMessage({ type: 'color-test-create' }))
+        } else if (message.type === 'first-use-examples-visible') {
+          assert.equal(message.visible, true)
+        } else if (message.type === 'manager-chrome') {
+          assert.equal(message.heading, 'Gerenciador de Skills')
+          assert.equal(message.backupColor, 'rgb(56, 158, 13)')
+          assert.equal(message.helpClosed, true)
+          assert.equal(message.repeatedCollectionButtons, false)
+          assert.ok(message.fontSize >= 15)
+          assert.ok(message.filterWidths.every(width => width >= 220))
+          assert.ok(message.menuIconGap >= 12)
         } else if (message.type === 'createSkill') {
+          if (stage === 'example-empty-add') {
+            assert.deepEqual(message, { type: 'createSkill', collectionId: collections[3].id, cardColor: null })
+            resolve()
+            return
+          }
           assert.equal(stage, 'create')
           assert.deepEqual(message, { type: 'createSkill' })
           skill = {
@@ -102,11 +119,11 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.categoryColor, rgb(SKILL_CARD_COLORS[colorIndex]))
           assert.equal(message.categoryTextColor, rgb(skillCardTextColor(SKILL_CARD_COLORS[colorIndex])))
           assert.notEqual(message.backgroundImage, 'none')
-          assert.deepEqual(message.actions, ['Executar', 'Editar', 'Desvincular', 'Excluir'])
-          assert.deepEqual(message.disabledActions, [true, false, false, false])
-          assert.equal(message.actionIconCount, 4)
+          assert.deepEqual(message.actions, ['Executar', 'Editar', 'Excluir'])
+          assert.deepEqual(message.disabledActions, [true, false, false])
+          assert.equal(message.actionIconCount, 3)
           assert.deepEqual(message.actionColors.slice(1), [
-            'rgb(105, 177, 255)', 'rgb(255, 192, 105)', 'rgb(255, 120, 117)'
+            'rgb(105, 177, 255)', 'rgb(255, 120, 117)'
           ])
           assert.equal(message.projectReadOnly, true)
           assert.equal(message.allActionButtonsHaveIcons, true)
@@ -115,7 +132,6 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.secondaryButtonsAreRed, true, JSON.stringify(message.secondaryButtonColors))
           assert.equal(message.importMarkdownColor, 'rgb(105, 177, 255)')
           assert.equal(message.newSkillColor, 'rgb(115, 209, 61)')
-          assert.equal(message.backupColor, 'rgb(56, 158, 13)')
           assert.ok(message.cardLayouts.every(layout => layout.oneRow && layout.contained),
             JSON.stringify(message.cardLayouts))
           assert.equal(message.hasProjectSwitch, true)
@@ -139,7 +155,7 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.borderColor, rgb(categoryColor('Geral')))
           assert.equal(message.categoryColor, rgb(categoryColor('Geral')))
           assert.equal(message.backgroundImage, 'none')
-          assert.deepEqual(message.disabledActions, [true, false, false, false])
+          assert.deepEqual(message.disabledActions, [true, false, false])
           assert.equal(message.backgroundColor, 'rgb(27, 27, 27)')
           assert.equal(message.linked, false)
           stage = 'linking'
@@ -147,8 +163,9 @@ module.exports = async function testCardColors(extension) {
         } else if (message.type === 'toggleProjectSkill') {
           assert.equal(message.id, skill.id)
           if (stage === 'agent-filter') {
-            assert.equal(message.agent, 'Antigravity')
-            resolve()
+            assert.equal(message.agent, undefined)
+            stage = 'collection-create'
+            assert.ok(await webview.postMessage({ type: 'collection-test-create' }))
             return
           }
           assert.ok(stage === 'linking' || stage === 'unlinking')
@@ -167,8 +184,8 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.categoryColor, rgb(categoryColor('Geral')))
           assert.equal(message.backgroundImage, 'none')
           assert.deepEqual(message.disabledActions, projectLinked
-            ? [false, true, true, true]
-            : otherProjectLinked ? [true, true, true, true] : [true, false, false, false])
+            ? [false, true, true]
+            : otherProjectLinked ? [true, true, true] : [true, false, false])
           if (projectLinked) {
             stage = 'unlinking'
             assert.ok(await webview.postMessage({ type: 'color-test-toggle-project' }))
@@ -180,7 +197,7 @@ module.exports = async function testCardColors(extension) {
               type: 'color-test-project-state',
               linked: false,
               expectedBackground: 'rgb(27, 27, 27)',
-              expectedDisabledActions: [true, true, true, true]
+              expectedDisabledActions: [true, true, true]
             }))
           } else {
             assert.equal(stage, 'other-project')
@@ -189,7 +206,7 @@ module.exports = async function testCardColors(extension) {
             const shared = state()
             shared.projects.projects[0].skillIds = [skill.id]
             shared.projects.projects[0].agentBindings = [{ skillId: skill.id, agent: 'Antigravity' }]
-            shared.publishedMarkdown = ['Antigravity:' + skill.id]
+            shared.publishedMarkdown = [skill.id, 'Antigravity:' + skill.id]
             stage = 'agent-filter'
             assert.ok(await webview.postMessage(shared))
             assert.ok(await webview.postMessage({ type: 'agent-test-filter' }))
@@ -198,14 +215,41 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.shared, true)
           assert.equal(message.examplesVisible, false)
           assert.deepEqual(message.cards, [
-            { agent: 'GitHub Copilot', active: false },
-            { agent: 'Antigravity', active: true }
+            { agent: 'Agent Skills', active: true }
           ])
         } else if (message.type === 'agent-test-filtered') {
           assert.equal(message.examplesVisible, false)
           assert.equal(message.count, 1)
           assert.equal(message.active, true)
-          assert.equal(message.agent, 'Antigravity')
+          assert.equal(message.agent, 'Agent Skills')
+        } else if (message.type === 'saveCollection') {
+          assert.equal(stage, 'collection-create')
+          assert.equal(message.name, 'Quality')
+          assert.deepEqual(message.skillIds, [skill.id])
+          assert.equal(message.category, 'Geral')
+          assert.ok(message.description)
+          assert.ok(message.tags.length)
+          collections = [{ ...message, id: 'quality' }]
+          stage = 'collection-filter'
+          assert.ok(await webview.postMessage(state(null, true)))
+          assert.ok(await webview.postMessage({ type: 'collection-test-filter' }))
+        } else if (message.type === 'toggleCollection') {
+          assert.equal(stage, 'collection-filter')
+          assert.deepEqual(message, { type: 'toggleCollection', id: 'quality', enabled: true })
+          const { createCardExamples } = require(join(extension.extensionPath, 'dist/documented-examples.js'))
+          const categories = ['Geral', 'Arquitetura', 'Git', 'DevOps', 'SEO']
+          const examples = createCardExamples(categories)
+          collections = examples.cards
+          stage = 'example-empty-add'
+          const exampleState = state()
+          exampleState.catalog = { version: 1, categories, collections, skills: examples.skills.map(item => item.skill) }
+          exampleState.projects.projects.forEach(project => { project.skillIds = [] })
+          assert.ok(await webview.postMessage(exampleState))
+          assert.ok(await webview.postMessage({ type: 'example-test-cards' }))
+        } else if (message.type === 'example-test-shape') {
+          assert.deepEqual(message.counts, [1, 4, 2, 0])
+          assert.equal(message.examplesVisible, false)
+          assert.equal(message.emptyDisabled, true)
         } else if (message.type === 'color-test-error') {
           reject(new Error(message.message))
         }
@@ -227,6 +271,19 @@ module.exports = async function testCardColors(extension) {
       const automaticLabel = 'Automatica (categoria)';
       const button = text => Array.from(document.querySelectorAll('button'))
         .find(item => item.textContent.trim() === text && !item.disabled);
+      function createItem(label) {
+        const create = button('Novo');
+        if (!create) return false;
+        create.click();
+        waitFor('creation menu ' + label, () => {
+          const item = Array.from(document.querySelectorAll('.ant-dropdown:not(.ant-dropdown-hidden) [role="menuitem"]'))
+            .find(item => (item.querySelector('.menu-description > span')?.textContent ?? item.textContent).trim() === label);
+          if (!item) return false;
+          item.click();
+          return true;
+        });
+        return true;
+      }
       const colorSelect = () => document.getElementById('skill-card-color');
       const colorSelection = () => colorSelect()?.closest('.ant-select')?.querySelector('.ant-select-selection-item');
       const colorOptions = () => Array.from(document.querySelectorAll('#skill-card-color_list [role="option"]'));
@@ -306,7 +363,6 @@ module.exports = async function testCardColors(extension) {
             .map(button => ({label: button.textContent, color: getComputedStyle(button).color})),
           importMarkdownColor: getComputedStyle(document.querySelector('.import-markdown-button')).color,
           newSkillColor: getComputedStyle(document.querySelector('.new-skill-button')).color,
-          backupColor: getComputedStyle(document.querySelector('.action-backup')).color,
           borderColor: getComputedStyle(card).borderTopColor,
           backgroundColor: getComputedStyle(card).backgroundColor,
           backgroundImage: getComputedStyle(card).backgroundImage,
@@ -327,44 +383,125 @@ module.exports = async function testCardColors(extension) {
         };
       }
       window.addEventListener('message', event => {
-        if (event.data.type === 'agent-test-filter') {
-          waitFor('independent agent cards', () => {
+        if (event.data.type === 'example-test-cards') {
+          waitFor('four example cards with exact member counts', () => {
             const cards = Array.from(document.querySelectorAll('.skill-card'));
-            if (cards.length !== 2) return false;
-            bridge.postMessage({ type: 'agent-test-cards', cards: cards.map(card => ({
-              agent: card.querySelector('.skill-file .ant-tag').textContent.trim(),
-              active: card.querySelector('[role="switch"]').getAttribute('aria-checked') === 'true'
-            })), shared: cards.every(card => card.textContent.includes('Regra compartilhada')),
-              examplesVisible: Boolean(button('Carregar exemplos')) });
-            const select = document.querySelector('[aria-label="Filtrar por agente"]').closest('.ant-select');
-            select.querySelector('.ant-select-selector').dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-            waitFor('agent filter option', () => {
-              const option = Array.from(document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'))
-                .find(item => item.textContent.trim() === 'Antigravity');
-              if (!option) return false;
-              option.click();
-              waitFor('only Antigravity card', () => {
-                const remaining = document.querySelectorAll('.skill-card');
-                if (remaining.length !== 1) return false;
-                const toggle = remaining[0].querySelector('[role="switch"]');
-                bridge.postMessage({
-                  type: 'agent-test-filtered', count: remaining.length,
-                  examplesVisible: Boolean(button('Carregar exemplos')),
-                  agent: remaining[0].querySelector('.skill-file .ant-tag').textContent.trim(),
-                  active: toggle.getAttribute('aria-checked') === 'true'
+            if (cards.length !== 4 || !cards[3].textContent.includes('Meu proximo conjunto')) return false;
+            const counts = cards.map(card => card.querySelectorAll('.skill-file button[title="Editar Markdown desta skill"]').length);
+            bridge.postMessage({ type: 'example-test-shape', counts,
+              examplesVisible: Boolean(button('Carregar exemplos')),
+              emptyDisabled: cards[3].querySelector('[role="switch"]').disabled });
+            const add = Array.from(cards[3].querySelectorAll('button')).find(item => item.textContent.trim() === 'Adicionar skill');
+            if (!add || add.disabled) throw new Error('Empty card cannot receive a skill');
+            add.click();
+            return true;
+          });
+        } else if (event.data.type === 'collection-test-create') {
+          waitFor('new collection button', () => {
+            const create = button('Novo');
+            if (!create) return false;
+            createItem('Novo card');
+            waitFor('collection editor', () => {
+              const name = document.querySelector('[aria-label="Nome da colecao"]');
+              const members = document.querySelector('[aria-label="Skills da colecao"]');
+              if (!name || !members) return false;
+              Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(name, 'Quality');
+              name.dispatchEvent(new Event('input', { bubbles: true }));
+              members.closest('.ant-select').querySelector('.ant-select-selector')
+                .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+              waitFor('collection member option', () => {
+                const option = Array.from(document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'))
+                  .find(item => item.textContent.trim() === 'Nova Skill');
+                if (!option) return false;
+                option.click();
+                waitFor('save collection', () => {
+                  const save = button('Salvar');
+                  if (!save || !members.closest('.ant-select').querySelector('.ant-select-selection-item')) return false;
+                  save.click();
+                  return true;
                 });
-                toggle.click();
                 return true;
               });
               return true;
             });
             return true;
           });
+        } else if (event.data.type === 'collection-test-filter') {
+          waitFor('collection filter', () => {
+            const filter = document.querySelector('[aria-label="Filtrar por colecao"]');
+            if (!filter) return false;
+            filter.closest('.ant-select').querySelector('.ant-select-selector')
+              .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+            waitFor('collection option', () => {
+              const option = Array.from(document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'))
+                .find(item => item.textContent.trim() === 'Quality (1)');
+              if (!option) return false;
+              option.click();
+              waitFor('activate collection', () => {
+                const activate = document.querySelector('.skill-card [role="switch"]');
+                if (!activate || document.querySelectorAll('.skill-card').length !== 1) return false;
+                activate.click();
+                return true;
+              });
+              return true;
+            });
+            return true;
+          });
+        } else if (event.data.type === 'agent-test-filter') {
+          waitFor('one shared skill card', () => {
+            const cards = Array.from(document.querySelectorAll('.skill-card'));
+            if (cards.length !== 1) return false;
+            bridge.postMessage({ type: 'agent-test-cards', cards: cards.map(card => ({
+              agent: card.querySelector('.skill-file .ant-tag').textContent.trim(),
+              active: card.querySelector('[role="switch"]').getAttribute('aria-checked') === 'true'
+            })), shared: cards.every(card => card.querySelector('[aria-label="Compatibilidade da skill"]')),
+              examplesVisible: Boolean(button('Carregar exemplos')) });
+            const toggle = cards[0].querySelector('[role="switch"]');
+            bridge.postMessage({
+              type: 'agent-test-filtered', count: cards.length,
+              examplesVisible: Boolean(button('Carregar exemplos')),
+              agent: cards[0].querySelector('.skill-file .ant-tag').textContent.trim(),
+              active: toggle.getAttribute('aria-checked') === 'true'
+            });
+            toggle.click();
+            return true;
+          });
         } else if (event.data.type === 'color-test-create') {
           waitFor('new skill button', () => {
-            const create = button('Nova Skill');
+            const create = button('Novo');
             if (!create) return false;
-            create.click();
+            bridge.postMessage({ type: 'first-use-examples-visible', visible: Boolean(button('Carregar exemplos')) });
+            const help = document.querySelector('[aria-label="Sobre o gerenciador"]');
+            help.focus();
+            waitFor('manager help tooltip', () => {
+              const tooltip = document.querySelector('.ant-tooltip:not(.ant-tooltip-hidden)');
+              if (!tooltip || !tooltip.textContent.includes('Novas ativacoes')) return false;
+              help.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+              help.blur();
+              waitFor('closed help tooltip', () => {
+                if (document.querySelector('.ant-tooltip:not(.ant-tooltip-hidden)')) return false;
+                button('Cofre').click();
+                waitFor('vault menu', () => {
+                  const backup = document.querySelector('.vault-menu-backup');
+                  if (!backup) return false;
+                  bridge.postMessage({
+                    type: 'manager-chrome',
+                    heading: document.querySelector('.library-heading h2').textContent.trim(),
+                    backupColor: getComputedStyle(backup).color,
+                    helpClosed: !document.querySelector('.ant-tooltip:not(.ant-tooltip-hidden)'),
+                    repeatedCollectionButtons: Boolean(button('Editar colecao') || button('Ativar colecao') || button('Desativar colecao')),
+                    menuIconGap: parseFloat(getComputedStyle(backup.closest('[role="menuitem"]')).columnGap),
+                    fontSize: parseFloat(getComputedStyle(document.querySelector('input[aria-label="Buscar skills"]')).fontSize),
+                    filterWidths: Array.from(document.querySelectorAll('.filter-select')).map(item => item.getBoundingClientRect().width)
+                  });
+                  button('Cofre').click();
+                  createItem('Nova Skill');
+                  return true;
+                });
+                return true;
+              });
+              return true;
+            });
             return true;
           });
         } else if (event.data.type === 'color-test-select') {
@@ -398,6 +535,20 @@ module.exports = async function testCardColors(extension) {
             const back = button('Voltar ao Dashboard');
             const enabledSave = button('Salvar');
             if (!selected || selected.textContent.trim() !== event.data.expectedLabel || !back || enabledSave) return false;
+            const saveButtons = Array.from(document.querySelectorAll('button')).filter(item => item.textContent.trim() === 'Salvar');
+            if (saveButtons.length !== 1 || saveButtons[0].closest('.editor-top-actions') !== back.closest('.editor-top-actions')) {
+              throw new Error('Editor must have one Save button next to Back');
+            }
+            if (!saveButtons[0].closest('.editor-heading') || back.closest('.topbar')) {
+              throw new Error('Save and Back must be on the Editing heading row');
+            }
+            const heading = document.querySelector('.editor-heading h3').getBoundingClientRect();
+            if (Math.abs(saveButtons[0].getBoundingClientRect().top - heading.top) > 10) {
+              throw new Error('Editor actions are not aligned with the Editing title');
+            }
+            if (document.getElementById('skill-agents').closest('.ant-select').getBoundingClientRect().width < 220) {
+              throw new Error('Agent compatibility selector is too narrow to read');
+            }
             if (getComputedStyle(back).color !== 'rgb(105, 177, 255)') return false;
             const swatch = selected.querySelector('.skill-color-swatch');
             if (event.data.expectedColor &&
@@ -411,6 +562,7 @@ module.exports = async function testCardColors(extension) {
             const appearance = cardAppearance();
             const edit = button('Editar');
             if (!appearance || !edit || !appearance.secondaryButtonsAreRed ||
+                appearance.importMarkdownColor !== 'rgb(105, 177, 255)' ||
                 appearance.newSkillColor !== 'rgb(115, 209, 61)') return false;
             bridge.postMessage({type:'color-test-manual-card', ...appearance});
             edit.click();

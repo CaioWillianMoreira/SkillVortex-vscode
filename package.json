@@ -4,6 +4,10 @@
   "description": "Biblioteca local e portatil de skills Markdown para projetos e agentes de IA.",
   "version": "0.1.2",
   "publisher": "skillvortex",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CaioWillianMoreira/SkillVortex-vscode.git"
+  },
   "private": true,
   "license": "UNLICENSED",
   "engines": {

@@ -8,6 +8,8 @@
 
 Extensão para criar, editar e organizar instruções Markdown em uma biblioteca local,
 selecionando quais skills publicar em cada projeto e agente.
+Inclui **MindCards**, um módulo independente para anotações e regras de negócio
+conectadas, armazenadas no mesmo cofre.
 
 **🔌 VS Code · ⚛️ React · 🔷 TypeScript · 🎨 Ant Design · 📝 Monaco + Tiptap · 🗃️ SQLite/WASM**
 
@@ -32,6 +34,7 @@ selecionando quais skills publicar em cada projeto e agente.
 - [📦 Instalação](#-instalação)
 - [🚀 Primeiros passos](#-primeiros-passos)
 - [📚 Guia de uso](#-guia-de-uso)
+- [🗂️ MindCards: notas e regras de negócio](#mindcards)
 - [📝 Editor de Texto e Markdown](#-editor-de-texto-e-markdown)
 - [🔌 Projetos, agentes e publicação](#-projetos-agentes-e-publicação)
 - [🔄 Alterações externas, comparação e merge](#-alterações-externas-comparação-e-merge)
@@ -60,6 +63,8 @@ selecionando quais skills publicar em cada projeto e agente.
 | 🔄 | Revisão de mudanças externas | Compare, mescle manualmente ou escolha qual versão adotar |
 | 💾 | Backup e recuperação | Cópias locais da biblioteca e proteção antes de substituir versões |
 | 🧳 | Migração do desktop | Importe um banco SQLite para uma nova biblioteca, sem alterar a origem |
+| 🗂️ | MindCards | Notas visuais em `.md`, pastas coloridas, etiquetas, vínculos e referências de entrada |
+| 🧭 | Escolha de área | Tela inicial para SkillVortex ou MindCards, com troca disponível no menu superior |
 
 ## 🖼️ Conheça as telas
 
@@ -106,6 +111,7 @@ Você não precisa de Node.js para instalar um VSIX já gerado.
 4. Execute **Developer: Reload Window**.
 5. Clique em **SkillVortex** na barra de status inferior ou execute
    **SkillVortex: Abrir biblioteca** na Paleta de Comandos.
+6. Escolha **SkillVortex** ou **MindCards** na tela inicial.
 
 Não é necessário instalar ou executar o aplicativo desktop.
 O empacotamento local não significa que exista uma versão publicada no Marketplace.
@@ -125,6 +131,11 @@ Se o build falhar, corrija a falha antes de instalar; não use um pacote antigo
 como se contivesse as alterações atuais.
 
 ## 🚀 Primeiros passos
+
+Ao abrir a Webview, escolha a área desejada. **Início** retorna ao seletor;
+os botões **SkillVortex** e **MindCards** permitem trocar de área sem fechar a aba.
+Alterações não salvas exigem confirmação antes da troca.
+O fluxo abaixo corresponde à área de skills.
 
 1. **Crie ou abra uma biblioteca.** Escolha uma pasta local para os dados.
    Mantenha a biblioteca fora das pastas dos projetos onde publicará skills.
@@ -268,6 +279,95 @@ Arquivos já importados são ignorados ao importar novamente. Publicações do p
 SkillVortex aparecem desmarcadas na busca. A importação é de **Markdown**, não de
 pacotes completos com scripts e assets; revise referências externas.
 
+<a id="mindcards"></a>
+
+## 🗂️ MindCards: notas e regras de negócio
+
+O MindCards é um **módulo separado**, não um novo tipo de skill. Compartilha o
+cofre, o padrão visual, o editor Texto e o backup, mas mantém arquivos, metadados,
+pastas e vínculos próprios. Não publica notas em agentes, não altera os cards de
+skills e não depende dos status ou vínculos dos projetos.
+A integração entre os dois módulos não está implementada.
+O MindCards mantém os fundos escuros neutros do SkillVortex em campos, menus,
+janelas e editor, com azul como identidade nas seleções e ferramentas. As ações
+usam cores semânticas: verde para criar/salvar/backup, azul-claro para abrir notas
+e voltar, roxo para biblioteca/pastas, amarelo para exemplos e vermelho para excluir. As cores
+personalizadas das pastas e os avisos semânticos continuam independentes.
+
+Com o MindCards vazio, **Carregar exemplos** oferece, após confirmação,
+exatamente quatro cards: **Frontend (React/TypeScript)**, **Backend (API/Node.js)**,
+**Qualidade (testes/CI)** e **Squad (acordos e regras de negócio)**.
+Cada card é uma nota editável em sua própria pasta colorida, com etiquetas e
+conexões para as outras três notas. Os conteúdos são pontos de partida,
+não regras aprovadas ou configurações aplicadas aos projetos. Nada é carregado
+automaticamente e a ação fica indisponível quando já existem pastas ou notas.
+
+### Criar e organizar
+
+1. Na tela inicial, escolha **Abrir MindCards**.
+2. Crie ou abra uma biblioteca existente, se necessário.
+3. Use **Criar primeira pasta** ou o ícone **+** ao lado de **Pastas**.
+4. Defina nome e cor usando a mesma paleta disponível no SkillVortex.
+5. Selecione a pasta e clique em **Nova nota**.
+6. Preencha título, pasta, etiquetas opcionais e texto; clique em **Salvar nota**
+   ou use `Ctrl+S` / `Cmd+S`.
+
+A lista permite filtrar por pasta, pesquisar títulos/etiquetas e filtrar uma
+etiqueta. As notas aparecem com a cor da pasta, data de atualização e quantidade
+de conexões. O ícone de edição da pasta permite renomear, alterar a cor ou
+excluir uma pasta vazia. Para mover uma nota, altere sua pasta no editor e salve.
+Na lateral, os botões de pasta têm dimensões uniformes e nomes em uma linha;
+a coluna usa largura padrão de 320 px no desktop. Nomes que excedam o espaço
+continuam disponíveis pela dica ao passar o cursor.
+
+### Editor somente Texto
+
+A nota usa o editor visual do SkillVortex e a mesma barra de formatação, sem
+painel de sintaxe Markdown. Títulos, listas, tarefas, links e tabelas continuam
+disponíveis. O conteúdo é gravado em `.md`; os metadados ficam em um cabeçalho
+YAML gerenciado pelo módulo e não aparecem na área de texto.
+
+Use **Leitura** no editor da nota para visualizar todo o conteúdo em largura
+ampliada, sem campos de cadastro, lateral ou barra de ferramentas. O texto fica
+somente leitura, mantém cores e tabelas e cresce com o conteúdo, usando a rolagem
+da página em vez de uma área interna de altura fixa. **Voltar a editar** restaura
+o editor. Alternar não salva nem descarta alterações pendentes: a leitura mostra
+o rascunho atual.
+
+Use uma ideia ou regra por nota e conecte contextos relacionados, no estilo
+Zettelkasten. O formato do corpo é livre; não há template de regra obrigatório,
+aprovação de regras ou geração com IA.
+
+### Conexões e referências
+
+**Notas relacionadas** seleciona vínculos explícitos com outras notas da mesma
+biblioteca. Em **Conexões**, abra tanto as notas relacionadas quanto as que
+fazem referência à nota atual. Os vínculos usam IDs internos estáveis e continuam
+válidos após mudar título ou pasta. Não é necessário digitar sintaxe `[[wiki]]`.
+
+Uma nota referenciada não pode ser excluída até que seus vínculos de entrada
+sejam removidos. Vínculos quebrados por edição externa aparecem como aviso.
+Títulos repetidos na mesma pasta e nomes de pasta duplicados são recusados.
+
+### Arquivos, mudanças externas e backup
+
+Os arquivos ficam em `mindcards/` dentro do cofre. `pastas.json` guarda os nomes
+e cores das pastas lógicas; cada nota é um Markdown com nome legível. Renomear
+ou mover uma nota na interface preserva seu arquivo e ID. Nenhum dado é inserido
+no catálogo de skills ou no índice SQLite.
+
+Use **Atualizar** para reler edições feitas fora da extensão. O módulo verifica
+o conteúdo anterior ao salvar/excluir e recusa um rascunho desatualizado, sem
+descartar o texto local. Essa proteção não equivale a edição simultânea ou merge
+automático. A edição visual aceita os spans de cor gerados pela barra;
+outros tipos de HTML embutido exigem revisão externa.
+O limite é de 2 MB por arquivo, incluindo metadados.
+
+Novos backups incluem os arquivos do MindCards, cores e conexões. Restaurar
+substitui o estado do módulo pelo snapshot, com ponto de recuperação do estado
+anterior. Backups antigos sem suporte a MindCards preservam o módulo atual.
+Os dois módulos ainda podem ser transportados juntos copiando o cofre completo.
+
 ## 📝 Editor de Texto e Markdown
 
 ### Metadados e salvamento
@@ -306,6 +406,7 @@ destino. Não existe uma prévia somente leitura separada abaixo.
 | --- | --- |
 | Histórico | Desfazer e refazer |
 | Formatação | Negrito, itálico, riscado, código em linha e limpar formatação |
+| Cor do texto | No painel Texto, colorir o trecho selecionado ou remover sua cor |
 | Parágrafo e títulos | Texto normal e títulos H1 a H6 |
 | Listas e recuos | Marcadores, numeração, tarefas e aumentar/diminuir recuo |
 | Inserir | Link, remover link, citação, bloco de código, separador e tabela |
@@ -316,10 +417,18 @@ ou posição do cursor, inclusive no Markdown. Títulos continuam reconhecidos n
 final da linha e quando a seleção inclui sua quebra. Uma seleção que ultrapassa
 um trecho formatado não destaca esse estilo. Ações indisponíveis são desabilitadas.
 
-A edição visual pode normalizar a sintaxe Markdown. Arquivos com HTML devem ser
-editados pelo painel Markdown; o painel visual mostra um aviso para preservar
-essas estruturas. As ferramentas usam Markdown/GFM: não acrescentam cores de
-fonte, alinhamento ou tamanhos arbitrários.
+A edição visual pode normalizar a sintaxe Markdown. **Cor do texto**, disponível
+no painel Texto do SkillVortex e no MindCards, permite escolher uma cor ou informar
+um hexadecimal `#RRGGBB`. A cor é persistida no `.md` como
+`<span style="color: #ff8800">trecho</span>`. **Remover cor** restaura a cor padrão;
+**Limpar formatação** também remove a cor. O cabeçalho YAML não é alterado.
+
+Esse HTML controlado é aceito pelo editor visual, inclusive com negrito e itálico.
+Outras tags, atributos ou estilos HTML continuam bloqueando a edição visual para
+preservar estruturas: use Markdown nas skills ou um editor externo no MindCards.
+O painel Markdown permite consultar/editar os spans na sintaxe, sem seletor de cor.
+Skills publicadas também levam esses spans; a aparência depende do renderizador
+do agente. Alinhamento e tamanhos arbitrários de fonte não são adicionados.
 
 ### Cabeçalho YAML protegido
 
@@ -470,6 +579,9 @@ Resolver mudanças externas não exige desativar uma skill publicada.
 MeuCofre/
 ├── skills/
 │   └── revisar-alteracoes.md
+├── mindcards/
+│   ├── pastas.json
+│   └── limite-de-desconto.md
 └── .skillvortex/
     ├── catalogo.json
     ├── projetos.json
@@ -497,6 +609,7 @@ O estado global do VS Code guarda a localização da biblioteca.
 Restaurar cria antes um ponto de recuperação do estado atual. Substitui metadados,
 preserva arquivos que não pertencem ao backup e sincroniza as publicações ativas.
 Backups inválidos geram erro explícito.
+Novos backups também incluem o módulo MindCards, quando existente.
 
 **Arquivos desativados não fazem parte do snapshot dos Markdown da biblioteca.**
 Snapshots de publicações em `external-changes/` são para recuperação manual:
@@ -593,6 +706,7 @@ falhas de disco ou comportamento de agentes externos.
 ```text
 Webview React + Ant Design
   ├── dashboard, formulários e controles de publicação
+  ├── seletor de áreas e MindCards independente (notas e conexões)
   └── Monaco ↔ Markdown ↔ Tiptap + barra compartilhada
                  │ mensagens validadas
 Extension Host (VS Code)
@@ -611,6 +725,7 @@ Extension Host (VS Code)
 | Revisão externa e recuperação | [src/external-changes.ts](./src/external-changes.ts), [src/backup.ts](./src/backup.ts) |
 | Exclusão de arquivos gerenciados | [src/skill-deletion.ts](./src/skill-deletion.ts) |
 | Migração e índice | [src/database.ts](./src/database.ts) |
+| Módulo MindCards | [src/mindcards-model.ts](./src/mindcards-model.ts), [src/mindcards.ts](./src/mindcards.ts), [webview/MindCards.tsx](./webview/MindCards.tsx) |
 | Interface e estilos | [webview/main.tsx](./webview/main.tsx), [webview/styles.css](./webview/styles.css) |
 | Editores e barra | [MonacoMarkdownEditor](./webview/MonacoMarkdownEditor.tsx), [VisualMarkdownEditor](./webview/VisualMarkdownEditor.tsx), [EditorToolbar](./webview/EditorToolbar.tsx) |
 

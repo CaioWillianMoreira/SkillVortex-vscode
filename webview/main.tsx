@@ -4,7 +4,8 @@ import {
   Alert, Button, Card, Checkbox, Col, ConfigProvider, Dropdown, Empty, Input, Modal, Row,
   Select, Space, Switch, Tabs, Tag, Tooltip, Typography, theme
 } from 'antd'
-import type { ButtonProps } from 'antd'
+import { ActionButton, ActionIcon } from './Actions'
+import MindCards from './MindCards'
 import type { Catalog, Projects, Skill, SkillCard, SkillAgent } from '../src/model'
 import { isAgentLinked, isCollectionLinked, selectedSkillIds, skillCards, skillRegistrationSchema } from '../src/model'
 import {
@@ -20,40 +21,6 @@ const MonacoMarkdownEditor = lazy(() => import('./MonacoMarkdownEditor'))
 const VisualMarkdownEditor = lazy(() => import('./VisualMarkdownEditor'))
 const labels = { allowed: 'Liberada', blocked: 'Bloqueada' }
 const colors = { allowed: 'green', blocked: 'red' }
-const actionIcons = {
-  run: 'M8 5v14l11-7z',
-  edit: 'm16 3 5 5M4 20l4-1L21 6l-3-3L5 16z',
-  unlink: 'm9 15-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 5 0M15 9l2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-5 0M3 3l18 18',
-  delete: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7',
-  folder: 'M3 7V4h6l2 3h10v13H3z',
-  library: 'M3 4h4v16H3zM10 4h4v16h-4zM16 5l3-1 4 15-3 1z',
-  search: 'M21 21l-6-6M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0',
-  back: 'm10 5-7 7 7 7M3 12h18',
-  save: 'M4 3h13l4 4v14H3V3zM7 3v6h10V3M7 21v-8h10v8',
-  import: 'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',
-  add: 'M12 4v16M4 12h16',
-  refresh: 'M20 7a9 9 0 1 0 1 8M20 2v6h-6',
-  backup: 'M4 3h16v18H4zM8 3v6h8V3M8 17h8',
-  restore: 'M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2',
-  examples: 'M3 4h7l2 2 2-2h7v16h-7l-2 2-2-2H3zM12 6v16',
-  filter: 'M3 4h18l-7 8v7l-4 2v-9z',
-  allowed: 'm5 12 4 4L20 5',
-  blocked: 'm6 6 12 12M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
-  info: 'M12 11v6M12 7h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
-  more: 'M5 12h.01M12 12h.01M19 12h.01'
-}
-function ActionIcon({ action }: { action: keyof typeof actionIcons }): React.JSX.Element {
-  return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d={actionIcons[action]} />
-  </svg>
-}
-function ActionButton({
-  action, className = '', ...props
-}: ButtonProps & { action: keyof typeof actionIcons }): React.JSX.Element {
-  return <Button {...props} className={`action-button action-${action} ${className}`}
-    icon={<ActionIcon action={action} />} />
-}
 const statusNames = ['allowed', 'blocked'] as const
 function HelpTip({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
   const [open, setOpen] = useState(false)
@@ -95,6 +62,13 @@ const cardColorOptions = [
 ]
 
 function App(): React.JSX.Element {
+  const [area, setArea] = useState<'home' | 'skills' | 'mindcards'>('home')
+  const [mindDirty, setMindDirty] = useState(false)
+  const [mindBusy, setMindBusy] = useState(false)
+  useEffect(() => {
+    document.body.dataset.workspace = area
+    return () => { delete document.body.dataset.workspace }
+  }, [area])
   const [modal, modalContext] = Modal.useModal()
   const [state, setState] = useState<AppState>(emptyState)
   const [error, setError] = useState('')
@@ -138,7 +112,7 @@ function App(): React.JSX.Element {
       if (event.data.type === 'externalChanges') {
         setState(current => ({ ...current, externalChanges: event.data.externalChanges }))
       }
-      if (event.data.saved) {
+      if (event.data.type === 'state' && event.data.saved) {
         setCollectionEditorOpen(false)
         setNotice('Alteracoes salvas na biblioteca.')
         setSaving(false)
@@ -246,6 +220,7 @@ function App(): React.JSX.Element {
     })
   }
   const saveDraft = () => {
+    if (area !== 'skills') return
     if (!draft || !dirty || saving) return
     const validation = skillRegistrationSchema.safeParse(draft)
     if (!validation.success) {
@@ -269,7 +244,7 @@ function App(): React.JSX.Element {
   }
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === 's') {
+      if (area === 'skills' && (event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === 's') {
         event.preventDefault()
         saveDraft()
       }
@@ -278,15 +253,57 @@ function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', handler, true)
   })
 
+  const navigate = async (next: typeof area) => {
+    if (next === area || saving || mindBusy) return
+    if ((area === 'skills' && (dirty || collectionEditorOpen)) || (area === 'mindcards' && mindDirty)) {
+      if (!await modal.confirm({ title: 'Descartar alteracoes nao salvas?', content: 'Salve antes de trocar de area para manter seu rascunho.',
+        okText: 'Descartar e trocar', cancelText: 'Continuar editando' })) return
+      if (area === 'skills') api.postMessage({ type: 'backToDashboard' })
+      setCollectionEditorOpen(false)
+    }
+    setMindDirty(false)
+    setArea(next)
+  }
+
   return (
     <ConfigProvider theme={{
       algorithm: theme.darkAlgorithm,
-      token: { colorPrimary: '#ff4d4f', colorBgContainer: '#171717', borderRadius: 8,
+      token: { colorPrimary: area === 'mindcards' ? '#1677ff' : '#ff4d4f',
+        ...(area === 'mindcards' ? {
+          colorInfo: '#1677ff', colorLink: '#69b1ff', colorLinkHover: '#91caff'
+        } : {}),
+        colorBgContainer: '#171717', borderRadius: 8,
         fontSize: 15, controlHeight: 38, controlHeightSM: 34, colorTextSecondary: '#b8b8b8' },
       components: { Select: { optionHeight: 38 }, Dropdown: { paddingBlock: 8 } }
     }}>
       {modalContext}
       <main>
+        <nav className="workspace-navigation" aria-label="Areas de trabalho">
+          <ActionButton action="home" aria-label="Escolher tela inicial" onClick={() => void navigate('home')} disabled={saving || mindBusy}>Inicio</ActionButton>
+          <ActionButton action="library" aria-pressed={area === 'skills'} onClick={() => void navigate('skills')} disabled={saving || mindBusy}>SkillVortex</ActionButton>
+          <ActionButton action="mindcards" aria-pressed={area === 'mindcards'} onClick={() => void navigate('mindcards')} disabled={saving || mindBusy}>MindCards</ActionButton>
+        </nav>
+        {area === 'home' && <section className="area-chooser">
+          <Typography.Text className="welcome-eyebrow">SEU ESPACO DE TRABALHO</Typography.Text>
+          <Typography.Title level={1}>Por onde vamos comecar?</Typography.Title>
+          <Typography.Paragraph type="secondary">Escolha uma area. Voce pode trocar a qualquer momento pelo menu acima.</Typography.Paragraph>
+          <div className="area-choices">
+            <Card className="area-choice">
+              <ActionIcon action="library" />
+              <Typography.Title level={2}>SkillVortex</Typography.Title>
+              <Typography.Paragraph type="secondary">Organize skills e controle sua publicacao nos projetos e agentes.</Typography.Paragraph>
+              <ActionButton action="library" type="primary" onClick={() => void navigate('skills')}>Abrir SkillVortex</ActionButton>
+            </Card>
+            <Card className="area-choice mind-choice">
+              <ActionIcon action="mindcards" />
+              <Typography.Title level={2}>MindCards</Typography.Title>
+              <Typography.Paragraph type="secondary">Conecte ideias e regras de negocio em notas locais, com pastas coloridas.</Typography.Paragraph>
+              <ActionButton action="mindcards" type="primary" onClick={() => void navigate('mindcards')}>Abrir MindCards</ActionButton>
+            </Card>
+          </div>
+        </section>}
+        {area === 'mindcards' && <MindCards key={state.root} root={state.root} api={api} onDirtyChange={setMindDirty} onBusyChange={setMindBusy} />}
+        {area === 'skills' && <>
         <header className="topbar">
           <Typography.Title className="brand" level={3}>Skill<span>Vortex</span></Typography.Title>
           {state.catalog && state.projects && !state.editingSkillId && (
@@ -880,6 +897,7 @@ function App(): React.JSX.Element {
             </Card>
           </section>
         )}
+        </>}
       </main>
     </ConfigProvider>
   )

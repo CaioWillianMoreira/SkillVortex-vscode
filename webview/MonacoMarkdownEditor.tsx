@@ -86,7 +86,7 @@ export default function MonacoMarkdownEditor({
     editor.focus()
     if (command === 'undo' || command === 'redo') { editor.trigger('toolbar', command, null); return }
     if (command === 'addRow' || command === 'deleteRow' || command === 'addColumn' ||
-        command === 'deleteColumn' || command === 'deleteTable') return
+        command === 'deleteColumn' || command === 'deleteTable' || command === 'color' || command === 'unsetColor') return
     try {
       const source = metadata + model.getValue()
       const edit = formatMarkdown(source, metadata.length + model.getOffsetAt(selection.getStartPosition()),

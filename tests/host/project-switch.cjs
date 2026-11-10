@@ -117,6 +117,7 @@ async function testProjectSwitch(extension) {
       </head><body><div id="root"></div><script>
         const bridge = acquireVsCodeApi();
         window.acquireVsCodeApi = () => bridge;
+        ${require('./select-skills.cjs')}
         window.addEventListener('message', event => {
           const message = event.data;
           if (message.type !== 'switch-test-step' && message.type !== 'switch-test-check') return;

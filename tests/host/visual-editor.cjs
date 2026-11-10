@@ -70,6 +70,7 @@ module.exports = async function testVisualEditor(extension) {
     <script nonce="visualTest">
       const bridge = acquireVsCodeApi();
       globalThis.acquireVsCodeApi = () => bridge;
+      ${require('./select-skills.cjs')}
       const wait = async (label, predicate) => {
         const start = Date.now();
         while (!predicate()) {
@@ -145,7 +146,7 @@ module.exports = async function testVisualEditor(extension) {
               throw new Error('Projects and governance must be above the editors');
             }
             const groups = document.querySelectorAll('.visual-editor-toolbar [role="group"]');
-            if (groups.length !== 5) throw new Error('Toolbar must have five labeled groups');
+            if (groups.length !== 6) throw new Error('Toolbar must have six labeled groups including text color');
             if (!document.querySelector('button[aria-label="Aumentar recuo"]').disabled) {
               throw new Error('Unavailable commands must be disabled');
             }

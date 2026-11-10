@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Alert, Button, Input, Modal, Space, Tooltip } from 'antd'
 import type { MarkdownCommand } from '../src/markdown-format'
+import { isTextColor } from './TextColor'
 
 export type EditorCommand = MarkdownCommand | 'undo' | 'redo' | 'addRow' | 'deleteRow' |
-  'addColumn' | 'deleteColumn' | 'deleteTable'
+  'addColumn' | 'deleteColumn' | 'deleteTable' | 'color' | 'unsetColor'
 
 const groups: Array<{ label: string; tools: Array<[EditorCommand, string]> }> = [
   { label: 'Historico', tools: [['undo', 'Desfazer'], ['redo', 'Refazer']] },
@@ -27,6 +28,8 @@ const paths: Partial<Record<EditorCommand, string>> = {
   strike: 'M18 6c-2-3-11-3-11 2 0 2 3 3 5 3M6 17c2 5 12 4 12-1 0-2-2-3-5-3M3 12h18',
   code: 'm8 6-6 6 6 6m8-12 6 6-6 6M14 3l-4 18',
   clear: 'm14 3 7 7-10 11H5l-4-4zM7 11l8 8M12 21h10',
+  color: 'm5 17 7-14 7 14M8 12h8M3 22h18',
+  unsetColor: 'm5 17 7-14 7 14M8 12h8M3 22h18M3 3l18 18',
   paragraph: 'M13 21V3h7M17 3v18M13 3H9a5 5 0 0 0 0 10h4',
   bullet: 'M9 5h12M9 12h12M9 19h12M3 5h1M3 12h1M3 19h1',
   ordered: 'M10 5h12M10 12h12M10 19h12M2 3h2v5M2 12c4-3 5 1 0 5h4M2 20h4',
@@ -61,15 +64,31 @@ export interface EditorToolbarProps {
   disabled?: EditorCommand[]
   inTable?: boolean
   linkHref?: string
+  textColor?: string | null
   run: (command: EditorCommand, href?: string) => void
 }
 
-export default function EditorToolbar({ readOnly, contentReadOnly, active = [], disabled = [], inTable, linkHref = '', run }: EditorToolbarProps): React.JSX.Element {
+export default function EditorToolbar({ readOnly, contentReadOnly, active = [], disabled = [], inTable, linkHref = '', textColor, run }: EditorToolbarProps): React.JSX.Element {
   const [linkOpen, setLinkOpen] = useState(false)
   const [url, setUrl] = useState('')
   const [error, setError] = useState('')
+  const [colorOpen, setColorOpen] = useState(false)
+  const [color, setColor] = useState('#69b1ff')
   return <>
     <div className="visual-editor-toolbar" role="toolbar" aria-label="Formatacao do editor">
+      {textColor !== undefined && <div className="visual-editor-tool-group" role="group" aria-label="Cor do texto">
+        <span className="visual-editor-group-label">Cor do texto</span>
+        <div className="visual-editor-group-buttons">
+          <Tooltip title="Cor do texto"><Button className="visual-editor-tool" size="small" aria-label="Cor do texto"
+            disabled={readOnly || contentReadOnly} aria-pressed={Boolean(textColor)}
+            onMouseDown={event => event.preventDefault()} onClick={() => {
+              setColor(textColor ?? '#69b1ff'); setColorOpen(true)
+            }} icon={<span style={{ borderBottom: `3px solid ${textColor ?? '#69b1ff'}` }}><ToolIcon command="color" /></span>} /></Tooltip>
+          <Tooltip title="Remover cor"><Button className="visual-editor-tool" size="small" aria-label="Remover cor"
+            disabled={readOnly || contentReadOnly || !textColor} onMouseDown={event => event.preventDefault()}
+            onClick={() => run('unsetColor')} icon={<ToolIcon command="unsetColor" />} /></Tooltip>
+        </div>
+      </div>}
       {groups.filter(group => group.label !== 'Editar tabela' || inTable).map(group =>
         <div key={group.label} className="visual-editor-tool-group" role="group" aria-label={group.label}>
           <span className="visual-editor-group-label">{group.label}</span>
@@ -84,6 +103,17 @@ export default function EditorToolbar({ readOnly, contentReadOnly, active = [], 
                 }} />
             </Tooltip>)}
           </div>
+          <Modal title="Cor do texto" open={colorOpen} okText="Aplicar cor" cancelText="Cancelar"
+            onCancel={() => setColorOpen(false)} okButtonProps={{ disabled: readOnly || !isTextColor(color) }}
+            onOk={() => { if (isTextColor(color)) { run('color', color); setColorOpen(false) } }}>
+            <Space direction="vertical">
+              <label>Escolha uma cor<Input type="color" aria-label="Escolher cor do texto"
+                value={isTextColor(color) ? color : '#69b1ff'} onChange={event => setColor(event.target.value)} /></label>
+              <Input aria-label="Codigo da cor" value={color} maxLength={7} onChange={event => setColor(event.target.value)}
+                status={isTextColor(color) ? undefined : 'error'} />
+              <span>A cor sera salva no .md como um span HTML controlado.</span>
+            </Space>
+          </Modal>
         </div>)}
     </div>
     <Modal title="Inserir link" open={linkOpen} okText="Aplicar" cancelText="Cancelar"

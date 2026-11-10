@@ -9,6 +9,7 @@ import { TableKit } from '@tiptap/extension-table'
 import { Markdown } from '@tiptap/markdown'
 import { replaceMarkdownBody, splitMarkdown } from '../src/markdown-content'
 import EditorToolbar, { type EditorCommand } from './EditorToolbar'
+import { containsHtmlToken, isTextColor, TextColor } from './TextColor'
 
 interface Props {
   value: string
@@ -17,23 +18,32 @@ interface Props {
   toolbar: HTMLElement | null
   active: boolean
   onFocus: () => void
+  label?: string
+  hint?: string
+  preserveMetadata?: boolean
+  htmlWarning?: string
 }
 
-export default function VisualMarkdownEditor({ value, readOnly, onChange, toolbar, active, onFocus }: Props): React.JSX.Element {
+export default function VisualMarkdownEditor({
+  value, readOnly, onChange, toolbar, active, onFocus,
+  label = 'Conteudo da skill em texto', hint = 'O texto edita o mesmo Markdown. A sintaxe pode ser normalizada ao editar.',
+  preserveMetadata = true,
+  htmlWarning = 'Este arquivo contem HTML. Edite no painel Markdown para preservar essas estruturas.'
+}: Props): React.JSX.Element {
   const current = useRef(value)
   const change = useRef(onChange)
   change.current = onChange
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false }, underline: false }),
-      Image, TaskList, TaskItem.configure({ nested: true }), TableKit, Markdown
+      Image, TaskList, TaskItem.configure({ nested: true }), TableKit, TextColor, Markdown
     ],
-    content: splitMarkdown(value).body,
+    content: preserveMetadata ? splitMarkdown(value).body : value,
     contentType: 'markdown',
     editable: !readOnly,
-    editorProps: { attributes: { 'aria-label': 'Conteudo da skill em texto', role: 'textbox', 'aria-multiline': 'true' } },
+    editorProps: { attributes: { 'aria-label': label, role: 'textbox', 'aria-multiline': 'true' } },
     onUpdate: ({ editor: instance }) => {
-      const next = replaceMarkdownBody(current.current, instance.getMarkdown())
+      const next = preserveMetadata ? replaceMarkdownBody(current.current, instance.getMarkdown()) : instance.getMarkdown()
       current.current = next
       change.current(next)
     }
@@ -57,23 +67,25 @@ export default function VisualMarkdownEditor({ value, readOnly, onChange, toolba
       if (!instance?.can().liftListItem(item)) disabled.push('outdent')
       if (!instance?.isActive('link')) disabled.push('unlink')
       if (instance?.isActive('table')) disabled.push('table')
-      return { active, disabled, inTable: instance?.isActive('table'), linkHref: instance?.getAttributes('link').href as string | undefined }
+      const color: unknown = instance?.getAttributes('textColor').color
+      return { active, disabled, textColor: isTextColor(color) ? color : null,
+        inTable: instance?.isActive('table'), linkHref: instance?.getAttributes('link').href as string | undefined }
     }
   })
   const containsHtml = useMemo(() => {
     if (!editor?.markdown) return false
     let found = false
     const parser = editor.markdown.instance
-    parser.walkTokens(parser.lexer(splitMarkdown(value).body), token => { if (token.type === 'html') found = true })
+    parser.walkTokens(parser.lexer(preserveMetadata ? splitMarkdown(value).body : value), token => { if (containsHtmlToken(token)) found = true })
     return found
-  }, [editor, value])
+  }, [editor, value, preserveMetadata])
 
   useEffect(() => {
     if (editor && value !== current.current) {
       current.current = value
-      editor.commands.setContent(splitMarkdown(value).body, { contentType: 'markdown', emitUpdate: false })
+      editor.commands.setContent(preserveMetadata ? splitMarkdown(value).body : value, { contentType: 'markdown', emitUpdate: false })
     }
-  }, [editor, value])
+  }, [editor, value, preserveMetadata])
   useEffect(() => { editor?.setEditable(!readOnly && !containsHtml, false) }, [editor, readOnly, containsHtml])
 
   const run = (command: EditorCommand, href?: string) => {
@@ -87,6 +99,8 @@ export default function VisualMarkdownEditor({ value, readOnly, onChange, toolba
       case 'strike': chain.toggleStrike().run(); break
       case 'code': chain.toggleCode().run(); break
       case 'clear': chain.unsetAllMarks().clearNodes().run(); break
+      case 'color': if (isTextColor(href)) chain.setMark('textColor', { color: href }).run(); break
+      case 'unsetColor': chain.unsetMark('textColor').run(); break
       case 'paragraph': chain.setParagraph().run(); break
       case 'h1': case 'h2': case 'h3': case 'h4': case 'h5': case 'h6':
         chain.toggleHeading({ level: ({ h1: 1, h2: 2, h3: 3, h4: 4, h5: 5, h6: 6 } as const)[command] }).run(); break
@@ -110,8 +124,8 @@ export default function VisualMarkdownEditor({ value, readOnly, onChange, toolba
   }
   return <div className="visual-markdown-editor" onFocusCapture={onFocus}>
     {active && toolbar && createPortal(<EditorToolbar {...selection} readOnly={readOnly || containsHtml || !editor} run={run} />, toolbar)}
-    {containsHtml ? <Alert type="warning" showIcon message="Este arquivo contem HTML. Edite no painel Markdown para preservar essas estruturas." />
+    {containsHtml ? <Alert type="warning" showIcon message={htmlWarning} />
       : editor ? <EditorContent editor={editor} /> : <div className="editor-loading">Carregando editor de texto...</div>}
-    <div className="visual-editor-hint">O texto edita o mesmo Markdown. A sintaxe pode ser normalizada ao editar.</div>
+    <div className="visual-editor-hint">{hint}</div>
   </div>
 }

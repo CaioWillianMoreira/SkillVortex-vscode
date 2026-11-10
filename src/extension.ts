@@ -19,8 +19,17 @@ import { saveProjectSkills, skillMarkdownMetadata } from './project-skills'
 import { assertSkillInactive, deleteCollectionFiles, deleteSkillFiles, planSkillDeletion } from './skill-deletion'
 import type { SkillCardColor } from './skill-colors'
 import { detectExternalChanges, inspectSkillVersions, resolveExternalChange } from './external-changes'
+import { mindFolderSchema, mindNoteInputSchema, type MindNoteDocument } from './mindcards-model'
+import { createMindCardsExamples, deleteMindFolder, deleteMindNote, readMindCards, readMindNote, saveMindFolder, saveMindNote } from './mindcards'
 
 const messageSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('loadMindCards') }),
+  z.object({ type: z.literal('createMindCardsExamples') }),
+  z.object({ type: z.literal('openMindNote'), id: z.string().uuid() }),
+  z.object({ type: z.literal('saveMindFolder'), folder: mindFolderSchema, revision: z.string().nullable() }),
+  z.object({ type: z.literal('deleteMindFolder'), id: z.string().uuid(), revision: z.string().nullable() }),
+  z.object({ type: z.literal('saveMindNote'), value: mindNoteInputSchema, id: z.string().uuid().optional(), revision: z.string().optional() }),
+  z.object({ type: z.literal('deleteMindNote'), id: z.string().uuid(), revision: z.string() }),
   z.object({ type: z.literal('ready') }),
   z.object({ type: z.literal('refresh') }),
   z.object({ type: z.literal('reviewExternalChanges') }),
@@ -736,6 +745,25 @@ export function activate(context: vscode.ExtensionContext): void {
     }))
     context.subscriptions.push(current.webview.onDidReceiveMessage((raw: unknown) => run(async () => {
       const message = messageSchema.parse(raw)
+      if (['loadMindCards', 'createMindCardsExamples', 'openMindNote', 'saveMindFolder', 'deleteMindFolder', 'saveMindNote', 'deleteMindNote'].includes(message.type)) {
+        const { root } = await currentVault()
+        if (message.type === 'openMindNote') {
+          await current.webview.postMessage({ type: 'mindNote', root, document: await readMindNote(root, message.id) })
+          return
+        }
+        let document: MindNoteDocument | undefined
+        if (message.type === 'createMindCardsExamples') await createMindCardsExamples(root)
+        if (message.type === 'saveMindFolder') await saveMindFolder(root, message.folder, message.revision)
+        if (message.type === 'deleteMindFolder') await deleteMindFolder(root, message.id, message.revision)
+        if (message.type === 'saveMindNote') document = await saveMindNote(root, message.value, message.id, message.revision)
+        if (message.type === 'deleteMindNote') await deleteMindNote(root, message.id, message.revision)
+        await current.webview.postMessage({
+          type: 'mindCards', root, state: await readMindCards(root), document,
+          saved: message.type === 'saveMindNote', deleted: message.type === 'deleteMindNote',
+          notice: message.type === 'loadMindCards' ? undefined : 'Alteracoes salvas no MindCards.'
+        })
+        return
+      }
       if (message.type === 'ready' || message.type === 'refresh') await refresh()
       if (message.type === 'createVault') await create()
       if (message.type === 'openVault') await openVault()

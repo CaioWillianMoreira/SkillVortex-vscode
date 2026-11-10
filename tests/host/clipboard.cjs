@@ -51,6 +51,7 @@ module.exports = async function testClipboard(extension) {
     <script nonce="${nonce}">
       const bridge = acquireVsCodeApi();
       globalThis.acquireVsCodeApi = () => bridge;
+      ${require('./select-skills.cjs')}
       window.addEventListener('message', event => {
         if (event.data.type !== 'prepare-clipboard-test') return;
         const started = Date.now();

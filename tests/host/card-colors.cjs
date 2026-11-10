@@ -299,6 +299,7 @@ module.exports = async function testCardColors(extension) {
     <script nonce="${nonce}">
       const bridge = acquireVsCodeApi();
       globalThis.acquireVsCodeApi = () => bridge;
+      ${require('./select-skills.cjs')}
       const firstColorLabel = ${JSON.stringify(SKILL_CARD_COLOR_LABELS[SKILL_CARD_COLORS[0]])};
       const automaticLabel = 'Automatica (categoria)';
       const button = text => Array.from(document.querySelectorAll('button'))

@@ -4,10 +4,12 @@ import { join, relative, isAbsolute, sep } from 'node:path'
 import { z } from 'zod'
 import { hasErrorCode, type VaultData } from './model'
 import { readContained, readVault, saveVaultData, writeSkillFile } from './vault'
+import { mindCardsSnapshot, restoreMindCardsSnapshot } from './mindcards'
 
 const manifestSchema = z.object({
   version: z.literal(1),
-  createdAt: z.string().min(1)
+  createdAt: z.string().min(1),
+  mindcards: z.boolean().optional()
 })
 
 export interface VaultBackup {
@@ -36,6 +38,7 @@ async function backupDirectory(root: string, create = false): Promise<string> {
 export async function createVaultBackup(root: string): Promise<VaultBackup> {
   const canonicalRoot = await fs.realpath(root)
   const data = await readVault(canonicalRoot)
+  const notes = await mindCardsSnapshot(canonicalRoot)
   const backups = await backupDirectory(canonicalRoot, true)
   const createdAt = new Date().toISOString()
   const id = `backup-${createdAt.replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`
@@ -51,7 +54,11 @@ export async function createVaultBackup(root: string): Promise<VaultBackup> {
     }
     await fs.writeFile(join(staging, '.skillvortex/catalogo.json'), JSON.stringify(data.catalog, null, 2))
     await fs.writeFile(join(staging, '.skillvortex/projetos.json'), JSON.stringify(data.projects, null, 2))
-    await fs.writeFile(join(staging, 'backup.json'), JSON.stringify({ version: 1, createdAt }, null, 2))
+    if (notes) {
+      await fs.mkdir(join(staging, 'mindcards'))
+      for (const [name, content] of notes) await fs.writeFile(join(staging, 'mindcards', name), content, { flag: 'wx' })
+    }
+    await fs.writeFile(join(staging, 'backup.json'), JSON.stringify({ version: 1, createdAt, mindcards: true }, null, 2))
     await fs.rename(staging, destination)
     return { id, createdAt, skills: data.catalog.skills.length, projects: data.projects.projects.length }
   } catch (error) {
@@ -90,6 +97,7 @@ export async function listVaultBackups(root: string): Promise<VaultBackup[]> {
         readVault(snapshot)
       ])
       const manifest = manifestSchema.parse(JSON.parse(manifestText))
+      if (manifest.mindcards) await mindCardsSnapshot(snapshot)
       results.push({
         id: entry.name,
         createdAt: manifest.createdAt,
@@ -103,7 +111,9 @@ export async function listVaultBackups(root: string): Promise<VaultBackup[]> {
   return results.sort((left, right) => right.createdAt.localeCompare(left.createdAt))
 }
 
-async function readBackup(root: string, id: string): Promise<{ data: VaultData; contents: Map<string, string> }> {
+async function readBackup(root: string, id: string): Promise<{
+  data: VaultData; contents: Map<string, string>; notes?: Map<string, string> | null
+}> {
   if (!/^backup-[a-zA-Z0-9T_-]+$/.test(id)) throw new Error('Identificador de backup invalido.')
   const backups = await backupDirectory(root)
   const snapshot = join(backups, id)
@@ -113,11 +123,13 @@ async function readBackup(root: string, id: string): Promise<{ data: VaultData; 
     throw new Error('Backup fora da biblioteca.')
   }
   const data = await readVault(canonicalSnapshot)
+  const manifest = manifestSchema.parse(JSON.parse(await readContained(canonicalSnapshot, join(canonicalSnapshot, 'backup.json'))))
+  const notes = manifest.mindcards ? await mindCardsSnapshot(canonicalSnapshot) : undefined
   const contents = new Map<string, string>()
   for (const skill of data.catalog.skills) {
     contents.set(skill.id, await readContained(canonicalSnapshot, join(canonicalSnapshot, skill.filePath)))
   }
-  return { data, contents }
+  return { data, contents, notes }
 }
 
 async function readCurrentContents(
@@ -145,12 +157,14 @@ export async function restoreVaultBackup(
   const canonicalRoot = await fs.realpath(root)
   const selected = await readBackup(canonicalRoot, id)
   const current = await readVault(canonicalRoot)
+  const currentNotes = selected.notes !== undefined ? await mindCardsSnapshot(canonicalRoot) : undefined
   const currentContents = await readCurrentContents(
     canonicalRoot, current, selected.data.catalog.skills.map(skill => skill.filePath)
   )
   const recoveryPoint = await createVaultBackup(canonicalRoot)
   const changed: string[] = []
   let metadataWriteStarted = false
+  let notesWriteStarted = false
 
   try {
     for (const skill of selected.data.catalog.skills) {
@@ -158,6 +172,10 @@ export async function restoreVaultBackup(
       if (content === undefined) throw new Error(`Conteudo ausente no backup: ${skill.name}`)
       changed.push(skill.filePath)
       await writeSkillFile(canonicalRoot, skill.filePath, content)
+    }
+    if (selected.notes !== undefined) {
+      notesWriteStarted = true
+      await restoreMindCardsSnapshot(canonicalRoot, selected.notes)
     }
     metadataWriteStarted = true
     await save(canonicalRoot, selected.data)
@@ -185,6 +203,11 @@ export async function restoreVaultBackup(
       }
     }
     const rollbackErrors: unknown[] = []
+    if (notesWriteStarted && currentNotes !== undefined) {
+      try { await restoreMindCardsSnapshot(canonicalRoot, currentNotes) } catch (rollbackError) {
+        rollbackErrors.push(rollbackError)
+      }
+    }
     for (const filePath of changed.reverse()) {
       const previous = currentContents.get(filePath)
       try {

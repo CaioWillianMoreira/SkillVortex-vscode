@@ -7,7 +7,8 @@ permanece intacto em sua pasta e repositorio.
 ## Funcionalidades implementadas
 
 - Dashboard React + Ant Design em Webview, tema escuro, busca, filtros de status,
-  categoria e colecao, e cards responsivos de skills.
+  categoria e colecao, e cards de skills em uma grade fixa de tres colunas.
+  Linhas com um ou dois cards preservam as posicoes vazias, sem expandir os cards.
 - Criacao e abertura de cofres locais, com validacao de metadados.
 - Importacao explicita do banco SQLite do desktop para um **cofre novo**.
 - Preservacao de IDs, categorias, tags, agentes, status e vinculos dos projetos.
@@ -60,11 +61,25 @@ npm test
 npm run build
 ```
 
-`npm run test:host` executa um smoke test em um perfil isolado do VS Code:
-ativacao, comandos, aba Webview, importacao de um banco de teste e indice WASM.
+`npm test` executa a regressao de criacao, abertura, recriacao e portabilidade
+de bibliotecas; cadastros, cancelamentos, etiquetas e agentes; importacao com
+rollback; publicacao isolada; backups e restauracao; edicao externa, conflitos,
+merge manual, snapshots e limites de 2 MB. A matriz de sincronizacao cobre
+as tres origens (biblioteca, Copilot e Antigravity), um ou dois projetos e
+conteudo LF, CRLF e Unicode.
+
+`npm run test:host` valida em um perfil isolado do VS Code:
+ativacao, comandos, aba Webview, botoes, formularios, filtros, switches e colagem;
+edicao e salvamento no editor real, comparacao, merge manual, sincronizacao em
+dois projetos, recuperacao, exclusao e recriacao de biblioteca; importacao de
+um banco de teste e indice WASM.
 Nao instala a extensao no perfil pessoal nem importa seus dados. Usa o VS Code
 instalado no macOS quando disponivel; em outros ambientes pode baixar um host
 de teste. `VSCODE_EXECUTABLE_PATH` permite selecionar um executavel existente.
+Os seletores nativos e as confirmacoes sao simulados nos testes dos handlers;
+as interacoes da Webview sao automatizadas em paineis de teste. Isso nao equivale
+a testar todas as combinacoes de sistema operacional, permissoes, falhas de disco
+ou respostas dos agentes externos.
 
 Abra esta pasta no VS Code e pressione **F5**, selecionando
 **SkillVortex Extension**. Na janela Extension Development Host, abra a paleta
@@ -80,6 +95,13 @@ Um cofre novo comeca vazio: instalar a extensao nao importa seus Markdown nem
 adiciona exemplos automaticamente. Depois de criar ou abrir o cofre, clique em
 **Carregar exemplos** para adicionar quatro cards com 1, 4, 2 e 0 skills.
 Os exemplos sao editaveis e nao constituem validacao automatica de qualidade.
+
+Titulos sao unicos em toda a biblioteca: skills e cards nao podem compartilhar
+o mesmo titulo, ignorando maiusculas/minusculas e espacos nas pontas.
+Criacao, edicao, importacao e validacao do catalogo rejeitam duplicacoes sem
+sobrescrever arquivos. Rascunhos usam nomes disponiveis, como **Nova Skill 2**.
+Bibliotecas antigas com titulos duplicados precisam ter esses titulos corrigidos
+antes de serem abertas; nenhum registro e renomeado automaticamente.
 
 Alternativamente:
 
@@ -141,7 +163,7 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   estreitos, os icones preservam os nomes acessiveis e dicas de cada acao.
   Acoes indisponiveis permanecem visualmente desabilitadas.
 - **Skill independente do agente**: cada skill tem um unico Markdown, mesmo
-  quando usada por varios agentes ou conjuntos. Os agentes selecionados no card
+  quando usada por varios agentes. Cada skill pertence a no maximo um card. Os agentes selecionados no card
   definem os destinos controlados pelo switch. Selecione GitHub Copilot ou
   Antigravity para habilitar a ativacao; labels personalizadas apenas organizam a visualizacao.
   Edicoes exigem desativar a skill em todos os projetos e agentes.
@@ -153,14 +175,24 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   Skills antigas/importadas sem conjunto aparecem em cards individuais.
   **Ativar colecao** e **Desativar colecao** aplicam a
   acao ao conjunto no projeto em uma transacao: falhas restauram os arquivos.
-  Uma skill pode participar de varias colecoes; o switch pertence a skill,
-  nao a colecao. Desativar um conjunto tambem desativa seus membros presentes
-  em outros conjuntos. Excluir um card remove tambem suas skills exclusivas,
+  Uma skill nao pode participar de varios cards. O seletor desabilita skills
+  ja associadas a outro card; para mover, remova o vinculo anterior primeiro.
+  Excluir um card remove tambem suas skills exclusivas,
   incluindo Markdown, publicacoes identificadas e arquivos desativados, apos
-  confirmacao dos caminhos. Skills usadas em outros cards sao preservadas.
+  confirmacao dos caminhos. Skills de outros cards sao preservadas.
   Nenhum card individual e criado como efeito da exclusao.
   Desative os membros em todos os projetos antes de excluir.
   Cards vazios nao podem ser ativados ou executados.
+  Cada skill tem um **checkbox** ao lado do nome no card e no seletor lateral
+  de **Editar card**. Todas comecam habilitadas; desmarcar nao exclui o Markdown.
+  Com o card ativo, mudar um checkbox publica ou desativa somente essa skill
+  no projeto atual e nos agentes exibidos, preservando outros projetos/agentes.
+  Com o card desligado, muda somente a selecao, sem publicar arquivos.
+  Desligar o card desativa todos os seus membros nos destinos exibidos, mas
+  preserva a selecao; religar publica apenas os marcados. Mesmo sem nenhuma skill
+  marcada, o card mantem seu switch ligado ate ser desativado explicitamente.
+  A selecao pertence ao card e sera usada nas proximas ativacoes em qualquer projeto;
+  alteracoes imediatas nao sao propagadas para destinos que nao estao exibidos.
 - **Usar no Projeto**: controla somente os agentes exibidos no card.
   GitHub Copilot publica em `.github/skills/<nome-legivel>/SKILL.md`;
   Antigravity publica em `.agents/skills/<nome-legivel>/SKILL.md`.
@@ -202,8 +234,7 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   Markdown do cofre, suas pastas publicadas identificadas e arquivos arquivados;
   a confirmacao lista o que sera apagado. A exclusao remove o membro das colecoes,
   sem excluir os conjuntos. Salvar com projetos selecionados publica a skill
-  nos destinos definidos pelos agentes do card. Se a skill pertencer a varios
-  conjuntos, o salvamento considera a uniao dos agentes desses conjuntos.
+  nos destinos definidos pelos agentes do seu unico card.
 - **Carregar exemplos**: disponivel somente com a biblioteca sem cards, inclusive
   sem cards vazios. Apos confirmacao, cria exatamente quatro conjuntos com 1,
   4, 2 e 0 skills (sete Markdown com frontmatter `name`/`description`).
@@ -246,7 +277,14 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   no cofre. Existe somente um botao **Salvar**, ao lado de **Voltar ao Dashboard**,
   na linha do titulo **Editando**. Em telas pequenas, as acoes ficam abaixo do titulo.
   Abrir uma skill para editar ou voltar sem salvar nao altera os dados.
-- **Bloqueada**: ao salvar, remove os vinculos dessa skill em todos os projetos.
+- **Liberada / Bloqueada**: sao os unicos estados de skills e cards.
+  Liberada permite ativar, mas nao indica revisao ou teste de qualidade.
+  Bloqueada impede novas ativacoes; uma skill bloqueada nao pode ser usada no chat.
+  O switch **Usar no Projeto** indica separadamente se esta ativa ou inativa.
+  Os estados antigos `pending` e `validated` sao lidos como `allowed` (Liberada)
+  sem alterar Markdown ou publicacoes; o proximo salvamento persiste o novo estado.
+  Bibliotecas antigas com uma skill em varios cards sao rejeitadas com erro
+  explicito; os vinculos devem ser corrigidos, sem remocao automatica de conteudo.
 - **Alteracoes externas**: enquanto o gerenciador esta aberto, alteracoes nos Markdown
   da biblioteca e nos `SKILL.md` publicados geram um aviso, sem sobrescrita automatica
   nem descarte do rascunho aberto. Publicacoes ativas tambem sao verificadas ao atualizar.

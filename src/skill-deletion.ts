@@ -251,7 +251,13 @@ async function deletePlannedSkills(
         }
       }
     }
-    if (collectionId) data.catalog.collections = data.catalog.collections?.filter(item => item.id !== collectionId)
+    if (collectionId) {
+      data.catalog.collections = data.catalog.collections?.filter(item => item.id !== collectionId)
+      for (const project of data.projects.projects) {
+        if (project.collectionBindings) project.collectionBindings = project.collectionBindings.filter(item =>
+          item.collectionId !== collectionId)
+      }
+    }
     saveStarted = true
     await save(root, data)
   } catch (error) {

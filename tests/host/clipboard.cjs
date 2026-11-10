@@ -16,7 +16,7 @@ module.exports = async function testClipboard(extension) {
       version: 1, categories: ['Geral'],
       skills: [{
         id: 'clipboard-test', name: 'Teste', category: 'Geral', description: 'Teste',
-        filePath: 'skills/test.md', agents: [], status: 'pending', tags: []
+        filePath: 'skills/test.md', agents: [], status: 'allowed', tags: []
       }]
     },
     projects: { version: 1, activeProject: null, projects: [] },

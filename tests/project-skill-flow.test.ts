@@ -5,9 +5,10 @@ import { afterEach, beforeEach, expect, jest, test } from '@jest/globals'
 import { Uri, type ExtensionContext } from 'vscode'
 import { activate } from '../src/extension'
 import { createVault, readVault, saveVaultData, writeSkillFile } from '../src/vault'
+import * as vault from '../src/vault'
 import { createDocumentedExamples } from '../src/documented-examples'
 import { SKILL_CARD_COLORS } from '../src/skill-colors'
-import { isAgentLinked, skillCards } from '../src/model'
+import { isAgentLinked, isCollectionLinked, selectedSkillIds, skillCards } from '../src/model'
 import { skillMarkdownMetadata } from '../src/project-skills'
 
 jest.mock('../src/database', () => ({
@@ -23,6 +24,7 @@ jest.mock('vscode', () => {
   const errors = jest.fn()
   const information = jest.fn()
   const dialog = jest.fn()
+  const input = jest.fn()
   const warning = jest.fn(async (_message: string, _options: unknown, action: string) => action)
   const quickPick = jest.fn(async (items: Array<{ picked: boolean }>) => items.filter(item => item.picked))
   const fileListeners = new Set<() => void>()
@@ -55,6 +57,7 @@ jest.mock('vscode', () => {
       showInformationMessage: information,
       showWarningMessage: warning,
       showOpenDialog: dialog,
+      showInputBox: input,
       showQuickPick: quickPick,
       createWebviewPanel: () => ({
         onDidDispose: () => disposable,
@@ -65,7 +68,7 @@ jest.mock('vscode', () => {
         }
       })
     },
-    testing: { commands, executeCommand, postMessage, errors, information, dialog, warning, quickPick,
+    testing: { commands, executeCommand, postMessage, errors, information, dialog, input, warning, quickPick,
       fireFileChange: () => { for (const listener of fileListeners) listener() },
       dispatch: (message: unknown) => receive(message) }
   }
@@ -79,6 +82,7 @@ const mock: {
     errors: ReturnType<typeof jest.fn>
     information: ReturnType<typeof jest.fn>
     dialog: ReturnType<typeof jest.fn>
+    input: ReturnType<typeof jest.fn>
     warning: ReturnType<typeof jest.fn>
     quickPick: ReturnType<typeof jest.fn>
     postMessage: ReturnType<typeof jest.fn>
@@ -91,11 +95,13 @@ let root: string
 let projectPath: string
 let context: ExtensionContext
 let skillId: string
+let selectedVault: string | undefined
 
 beforeEach(async () => {
   jest.clearAllMocks()
   temporary = await fs.mkdtemp(join(tmpdir(), 'skillvortex-button-'))
   root = join(temporary, 'vault')
+  selectedVault = root
   projectPath = join(temporary, 'project')
   await fs.mkdir(projectPath)
   await createVault(root)
@@ -113,8 +119,10 @@ beforeEach(async () => {
     extensionUri: Uri.file(temporary),
     globalStorageUri: Uri.file(join(temporary, 'index')),
     globalState: {
-      get: <T>(key: string, defaultValue?: T): T => (key === 'vaultPath' ? root : defaultValue) as T,
-      update: async () => {},
+      get: <T>(key: string, defaultValue?: T): T => (key === 'vaultPath' ? selectedVault : defaultValue) as T,
+      update: async (key: string, value: unknown) => {
+        if (key === 'vaultPath') selectedVault = typeof value === 'string' ? value : undefined
+      },
       keys: () => ['vaultPath'],
       setKeysForSync: () => {}
     }
@@ -124,6 +132,7 @@ beforeEach(async () => {
   await mock.testing.commands.get('skillVortex.open')!()
 })
 afterEach(async () => {
+  jest.restoreAllMocks()
   for (const subscription of context.subscriptions) subscription.dispose()
   await fs.rm(temporary, { recursive: true, force: true })
 })
@@ -134,6 +143,470 @@ function pendingDraft(): { skill: import('../src/model').Skill; content: string 
   }
   return { skill: state.catalog.skills.find(item => item.id === state.editingSkillId)!, content: state.content }
 }
+
+async function selectionCard() {
+  const data = await readVault(root)
+  const second = { ...data.catalog.skills[0], id: 'selection-second', name: 'Selection second',
+    filePath: 'skills/selection-second.md', agents: ['GitHub Copilot', 'Antigravity'] }
+  data.catalog.skills.push(second)
+  await writeSkillFile(root, second.filePath, '# Second selected skill\n')
+  const card = { id: 'selection-card', name: 'Selection card', skillIds: [skillId, second.id],
+    agents: ['GitHub Copilot', 'Antigravity'] }
+  data.catalog.collections = [card]
+  await saveVaultData(root, data)
+  return { card, second }
+}
+
+test('all members start selected and card off/on preserves individual choices and original Markdown', async () => {
+  const { card, second } = await selectionCard()
+  const agents = card.agents
+  const original = await fs.readFile(join(root, (await readVault(root)).catalog.skills[0].filePath))
+  expect(selectedSkillIds(card)).toEqual(card.skillIds)
+  await mock.testing.dispatch({ type: 'toggleCollection', id: card.id, enabled: true, agents })
+  for (const folder of ['.github', '.agents']) {
+    await fs.appendFile(join(projectPath, folder, 'skills/testes-unitarios-com-vitest/SKILL.md'), '\nPreserved project edit')
+  }
+  await mock.testing.dispatch({ type: 'setCollectionSkillEnabled', id: card.id, skillId, enabled: false, agents })
+  let saved = await readVault(root)
+  expect(saved.catalog.collections![0].disabledSkillIds).toEqual([skillId])
+  for (const agent of ['GitHub Copilot', 'Antigravity'] as const) {
+    expect(isAgentLinked(saved.projects.projects[0], skillId, agent)).toBe(false)
+    expect(isAgentLinked(saved.projects.projects[0], second.id, agent)).toBe(true)
+  }
+  await mock.testing.dispatch({ type: 'toggleCollection', id: card.id, enabled: false, agents })
+  expect((await readVault(root)).projects.projects[0].skillIds).toEqual([])
+  await mock.testing.dispatch({ type: 'refresh' })
+  await mock.testing.dispatch({ type: 'toggleCollection', id: card.id, enabled: true, agents })
+  saved = await readVault(root)
+  expect(selectedSkillIds(saved.catalog.collections![0])).toEqual([second.id])
+  for (const agent of ['GitHub Copilot', 'Antigravity'] as const) {
+    expect(isAgentLinked(saved.projects.projects[0], skillId, agent)).toBe(false)
+    expect(isAgentLinked(saved.projects.projects[0], second.id, agent)).toBe(true)
+  }
+  for (const folder of ['.github', '.agents']) {
+    await expect(fs.stat(join(projectPath, folder, 'skills/testes-unitarios-com-vitest'))).rejects.toMatchObject({ code: 'ENOENT' })
+  }
+  expect(await fs.readFile(join(root, saved.catalog.skills[0].filePath))).toEqual(original)
+  await mock.testing.dispatch({ type: 'setCollectionSkillEnabled', id: card.id, skillId, enabled: true, agents })
+  for (const folder of ['.github', '.agents']) {
+    expect(await fs.readFile(join(projectPath, folder, 'skills/testes-unitarios-com-vitest/SKILL.md'), 'utf8'))
+      .toContain('Preserved project edit')
+  }
+  expect(await fs.readFile(join(root, saved.catalog.skills[0].filePath))).toEqual(original)
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('a card remains active with every member unchecked and can reenable one or be switched off', async () => {
+  const { card } = await selectionCard()
+  await mock.testing.dispatch({ type: 'toggleCollection', id: card.id, enabled: true, agents: card.agents })
+  for (const id of card.skillIds) {
+    await mock.testing.dispatch({ type: 'setCollectionSkillEnabled', id: card.id, skillId: id, enabled: false, agents: card.agents })
+  }
+  let saved = await readVault(root)
+  expect(saved.projects.projects[0].skillIds).toEqual([])
+  expect(isCollectionLinked(saved.projects.projects[0], saved.catalog.collections![0], 'GitHub Copilot')).toBe(true)
+  await mock.testing.dispatch({ type: 'refresh' })
+  await mock.testing.dispatch({ type: 'setCollectionSkillEnabled', id: card.id, skillId, enabled: true, agents: card.agents })
+  saved = await readVault(root)
+  expect(saved.projects.projects[0].skillIds).toEqual([skillId])
+  await mock.testing.dispatch({ type: 'toggleCollection', id: card.id, enabled: false, agents: card.agents })
+  await mock.testing.dispatch({ type: 'setCollectionSkillEnabled', id: card.id, skillId: card.skillIds[1], enabled: true, agents: card.agents })
+  saved = await readVault(root)
+  expect(saved.projects.projects[0].skillIds).toEqual([])
+  expect(isCollectionLinked(saved.projects.projects[0], saved.catalog.collections![0], 'GitHub Copilot')).toBe(false)
+  expect(selectedSkillIds(saved.catalog.collections![0])).toEqual(card.skillIds)
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('changing selection affects only the current project and displayed agent', async () => {
+  const { card } = await selectionCard()
+  await mock.testing.dispatch({ type: 'toggleCollection', id: card.id, enabled: true, agents: card.agents })
+  let saved = await readVault(root)
+  const firstProject = saved.projects.projects[0].id
+  const secondPath = join(temporary, 'second-project')
+  await fs.mkdir(secondPath)
+  saved.projects.projects.push({ id: 'other', name: 'Other', sourcePath: secondPath, skillIds: [] })
+  saved.projects.activeProject = 'other'
+  await saveVaultData(root, saved)
+  await mock.testing.dispatch({ type: 'toggleCollection', id: card.id, enabled: true, agents: card.agents })
+  saved = await readVault(root)
+  const other = structuredClone(saved.projects.projects.find(project => project.id === 'other')!)
+  saved.projects.activeProject = firstProject
+  await saveVaultData(root, saved)
+  const peerFile = join(projectPath, '.agents/skills/testes-unitarios-com-vitest/SKILL.md')
+  const content = await fs.readFile(peerFile)
+  await mock.testing.dispatch({ type: 'setCollectionSkillEnabled', id: card.id, skillId, enabled: false, agents: ['GitHub Copilot'] })
+  saved = await readVault(root)
+  expect(isAgentLinked(saved.projects.projects[0], skillId, 'GitHub Copilot')).toBe(false)
+  expect(isAgentLinked(saved.projects.projects[0], skillId, 'Antigravity')).toBe(true)
+  const unchanged = saved.projects.projects.find(project => project.id === 'other')!
+  expect({ ...unchanged, deployedSkills: undefined }).toEqual({ ...other, deployedSkills: undefined })
+  expect(unchanged.deployedSkills).toHaveLength(other.deployedSkills!.length)
+  expect(unchanged.deployedSkills).toEqual(expect.arrayContaining(other.deployedSkills!))
+  expect(await fs.readFile(peerFile)).toEqual(content)
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('selection rollback preserves both agents and checkboxes when persistence fails', async () => {
+  const { card } = await selectionCard()
+  await mock.testing.dispatch({ type: 'toggleCollection', id: card.id, enabled: true, agents: card.agents })
+  const before = await readVault(root)
+  const files = ['.github', '.agents'].map(folder => join(projectPath, folder, 'skills/testes-unitarios-com-vitest/SKILL.md'))
+  const content = await Promise.all(files.map(file => fs.readFile(file)))
+  jest.spyOn(vault, 'saveVaultData').mockRejectedValueOnce(new Error('Selection save failed'))
+  await mock.testing.dispatch({ type: 'setCollectionSkillEnabled', id: card.id, skillId, enabled: false, agents: card.agents })
+  expect(await readVault(root)).toEqual(before)
+  expect(await Promise.all(files.map(file => fs.readFile(file)))).toEqual(content)
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Selection save failed'))
+})
+
+test('a publication conflict preserves an unchecked skill selection and the existing file', async () => {
+  const { card } = await selectionCard()
+  await mock.testing.dispatch({ type: 'toggleCollection', id: card.id, enabled: true, agents: card.agents })
+  await mock.testing.dispatch({ type: 'setCollectionSkillEnabled', id: card.id, skillId, enabled: false, agents: card.agents })
+  const before = await readVault(root)
+  const folder = join(projectPath, '.github/skills/testes-unitarios-com-vitest')
+  await fs.mkdir(folder)
+  const file = join(folder, 'SKILL.md')
+  await fs.writeFile(file, '# Unrelated file')
+  await mock.testing.dispatch({ type: 'setCollectionSkillEnabled', id: card.id, skillId, enabled: true, agents: card.agents })
+  expect(mock.testing.errors).toHaveBeenCalled()
+  expect(await readVault(root)).toEqual(before)
+  expect(await fs.readFile(file, 'utf8')).toBe('# Unrelated file')
+  await expect(fs.stat(join(projectPath, '.agents/skills/testes-unitarios-com-vitest'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+test('editor persists selection, defaults new members to selected and prunes removed selection', async () => {
+  const { card } = await selectionCard()
+  const message = { type: 'saveCollection', ...card, category: 'Geral', description: 'Selection',
+    tags: ['qa'], status: 'allowed', cardColor: null }
+  await mock.testing.dispatch({ ...message, disabledSkillIds: [skillId] })
+  await mock.testing.dispatch({ type: 'createSkill', collectionId: card.id, cardColor: null })
+  const draft = pendingDraft()
+  await mock.testing.dispatch({ type: 'saveSkill', ...draft.skill, content: '# New member', tags: ['qa'], projectIds: [], cardColor: null })
+  let saved = await readVault(root)
+  expect(selectedSkillIds(saved.catalog.collections![0])).toContain(draft.skill.id)
+  expect(selectedSkillIds(saved.catalog.collections![0])).not.toContain(skillId)
+  await mock.testing.dispatch({ ...message, skillIds: [card.skillIds[1], draft.skill.id] })
+  saved = await readVault(root)
+  expect(saved.catalog.collections![0].disabledSkillIds).toEqual([])
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test.each(['missing-skill', 'missing-card', 'wrong-agent', 'blocked'])('invalid skill selection is rejected: %s', async scenario => {
+  const { card } = await selectionCard()
+  const data = await readVault(root)
+  if (scenario === 'blocked') data.catalog.collections![0].status = 'blocked'
+  if (scenario === 'wrong-agent') data.catalog.collections![0].agents = ['GitHub Copilot']
+  await saveVaultData(root, data)
+  await mock.testing.dispatch({ type: 'setCollectionSkillEnabled',
+    id: scenario === 'missing-card' ? 'missing' : card.id,
+    skillId: scenario === 'missing-skill' ? 'missing' : skillId, enabled: true,
+    agents: scenario === 'wrong-agent' ? ['Antigravity'] : ['GitHub Copilot'] })
+  expect(await readVault(root)).toEqual(data)
+  expect(mock.testing.errors).toHaveBeenCalled()
+})
+
+test('a skill cannot be assigned to a second card, but can be moved after unlinking', async () => {
+  const data = await readVault(root)
+  data.catalog.collections = [{ id: 'one', name: 'One', skillIds: [skillId], agents: ['GitHub Copilot'] }]
+  await saveVaultData(root, data)
+  const message = { type: 'saveCollection', name: 'Two', skillIds: [skillId], category: 'Geral',
+    description: 'Second card', tags: ['qa'], agents: ['GitHub Copilot'], status: 'allowed', cardColor: null }
+  await mock.testing.dispatch(message)
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('apenas um card'))
+  expect(await readVault(root)).toEqual(data)
+  mock.testing.errors.mockClear()
+  await mock.testing.dispatch({ ...message, id: 'one', name: 'One', skillIds: [] })
+  await mock.testing.dispatch(message)
+  const saved = await readVault(root)
+  expect(saved.catalog.collections!.find(card => card.id === 'one')!.skillIds).toEqual([])
+  expect(saved.catalog.collections!.find(card => card.name === 'Two')!.skillIds).toEqual([skillId])
+  expect(saved.catalog.skills).toHaveLength(1)
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('new skills are released but remain inactive until the switch is enabled', async () => {
+  await mock.testing.dispatch({ type: 'createSkill', cardColor: null })
+  const draft = pendingDraft()
+  expect(draft.skill.status).toBe('allowed')
+  await mock.testing.dispatch({ type: 'saveSkill', ...draft.skill, content: '# Released',
+    tags: ['qa'], projectIds: [], cardColor: null })
+  const saved = await readVault(root)
+  expect(saved.catalog.skills.find(skill => skill.id === draft.skill.id)!.status).toBe('allowed')
+  expect(saved.projects.projects.flatMap(project => project.skillIds)).not.toContain(draft.skill.id)
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test.each(['skill', 'card'])('skill creation rejects a duplicate %s title before writing files', async kind => {
+  const data = await readVault(root)
+  const name = kind === 'skill' ? data.catalog.skills[0].name : 'Reserved card'
+  if (kind === 'card') {
+    data.catalog.collections = [{ id: 'reserved', name, skillIds: [] }]
+    await saveVaultData(root, data)
+  }
+  const files = await fs.readdir(join(root, 'skills'))
+  await mock.testing.dispatch({ type: 'createSkill', cardColor: null })
+  const draft = pendingDraft()
+  await mock.testing.dispatch({ type: 'saveSkill', ...draft.skill, name: ` ${name.toUpperCase()} `,
+    content: '# Duplicate', tags: ['qa'], projectIds: [], cardColor: null })
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Use um titulo unico'))
+  expect(await readVault(root)).toEqual(data)
+  expect(await fs.readdir(join(root, 'skills'))).toEqual(files)
+  await mock.testing.dispatch({ type: 'saveSkill', ...draft.skill, name: 'Unique retry',
+    content: '# Unique', tags: ['qa'], projectIds: [], cardColor: null })
+  expect((await readVault(root)).catalog.skills.some(skill => skill.name === 'Unique retry')).toBe(true)
+})
+
+test.each(['skill', 'card'])('card creation rejects a duplicate %s title', async kind => {
+  const data = await readVault(root)
+  const name = kind === 'skill' ? data.catalog.skills[0].name : 'Reserved card'
+  if (kind === 'card') {
+    data.catalog.collections = [{ id: 'reserved', name, skillIds: [] }]
+    await saveVaultData(root, data)
+  }
+  await mock.testing.dispatch({ type: 'saveCollection', name: ` ${name.toUpperCase()} `,
+    skillIds: [], category: 'Geral', description: 'Duplicate card', tags: ['qa'],
+    agents: ['GitHub Copilot'], status: 'allowed', cardColor: null })
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Use um titulo unico'))
+  expect(await readVault(root)).toEqual(data)
+})
+
+test('new skill drafts choose a title not used by a skill or card', async () => {
+  const data = await readVault(root)
+  data.catalog.skills[0].name = 'Nova Skill'
+  data.catalog.collections = [{ id: 'reserved', name: 'nova skill 2', skillIds: [] }]
+  await saveVaultData(root, data)
+  await mock.testing.dispatch({ type: 'createSkill', cardColor: null })
+  expect(pendingDraft().skill.name).toBe('Nova Skill 3')
+})
+
+test('renaming a skill to a card title is rejected while keeping its own title is allowed', async () => {
+  const data = await readVault(root)
+  data.catalog.collections = [{ id: 'reserved', name: 'Reserved', skillIds: [] }]
+  await saveVaultData(root, data)
+  const skill = data.catalog.skills[0]
+  const original = await fs.readFile(join(root, skill.filePath), 'utf8')
+  await mock.testing.dispatch({ type: 'openSkill', id: skillId })
+  await mock.testing.dispatch({ type: 'saveSkill', ...skill, name: ' RESERVED ', content: original,
+    tags: ['qa'], projectIds: [], cardColor: null })
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Use um titulo unico'))
+  expect(await readVault(root)).toEqual(data)
+  expect(await fs.readFile(join(root, skill.filePath), 'utf8')).toBe(original)
+  mock.testing.errors.mockClear()
+  await mock.testing.dispatch({ type: 'saveSkill', ...skill, content: original,
+    tags: ['qa'], projectIds: [], cardColor: null })
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test.each(['existing', 'batch'])('import rejects duplicate titles atomically: %s', async scenario => {
+  const data = await readVault(root)
+  const title = scenario === 'existing' ? data.catalog.skills[0].name : 'Repeated import'
+  const files = await fs.readdir(join(root, 'skills'))
+  const first = join(temporary, 'first.md')
+  const second = join(temporary, 'second.md')
+  await fs.writeFile(first, `# ${title}\n\nFirst.`)
+  await fs.writeFile(second, `# ${title.toUpperCase()}\n\nSecond.`)
+  mock.testing.dialog.mockImplementationOnce(async () =>
+    scenario === 'existing' ? [Uri.file(first)] : [Uri.file(first), Uri.file(second)])
+  await mock.testing.dispatch({ type: 'importMarkdown' })
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Use um titulo unico'))
+  expect(await readVault(root)).toEqual(data)
+  expect(await fs.readdir(join(root, 'skills'))).toEqual(files)
+})
+
+test('creating, deleting and recreating a disposable library preserves the other library', async () => {
+  const original = await readVault(root)
+  const destination = join(temporary, 'NewLibrary')
+  for (let cycle = 0; cycle < 2; cycle++) {
+    mock.testing.dialog.mockImplementationOnce(async () => [Uri.file(temporary)])
+    mock.testing.input.mockImplementationOnce(async () => 'NewLibrary')
+    await mock.testing.dispatch({ type: 'createVault' })
+    expect(await fs.realpath(selectedVault!)).toBe(await fs.realpath(destination))
+    expect((await readVault(destination)).catalog.skills).toEqual([])
+    expect(await readVault(root)).toEqual(original)
+    if (cycle === 0) await fs.rm(destination, { recursive: true })
+  }
+  mock.testing.dialog.mockImplementationOnce(async () => [Uri.file(root)])
+  await mock.testing.dispatch({ type: 'openVault' })
+  expect(await fs.realpath(selectedVault!)).toBe(await fs.realpath(root))
+  expect(await readVault(root)).toEqual(original)
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test.each(['folder', 'name'])('cancelling library creation at %s changes nothing', async stage => {
+  const original = await readVault(root)
+  mock.testing.dialog.mockImplementationOnce(async () => stage === 'folder' ? undefined : [Uri.file(temporary)])
+  if (stage === 'name') mock.testing.input.mockImplementationOnce(async () => undefined)
+  await mock.testing.dispatch({ type: 'createVault' })
+  expect(selectedVault).toBe(root)
+  expect(await readVault(root)).toEqual(original)
+  expect((await fs.readdir(temporary)).sort()).toEqual(['project', 'vault'])
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('creating a library over an existing directory reports an error without changing selection', async () => {
+  const original = await readVault(root)
+  mock.testing.dialog.mockImplementationOnce(async () => [Uri.file(temporary)])
+  mock.testing.input.mockImplementationOnce(async () => 'vault')
+  await mock.testing.dispatch({ type: 'createVault' })
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Nada foi sobrescrito'))
+  expect(selectedVault).toBe(root)
+  expect(await readVault(root)).toEqual(original)
+})
+
+test.each(['cancel', 'invalid', 'corrupt'])('opening another library: %s preserves the current selection', async scenario => {
+  const other = join(temporary, 'other')
+  await fs.mkdir(other)
+  if (scenario === 'corrupt') {
+    await fs.mkdir(join(other, '.skillvortex'))
+    await fs.writeFile(join(other, '.skillvortex/catalogo.json'), '{')
+    await fs.writeFile(join(other, '.skillvortex/projetos.json'), '{}')
+  }
+  mock.testing.dialog.mockImplementationOnce(async () => scenario === 'cancel' ? undefined : [Uri.file(other)])
+  const original = await readVault(root)
+  await mock.testing.dispatch({ type: 'openVault' })
+  expect(selectedVault).toBe(root)
+  expect(await readVault(root)).toEqual(original)
+  if (scenario === 'cancel') expect(mock.testing.errors).not.toHaveBeenCalled()
+  else expect(mock.testing.errors).toHaveBeenCalled()
+})
+
+test('a removed library can be replaced by opening a portable copy', async () => {
+  const copy = join(temporary, 'portable-copy')
+  await fs.cp(root, copy, { recursive: true })
+  const original = await readVault(root)
+  await fs.rm(root, { recursive: true })
+  await mock.testing.dispatch({ type: 'refresh' })
+  expect(selectedVault).toBeUndefined()
+  expect(mock.testing.postMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'state', root: null }))
+  mock.testing.dialog.mockImplementationOnce(async () => [Uri.file(copy)])
+  await mock.testing.dispatch({ type: 'openVault' })
+  expect(await readVault(copy)).toEqual(original)
+  expect(await fs.realpath(selectedVault!)).toBe(await fs.realpath(copy))
+  await mock.testing.dispatch({ type: 'createSkill', cardColor: null })
+  expect(pendingDraft().skill.name).toBe('Nova Skill')
+})
+
+test('importing multiple files is atomic when one Markdown has invalid YAML', async () => {
+  const valid = join(temporary, 'valid.md')
+  const invalid = join(temporary, 'invalid.md')
+  await fs.writeFile(valid, '# Valid\n\nValid description.')
+  await fs.writeFile(invalid, '---\nname: [broken\n---\n')
+  const original = await readVault(root)
+  const files = await fs.readdir(join(root, 'skills'))
+  mock.testing.dialog.mockImplementationOnce(async () => [Uri.file(valid), Uri.file(invalid)])
+  await mock.testing.dispatch({ type: 'importMarkdown' })
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('YAML invalido'))
+  expect(await readVault(root)).toEqual(original)
+  expect(await fs.readdir(join(root, 'skills'))).toEqual(files)
+  expect(await fs.readFile(valid, 'utf8')).toContain('# Valid')
+})
+
+test('a failed import metadata save removes its new Markdown and permits a clean retry', async () => {
+  const source = join(temporary, 'import.md')
+  await fs.writeFile(source, '# Imported\n\nOriginal source.')
+  const original = await readVault(root)
+  const files = await fs.readdir(join(root, 'skills'))
+  const save = jest.spyOn(vault, 'saveVaultData').mockRejectedValueOnce(new Error('Import metadata failure'))
+  mock.testing.dialog.mockImplementationOnce(async () => [Uri.file(source)])
+  await mock.testing.dispatch({ type: 'importMarkdown' })
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Import metadata failure'))
+  expect(await readVault(root)).toEqual(original)
+  expect(await fs.readdir(join(root, 'skills'))).toEqual(files)
+  save.mockRestore()
+  mock.testing.dialog.mockImplementationOnce(async () => [Uri.file(source)])
+  await mock.testing.dispatch({ type: 'importMarkdown' })
+  const canonicalSource = await fs.realpath(source)
+  const imported = (await readVault(root)).catalog.skills.find(skill => skill.originPath === canonicalSource)!
+  expect(imported.filePath).toBe('skills/imported.md')
+  expect(await fs.readFile(source, 'utf8')).toBe('# Imported\n\nOriginal source.')
+})
+
+test('an import whose metadata commit succeeds before reporting an error preserves registered Markdown', async () => {
+  const source = join(temporary, 'committed.md')
+  await fs.writeFile(source, '# Committed\n\nOriginal.')
+  const originalSave = vault.saveVaultData
+  jest.spyOn(vault, 'saveVaultData').mockImplementationOnce(async (path, data) => {
+    await originalSave(path, data)
+    throw new Error('Failure after import commit')
+  })
+  mock.testing.dialog.mockImplementationOnce(async () => [Uri.file(source)])
+  await mock.testing.dispatch({ type: 'importMarkdown' })
+  const imported = (await readVault(root)).catalog.skills.find(skill => skill.name === 'Committed')!
+  expect(imported).toBeDefined()
+  expect(await fs.readFile(join(root, imported.filePath), 'utf8')).toBe('# Committed\n\nOriginal.')
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Failure after import commit'))
+})
+
+test.each(['skill', 'source', 'action', 'confirmation'])('cancelling external synchronization at %s preserves all versions', async stage => {
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
+  const file = join(projectPath, '.github/skills/testes-unitarios-com-vitest/SKILL.md')
+  await fs.appendFile(file, '\nExternal content')
+  const before = await readVault(root)
+  const content = await fs.readFile(file)
+  mock.testing.quickPick.mockImplementationOnce(async (items: unknown[]) => stage === 'skill' ? undefined : items[0])
+  if (stage !== 'skill') {
+    mock.testing.quickPick.mockImplementationOnce(async (items: unknown[]) => stage === 'source' ? undefined : items[0])
+  }
+  if (stage === 'action' || stage === 'confirmation') {
+    mock.testing.quickPick.mockImplementationOnce(async (items: Array<{ action: string }>) =>
+      stage === 'action' ? undefined : items.find(item => item.action === 'resolve'))
+  }
+  if (stage === 'confirmation') mock.testing.warning.mockImplementationOnce(async () => undefined)
+  await mock.testing.dispatch({ type: 'reviewExternalChanges' })
+  expect(await readVault(root)).toEqual(before)
+  expect(await fs.readFile(file)).toEqual(content)
+  expect(await fs.readdir(join(root, '.skillvortex/backups'))).toEqual([])
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('removing a normal card tag preserves card identity, membership and Markdown', async () => {
+  const data = await readVault(root)
+  const card = { id: 'tagged', name: 'Tagged', skillIds: [skillId], category: 'Geral',
+    description: 'Tagged card', agents: ['GitHub Copilot'], tags: ['keep', 'remove'], status: 'allowed' as const }
+  data.catalog.collections = [card]
+  await saveVaultData(root, data)
+  const content = await fs.readFile(join(root, data.catalog.skills[0].filePath))
+  await mock.testing.dispatch({ type: 'saveCollection', ...card, tags: ['keep'], cardColor: null })
+  const saved = await readVault(root)
+  expect(skillCards(saved.catalog)).toHaveLength(1)
+  expect(saved.catalog.collections).toEqual([{ ...card, tags: ['keep'] }])
+  expect(await fs.readFile(join(root, data.catalog.skills[0].filePath))).toEqual(content)
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test.each(['GitHub Copilot', 'Antigravity'])('removing an agent label keeps one card and publishes only %s', async agent => {
+  const data = await readVault(root)
+  const card = { id: 'agents', name: 'Agents', skillIds: [skillId], category: 'Geral',
+    description: 'Agents card', agents: ['GitHub Copilot', 'Antigravity'], tags: ['qa'], status: 'allowed' as const }
+  data.catalog.collections = [card]
+  await saveVaultData(root, data)
+  await mock.testing.dispatch({ type: 'saveCollection', ...card, agents: [agent], cardColor: null })
+  expect(skillCards((await readVault(root)).catalog)).toHaveLength(1)
+  await mock.testing.dispatch({ type: 'toggleCollection', id: card.id, agents: [agent], enabled: true })
+  const project = (await readVault(root)).projects.projects[0]
+  expect(project.deployedSkills).toHaveLength(1)
+  expect(project.deployedSkills![0].agent).toBe(agent)
+  await mock.testing.dispatch({ type: 'toggleCollection', id: card.id, agents: [agent], enabled: false })
+  expect((await readVault(root)).projects.projects[0].skillIds).toEqual([])
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test.each(['select', 'confirm', 'restore'])('backup button flow: %s preserves or restores the original content', async stage => {
+  const original = await readVault(root)
+  const path = join(root, original.catalog.skills[0].filePath)
+  const content = await fs.readFile(path, 'utf8')
+  await mock.testing.dispatch({ type: 'createBackup' })
+  await fs.writeFile(path, '# Later edit\n')
+  mock.testing.quickPick.mockImplementationOnce(async (items: unknown[]) => stage === 'select' ? undefined : items[0])
+  if (stage === 'confirm') mock.testing.warning.mockImplementationOnce(async () => undefined)
+  await mock.testing.dispatch({ type: 'restoreBackup' })
+  expect(await fs.readFile(path, 'utf8')).toBe(stage === 'restore' ? content : '# Later edit\n')
+  expect(await readVault(root)).toEqual(original)
+  expect((await fs.readdir(join(root, '.skillvortex/backups'))).length).toBe(stage === 'restore' ? 2 : 1)
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
 
 test('leaving a new skill without saving persists neither card, Markdown nor membership', async () => {
   const before = await readVault(root)
@@ -696,7 +1169,7 @@ test('collection validation reports missing skills, duplicate names and blocked 
   await mock.testing.dispatch({ type: 'saveCollection', name: 'Quality', skillIds: [skillId] })
   const saved = await readVault(root)
   await mock.testing.dispatch({ type: 'saveCollection', name: 'quality', skillIds: [skillId] })
-  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('ja existe'))
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Use um titulo unico'))
   saved.catalog.skills[0].status = 'blocked'
   await saveVaultData(root, saved)
   await mock.testing.dispatch({ type: 'toggleCollection', id: saved.catalog.collections![0].id, enabled: true })
@@ -787,7 +1260,7 @@ test('deleting the last card leaves examples and first-card creation available',
 test('a card without a real agent destination cannot be saved as activatable', async () => {
   await mock.testing.dispatch({ type: 'saveCollection', name: 'No destination', skillIds: [],
     category: 'Geral', description: 'Card without supported destinations', tags: ['test'],
-    agents: ['Team custom label'], status: 'pending', cardColor: null })
+    agents: ['Team custom label'], status: 'allowed', cardColor: null })
   expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('GitHub Copilot ou Antigravity'))
   expect((await readVault(root)).catalog.collections ?? []).toHaveLength(0)
 })
@@ -798,12 +1271,12 @@ test('an empty card prevents loading examples and its category cannot be removed
   await saveVaultData(root, data)
   await mock.testing.dispatch({ type: 'saveCollection', name: 'Empty', skillIds: [],
     category: 'Geral', description: 'Ready for rules', tags: ['empty'], agents: ['GitHub Copilot'],
-    status: 'pending', cardColor: '#1677ff' })
+    status: 'allowed', cardColor: '#1677ff' })
   const saved = await readVault(root)
   expect(skillCards(saved.catalog)).toHaveLength(1)
   expect(skillCards(saved.catalog)[0]).toMatchObject({
     name: 'Empty', category: 'Geral', description: 'Ready for rules', tags: ['empty'], skillIds: [],
-    agents: ['GitHub Copilot'], status: 'pending', cardColor: '#1677ff'
+    agents: ['GitHub Copilot'], status: 'allowed', cardColor: '#1677ff'
   })
   await mock.testing.dispatch({ type: 'createDocumentedExamples' })
   expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('nenhum card'))

@@ -12,7 +12,7 @@ export function initializeSql(wasm: string): Promise<SqlJsStatic> {
 
 const rowSchema = z.object({
   id: z.string(), name: z.string(), category: z.string(), description: z.string(),
-  file_path: z.string(), agents_json: z.string(), status: z.enum(['validated', 'pending', 'blocked']),
+  file_path: z.string(), agents_json: z.string(), status: z.enum(['validated', 'pending', 'allowed', 'blocked']),
   tags_json: z.string(), content: z.string().nullable()
 })
 const strings = z.array(z.string())
@@ -69,7 +69,7 @@ export async function migrateDesktop(SQL: SqlJsStatic, databasePath: string): Pr
         description: row.description.trim() || `Instrucoes para ${row.name.slice(0, 100)}.`,
         filePath: uniqueSkillFilePath(row.name, data.catalog.skills.map(skill => skill.filePath)),
         originPath: row.file_path,
-        agents: strings.parse(JSON.parse(row.agents_json)), status: row.status,
+        agents: strings.parse(JSON.parse(row.agents_json)), status: row.status === 'blocked' ? 'blocked' : 'allowed',
         tags: strings.parse(JSON.parse(row.tags_json))
       })
       if (!data.catalog.categories.includes(row.category)) data.catalog.categories.push(row.category)

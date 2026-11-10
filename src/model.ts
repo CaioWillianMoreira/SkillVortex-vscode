@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { SKILL_CARD_COLORS } from './skill-colors'
 
 const unique = (values: string[]) => new Set(values).size === values.length
+export const titleKey = (name: string): string => name.trim().normalize('NFC').toLocaleLowerCase()
 export function hasErrorCode(error: unknown, code: string): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === code
 }
@@ -41,6 +42,8 @@ export function deploymentRoot(item: { agent?: SkillAgent; agentDirectory?: '.gi
   return root
 }
 export const agentSkillKey = (skillId: string, agent: SkillAgent): string => `${agent}:${skillId}`
+const statusSchema = z.preprocess(value => value === 'pending' || value === 'validated' ? 'allowed' : value,
+  z.enum(['allowed', 'blocked']))
 export const skillSchema = z.object({
   id: z.string().min(1).max(200),
   name: z.string().trim().min(1).max(100),
@@ -48,7 +51,7 @@ export const skillSchema = z.object({
   description: z.string().trim().min(1).max(1000),
   filePath: z.string().regex(/^skills\/[a-zA-Z0-9_-]+\.md$/),
   agents: z.array(z.string()),
-  status: z.enum(['validated', 'pending', 'blocked']),
+  status: statusSchema,
   tags: z.array(z.string()),
   cardColor: z.enum(SKILL_CARD_COLORS).optional(),
   originPath: z.string().optional(),
@@ -80,6 +83,7 @@ export const collectionSchema = z.object({
   id: z.string().min(1).max(200),
   name: z.string().trim().min(1).max(60),
   skillIds: z.array(z.string()).max(10000).refine(unique),
+  disabledSkillIds: z.array(z.string()).max(10000).refine(unique).optional(),
   category: skillSchema.shape.category.optional(),
   description: skillSchema.shape.description.optional(),
   agents: skillSchema.shape.agents.optional(),
@@ -93,6 +97,14 @@ export const catalogSchema = z.object({
   collections: z.array(collectionSchema).max(10000).optional(),
   skills: z.array(skillSchema).max(10000)
 }).superRefine((catalog, context) => {
+  const titles = new Set<string>()
+  for (const item of [...catalog.skills, ...(catalog.collections ?? [])]) {
+    const key = titleKey(item.name)
+    if (titles.has(key)) {
+      context.addIssue({ code: 'custom', message: `Ja existe uma skill ou card com o titulo "${item.name.trim()}". Use um titulo unico.` })
+    }
+    titles.add(key)
+  }
   if (!unique(catalog.skills.map(item => item.id)) ||
       !unique(catalog.skills.map(item => item.filePath))) {
     context.addIssue({ code: 'custom', message: 'IDs ou arquivos duplicados no catalogo.' })
@@ -104,6 +116,12 @@ export const catalogSchema = z.object({
     context.addIssue({ code: 'custom', message: 'Categoria do card ausente do catalogo.' })
   }
   const collections = catalog.collections ?? []
+  if (collections.some(item => item.disabledSkillIds?.some(id => !item.skillIds.includes(id)))) {
+    context.addIssue({ code: 'custom', message: 'Selecao de skills contem membros ausentes do card.' })
+  }
+  if (!unique(collections.flatMap(item => item.skillIds))) {
+    context.addIssue({ code: 'custom', message: 'Cada skill pode pertencer a apenas um card. Remova os vinculos repetidos.' })
+  }
   if (!unique(collections.map(item => item.id)) ||
       !unique(collections.map(item => item.name.toLocaleLowerCase())) ||
       collections.some(item => item.skillIds.some(id => !catalog.skills.some(skill => skill.id === id)))) {
@@ -118,6 +136,9 @@ export const projectsSchema = z.object({
     name: z.string().trim().min(1).max(60),
     sourcePath: z.string().optional(),
     sharedPublication: z.boolean().optional(),
+    collectionBindings: z.array(z.object({
+      collectionId: z.string(), agent: skillAgentSchema
+    })).refine(items => unique(items.map(item => agentSkillKey(item.collectionId, item.agent)))).optional(),
     skillIds: z.array(z.string()).refine(unique),
     agentBindings: z.array(z.object({
       skillId: z.string(), agent: skillAgentSchema
@@ -139,10 +160,17 @@ export const projectsSchema = z.object({
   }
 })
 export type Catalog = z.infer<typeof catalogSchema>
+export function assertUniqueTitle(catalog: Catalog, name: string, except?: { kind: 'skill' | 'card'; id: string }): void {
+  const key = titleKey(name)
+  if (catalog.skills.some(item => !(except?.kind === 'skill' && except.id === item.id) && titleKey(item.name) === key) ||
+      catalog.collections?.some(item => !(except?.kind === 'card' && except.id === item.id) && titleKey(item.name) === key)) {
+    throw new Error(`Ja existe uma skill ou card com o titulo "${name.trim()}". Use um titulo unico.`)
+  }
+}
 export type SkillCard = {
   id: string; name: string; category: string; description: string;
   agents: string[]; tags: string[]; status: Skill['status']; cardColor?: Skill['cardColor'];
-  skillIds: string[]; standaloneSkillId?: string
+  skillIds: string[]; disabledSkillIds?: string[]; standaloneSkillId?: string
 }
 export function skillCards(catalog: Catalog): SkillCard[] {
   const collections = catalog.collections ?? []
@@ -154,7 +182,7 @@ export function skillCards(catalog: Catalog): SkillCard[] {
         ...item, category: item.category ?? first?.category ?? catalog.categories[0] ?? 'Geral',
         description: item.description ?? first?.description ?? 'Conjunto de skills para usar no projeto.',
         agents: item.agents ?? first?.agents ?? [],
-        tags: item.tags ?? first?.tags ?? [], status: item.status ?? 'pending' as const
+        tags: item.tags ?? first?.tags ?? [], status: item.status ?? 'allowed' as const
       }
     }),
     ...catalog.skills.filter(skill => !grouped.has(skill.id)).map(skill => ({
@@ -174,6 +202,19 @@ export function setProjectBindings(project: Project, bindings: ReturnType<typeof
 export function isAgentLinked(project: Project, skillId: string, agent: SkillAgent): boolean {
   return projectBindings(project).some(item => item.skillId === skillId && item.agent === agent)
 }
+export function selectedSkillIds(card: { skillIds: string[]; disabledSkillIds?: string[] }): string[] {
+  return card.skillIds.filter(id => !card.disabledSkillIds?.includes(id))
+}
+export function isCollectionLinked(project: Project, card: { id: string; skillIds: string[] }, agent: SkillAgent): boolean {
+  return Boolean(project.collectionBindings?.some(item => item.collectionId === card.id && item.agent === agent)) ||
+    card.skillIds.some(id => isAgentLinked(project, id, agent))
+}
+export function setCollectionLinked(project: Project, collectionId: string, agent: SkillAgent, enabled: boolean): void {
+  const bindings = (project.collectionBindings ?? []).filter(item =>
+    item.collectionId !== collectionId || item.agent !== agent)
+  if (enabled) bindings.push({ collectionId, agent })
+  project.collectionBindings = bindings
+}
 export function setSharedSkillPublication(project: Project, skillId: string, enabled: boolean,
   agents: readonly SkillAgent[] = ['Antigravity', 'GitHub Copilot']): void {
   const bindings = projectBindings(project).filter(item => item.skillId !== skillId)
@@ -184,6 +225,7 @@ export function setSharedSkillPublication(project: Project, skillId: string, ena
 export function removeSkillFromCollections(catalog: Catalog, skillId: string): void {
   for (const collection of catalog.collections ?? []) {
     collection.skillIds = collection.skillIds.filter(id => id !== skillId)
+    if (collection.disabledSkillIds) collection.disabledSkillIds = collection.disabledSkillIds.filter(id => id !== skillId)
   }
 }
 export interface VaultData { catalog: Catalog; projects: Projects }
@@ -207,6 +249,10 @@ export function validateVault(catalog: unknown, projects: unknown): VaultData {
     throw new Error('Vinculo aponta para skill ausente ou bloqueada.')
   }
   for (const project of data.projects.projects) {
+    if (project.collectionBindings?.some(binding =>
+      !data.catalog.collections?.some(card => card.id === binding.collectionId))) {
+      throw new Error('Vinculo aponta para card ausente.')
+    }
     if (project.agentBindings && (!unique(project.skillIds) ||
         project.agentBindings.some(item => !project.skillIds.includes(item.skillId)) ||
         project.skillIds.some(id => !project.agentBindings!.some(item => item.skillId === id)))) {

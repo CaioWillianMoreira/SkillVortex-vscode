@@ -8,7 +8,7 @@ import type { ButtonProps } from 'antd'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Catalog, Projects, Skill, SkillCard, SkillAgent } from '../src/model'
-import { isAgentLinked, skillCards, skillRegistrationSchema } from '../src/model'
+import { isAgentLinked, isCollectionLinked, selectedSkillIds, skillCards, skillRegistrationSchema } from '../src/model'
 import {
   categoryColor, isSkillCardColor, SKILL_CARD_COLOR_LABELS, SKILL_CARD_COLORS, skillCardTextColor
 } from '../src/skill-colors'
@@ -19,8 +19,8 @@ import './styles.css'
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void }
 const api = acquireVsCodeApi()
 const MonacoMarkdownEditor = lazy(() => import('./MonacoMarkdownEditor'))
-const labels = { validated: 'Validada', pending: 'Pendente', blocked: 'Bloqueada' }
-const colors = { validated: 'green', pending: 'gold', blocked: 'red' }
+const labels = { allowed: 'Liberada', blocked: 'Bloqueada' }
+const colors = { allowed: 'green', blocked: 'red' }
 const actionIcons = {
   run: 'M8 5v14l11-7z',
   edit: 'm16 3 5 5M4 20l4-1L21 6l-3-3L5 16z',
@@ -38,8 +38,7 @@ const actionIcons = {
   restore: 'M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2',
   examples: 'M3 4h7l2 2 2-2h7v16h-7l-2 2-2-2H3zM12 6v16',
   filter: 'M3 4h18l-7 8v7l-4 2v-9z',
-  validated: 'm5 12 4 4L20 5',
-  pending: 'M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
+  allowed: 'm5 12 4 4L20 5',
   blocked: 'm6 6 12 12M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
   info: 'M12 11v6M12 7h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0',
   more: 'M5 12h.01M12 12h.01M19 12h.01'
@@ -56,7 +55,7 @@ function ActionButton({
   return <Button {...props} className={`action-button action-${action} ${className}`}
     icon={<ActionIcon action={action} />} />
 }
-const statusNames = ['validated', 'pending', 'blocked'] as const
+const statusNames = ['allowed', 'blocked'] as const
 function HelpTip({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
   const [open, setOpen] = useState(false)
   return <Tooltip title={children} trigger={['hover', 'focus']} destroyOnHidden open={open} onOpenChange={setOpen}>
@@ -112,11 +111,12 @@ function App(): React.JSX.Element {
   const [collectionId, setCollectionId] = useState<string>()
   const [collectionName, setCollectionName] = useState('')
   const [collectionSkillIds, setCollectionSkillIds] = useState<string[]>([])
+  const [collectionDisabledSkillIds, setCollectionDisabledSkillIds] = useState<string[]>([])
   const [collectionCategory, setCollectionCategory] = useState('')
   const [collectionDescription, setCollectionDescription] = useState('')
   const [collectionTags, setCollectionTags] = useState<string[]>([])
   const [collectionAgents, setCollectionAgents] = useState<string[]>([])
-  const [collectionStatus, setCollectionStatus] = useState<Skill['status']>('pending')
+  const [collectionStatus, setCollectionStatus] = useState<Skill['status']>('allowed')
   const [collectionColor, setCollectionColor] = useState<Skill['cardColor']>()
   const [runningCard, setRunningCard] = useState<SkillCard | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
@@ -201,11 +201,12 @@ function App(): React.JSX.Element {
     setCollectionId(existing?.id)
     setCollectionName(existing?.name ?? '')
     setCollectionSkillIds(existing?.skillIds ?? [])
+    setCollectionDisabledSkillIds(existing?.disabledSkillIds ?? [])
     setCollectionCategory(existing?.category ?? state.catalog?.categories[0] ?? '')
     setCollectionDescription(existing?.description ?? 'Conjunto de skills para usar no projeto.')
     setCollectionTags(existing?.tags ?? ['conjunto'])
     setCollectionAgents(existing?.agents ?? ['GitHub Copilot', 'Antigravity'])
-    setCollectionStatus(existing?.status ?? 'pending')
+    setCollectionStatus(existing?.status ?? 'allowed')
     setCollectionColor(existing?.cardColor)
     setError('')
     setCollectionEditorOpen(true)
@@ -311,7 +312,8 @@ function App(): React.JSX.Element {
             <Input
               className="search-input"
               aria-label="Buscar skills"
-              placeholder="⌕ Buscar skills, tags, agentes..."
+              prefix={<ActionIcon action="search" />}
+              placeholder="Buscar skills, tags, agentes..."
               value={search}
               onChange={event => setSearch(event.target.value)}
             />
@@ -488,16 +490,18 @@ function App(): React.JSX.Element {
                 </div>)}
               </Space>
             </Modal>
-            <Modal title={collectionId ? 'Editar card' : 'Novo card'} open={collectionEditorOpen} width={680}
+            <Modal title={collectionId ? 'Editar card' : 'Novo card'} open={collectionEditorOpen} width={920}
               okText="Salvar" cancelText="Cancelar"
               okButtonProps={{ disabled: !collectionName.trim() || !collectionCategory || !collectionDescription.trim() ||
                 !collectionTags.length || !collectionAgents.some(agent => agent === 'GitHub Copilot' || agent === 'Antigravity'),
                 className: 'action-button action-save', icon: <ActionIcon action="save" /> }}
               onCancel={() => setCollectionEditorOpen(false)} onOk={() => {
                 api.postMessage({ type: 'saveCollection', id: collectionId, name: collectionName, skillIds: collectionSkillIds,
+                  disabledSkillIds: collectionDisabledSkillIds.filter(id => collectionSkillIds.includes(id)),
                   category: collectionCategory, description: collectionDescription, tags: collectionTags,
                   agents: collectionAgents, status: collectionStatus, cardColor: collectionColor ?? null })
               }}>
+              <div className="card-editor-layout">
               <div className="card-form">
                 <Typography.Text className="form-full-line" type="secondary">Defina o conjunto e selecione suas skills. Os campos com * sao obrigatorios.</Typography.Text>
                 {error && <Alert className="form-full-line" type="error" message={error} />}
@@ -542,8 +546,28 @@ function App(): React.JSX.Element {
                 <div className="card-form-field form-full-line">
                   <label htmlFor="card-skills">Skills do conjunto (opcional)</label>
                   <Select id="card-skills" mode="multiple" aria-label="Skills da colecao" placeholder="Busque e selecione uma ou mais skills"
-                    className="full-width" value={collectionSkillIds} onChange={setCollectionSkillIds}
-                    options={state.catalog.skills.map(item => ({ value: item.id, label: item.name }))} />
+                    className="full-width" value={collectionSkillIds} onChange={ids => {
+                      setCollectionSkillIds(ids)
+                      setCollectionDisabledSkillIds(previous => previous.filter(id => ids.includes(id)))
+                    }}
+                    options={state.catalog.skills.map(item => ({
+                      value: item.id, label: item.name,
+                      disabled: Boolean(state.catalog?.collections?.some(card =>
+                        card.id !== collectionId && card.skillIds.includes(item.id)))
+                    }))} />
+                </div>
+                <aside className="card-skill-selector" aria-label="Selecao de skills do card">
+                  <Typography.Title level={5}>Skills habilitadas</Typography.Title>
+                  <Typography.Paragraph type="secondary">Ao ativar o card, somente as marcadas serao publicadas.</Typography.Paragraph>
+                  {state.catalog.skills.filter(skill => collectionSkillIds.includes(skill.id)).map(skill =>
+                    <Checkbox key={skill.id} checked={!collectionDisabledSkillIds.includes(skill.id)}
+                      disabled={skill.status === 'blocked' && collectionDisabledSkillIds.includes(skill.id)}
+                      onChange={event => setCollectionDisabledSkillIds(previous => event.target.checked
+                        ? previous.filter(id => id !== skill.id) : [...previous, skill.id])}>
+                      {skill.name}
+                    </Checkbox>)}
+                  {!collectionSkillIds.length && <Typography.Text type="secondary">Adicione skills ao conjunto.</Typography.Text>}
+                </aside>
                 </div>
               </div>
             </Modal>
@@ -561,16 +585,20 @@ function App(): React.JSX.Element {
             <div className="skills-grid">
               {cards.map(item => {
                 const members = state.catalog!.skills.filter(skill => item.skillIds.includes(skill.id))
+                const selectedMembers = members.filter(skill => selectedSkillIds(item).includes(skill.id))
                 const visibleAgents = agentFilter ? item.agents.filter(agent => agent === agentFilter) : item.agents
                 const targets = visibleAgents.filter((agent): agent is SkillAgent =>
                   agent === 'GitHub Copilot' || agent === 'Antigravity')
                 const linkedCount = members.filter(skill => targets.some(agent =>
                   activeProject && isAgentLinked(activeProject, skill.id, agent))).length
-                const linked = members.length > 0 && targets.length > 0 && members.every(skill =>
-                  targets.every(agent => activeProject && isAgentLinked(activeProject, skill.id, agent)))
-                const copilotLinked = targets.includes('GitHub Copilot') && members.length > 0 &&
-                  members.every(skill => activeProject && isAgentLinked(activeProject, skill.id, 'GitHub Copilot'))
-                const linkedAnywhere = Boolean(state.projects?.projects.some(project => item.skillIds.some(id => project.skillIds.includes(id))))
+                const linked = members.length > 0 && targets.length > 0 && targets.every(agent =>
+                  activeProject && (item.standaloneSkillId
+                    ? isAgentLinked(activeProject, item.standaloneSkillId, agent) : isCollectionLinked(activeProject, item, agent)))
+                const copilotLinked = targets.includes('GitHub Copilot') &&
+                  members.some(skill => activeProject && isAgentLinked(activeProject, skill.id, 'GitHub Copilot'))
+                const linkedAnywhere = Boolean(state.projects?.projects.some(project =>
+                  item.skillIds.some(id => project.skillIds.includes(id)) ||
+                  (!item.standaloneSkillId && project.collectionBindings?.some(binding => binding.collectionId === item.id))))
                 const sharedActive = linkedAnywhere
                 const lockedTitle = linkedAnywhere ? 'Desative as skills em todos os projetos antes de editar ou excluir.' : undefined
                 const cardColor = item.cardColor ?? categoryColor(item.category)
@@ -599,10 +627,19 @@ function App(): React.JSX.Element {
                           {linkedCount > 0 && !linked ? ` (${linkedCount} ativa${linkedCount > 1 ? 's' : ''})` : ''}
                         </Typography.Text>
                         <Space direction="vertical" size={4}>
-                          {members.map(member => <Button key={member.id} type="link" size="small"
+                          {members.map(member => <div key={member.id} className="card-skill-row">
+                            {!item.standaloneSkillId && <Checkbox
+                              aria-label={`Habilitar ${member.name} no card ${item.name}`}
+                              checked={!item.disabledSkillIds?.includes(member.id)}
+                              disabled={!targets.length || ((item.status === 'blocked' || member.status === 'blocked') &&
+                                Boolean(item.disabledSkillIds?.includes(member.id)))}
+                              onChange={event => api.postMessage({ type: 'setCollectionSkillEnabled',
+                                id: item.id, skillId: member.id, enabled: event.target.checked, agents: targets })} />}
+                            <Button type="link" size="small"
                             disabled={Boolean(state.projects?.projects.some(project => project.skillIds.includes(member.id)))}
                             title="Editar Markdown desta skill"
-                            onClick={() => api.postMessage({ type: 'openSkill', id: member.id })}>{member.name}</Button>)}
+                            onClick={() => api.postMessage({ type: 'openSkill', id: member.id })}>{member.name}</Button>
+                          </div>)}
                           {!members.length && <Typography.Text type="secondary">Adicione uma skill ou selecione skills em Editar.</Typography.Text>}
                         </Space>
                         <Space wrap size={[4, 4]}>
@@ -620,7 +657,8 @@ function App(): React.JSX.Element {
                               : !targets.length ? 'Selecione GitHub Copilot ou Antigravity ao editar o card.'
                                 : `${linked ? 'Desativar' : 'Ativar'} somente: ${targets.join(', ')}. O conteudo Markdown e o mesmo.`}
                             checked={linked}
-                            disabled={(!linkedCount && (item.status === 'blocked' || members.some(member => member.status === 'blocked'))) || !members.length || !targets.length}
+                            disabled={(!linked && !linkedCount && (item.status === 'blocked' ||
+                              selectedMembers.some(member => member.status === 'blocked'))) || !members.length || !targets.length}
                             onChange={() => api.postMessage(item.standaloneSkillId
                               ? { type: 'toggleProjectSkill', id: item.standaloneSkillId, agents: targets }
                               : { type: 'toggleCollection', id: item.id, enabled: !linked, agents: targets })}
@@ -828,8 +866,7 @@ function App(): React.JSX.Element {
                         children: <div className="governance-panel">
                           <Tag color={colors[draft.status]}>{labels[draft.status]}</Tag>
                           <Typography.Paragraph>
-                            {draft.status === 'validated' && 'A skill pode ser vinculada a projetos. Validada nao significa aprovacao automatica de qualidade ou seguranca.'}
-                            {draft.status === 'pending' && 'A skill aguarda revisao, mas pode ser vinculada a projetos.'}
+                            {draft.status === 'allowed' && 'A skill pode ser ativada no projeto. Liberada nao significa revisao ou teste de qualidade; o switch indica se esta ativa.'}
                             {draft.status === 'blocked' && 'Skills bloqueadas nao podem ser vinculadas. Ao salvar o bloqueio, os vinculos existentes serao removidos.'}
                           </Typography.Paragraph>
                           <Alert type="warning" showIcon message="Desativar remove o SKILL.md da descoberta automatica do Copilot e preserva o arquivo na biblioteca. Nao remove instrucoes ja carregadas numa conversa nem impede leitura explicita do arquivo." />

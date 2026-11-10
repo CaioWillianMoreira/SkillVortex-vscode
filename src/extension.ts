@@ -8,7 +8,8 @@ import { initializeSql, migrateDesktop, rebuildIndex } from './database'
 import {
   agentSkillKey, deploymentAgent, deploymentRoot, hasErrorCode, isAgentLinked, projectBindings,
   collectionSchema, removeSkillFromCollections, setProjectBindings, setSharedSkillPublication, skillCards,
-  skillAgentSchema, skillRegistrationSchema, skillSchema, uniqueSkillFilePath
+  assertUniqueTitle, titleKey, skillAgentSchema, skillRegistrationSchema, skillSchema, uniqueSkillFilePath,
+  isCollectionLinked, selectedSkillIds, setCollectionLinked
 } from './model'
 import type { SkillAgent } from './model'
 import { projectMarkdownAgent, readProjectMarkdown, scanProjectMarkdown } from './project-scan'
@@ -39,6 +40,7 @@ const messageSchema = z.discriminatedUnion('type', [
     type: z.literal('saveCollection'), id: z.string().optional(),
     name: z.string().trim().min(1).max(60),
     skillIds: z.array(z.string()).max(10000),
+    disabledSkillIds: collectionSchema.shape.disabledSkillIds,
     category: collectionSchema.shape.category,
     description: collectionSchema.shape.description,
     agents: collectionSchema.shape.agents,
@@ -49,6 +51,8 @@ const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('deleteCollection'), id: z.string() }),
   z.object({ type: z.literal('toggleCollection'), id: z.string(), enabled: z.boolean(),
     agents: z.array(skillAgentSchema).min(1).max(2).optional() }),
+  z.object({ type: z.literal('setCollectionSkillEnabled'), id: z.string(), skillId: z.string(), enabled: z.boolean(),
+    agents: z.array(skillAgentSchema).min(1).max(2) }),
   z.object({ type: z.literal('setProjectFolder') }),
   z.object({ type: z.literal('scanProject') }),
   z.object({ type: z.literal('setActiveProject'), id: z.string().nullable() }),
@@ -405,21 +409,25 @@ export function activate(context: vscode.ExtensionContext): void {
     const { root, data } = await currentVault()
     const collection = collectionId ? data.catalog.collections?.find(item => item.id === collectionId) : undefined
     if (collectionId && !collection) throw new Error('Card nao encontrado.')
-    if (collection && data.projects.projects.some(project => collection.skillIds.some(id => project.skillIds.includes(id)))) {
+    if (collection && data.projects.projects.some(project =>
+      (['GitHub Copilot', 'Antigravity'] as const).some(agent => isCollectionLinked(project, collection, agent)))) {
       throw new Error('Desative as skills do card antes de adicionar uma nova.')
     }
     const category = collection?.category ?? (data.catalog.categories.includes('Geral')
       ? 'Geral' : data.catalog.categories[0] ?? 'Geral')
     if (!data.catalog.categories.includes(category)) data.catalog.categories.push(category)
     const id = randomBytes(16).toString('hex')
-    const name = 'Nova Skill'
+    const titles = new Set([...data.catalog.skills, ...(data.catalog.collections ?? [])].map(item => titleKey(item.name)))
+    let name = 'Nova Skill'
+    let suffix = 2
+    while (titles.has(titleKey(name))) name = `Nova Skill ${suffix++}`
     const filePath = await availableSkillFilePath(root, name,
       data.catalog.skills.map(item => item.filePath))
     const skill = {
       id, name, category,
       description: 'Descreva o objetivo e quando usar esta skill.',
       filePath,
-      agents: collection?.agents ?? ['GitHub Copilot', 'Antigravity'], status: 'pending' as const, tags: [],
+      agents: collection?.agents ?? ['GitHub Copilot', 'Antigravity'], status: 'allowed' as const, tags: [],
       ...(cardColor ? { cardColor } : {})
     }
     pendingSkill = { root, skill, content: `# ${name}\n\n`, collectionId }
@@ -526,19 +534,34 @@ export function activate(context: vscode.ExtensionContext): void {
           ]),
           originPath: filePath,
           agents: importedAgent ? [importedAgent === 'Antigravity' ? 'Antigravity' : 'GitHub Copilot'] : [],
-          status: 'pending', tags: []
+          status: 'allowed', tags: []
         },
         content
       })
+      assertUniqueTitle({ ...data.catalog, skills: [...data.catalog.skills, ...imported.slice(0, -1).map(item => item.skill)] },
+        imported[imported.length - 1].skill.name)
     }
     const written: string[] = []
+    let persisting = false
     try {
       for (const item of imported) {
         await writeSkillFile(root, item.skill.filePath, item.content)
         written.push(join(root, item.skill.filePath))
         data.catalog.skills.push(item.skill)
       }
+      persisting = true
+      await persist(root, data)
     } catch (error) {
+      if (persisting) {
+        let persisted: Awaited<ReturnType<typeof readVault>>
+        try {
+          persisted = await readVault(root)
+        } catch (verificationError) {
+          throw new AggregateError([error, verificationError],
+            'Falha ao confirmar a importacao. Arquivos preservados para recuperacao; revise a biblioteca antes de tentar novamente.')
+        }
+        if (imported.some(item => persisted.catalog.skills.some(skill => skill.id === item.skill.id))) throw error
+      }
       const cleanupErrors: unknown[] = []
       for (const file of written.reverse()) {
         try {
@@ -552,7 +575,6 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       throw error
     }
-    await persist(root, data)
     editingSkillId = imported[0].skill.id
     await refresh()
   }
@@ -796,22 +818,28 @@ export function activate(context: vscode.ExtensionContext): void {
           await refresh()
           return
         } else {
-          if (collections.some(item => item.id !== message.id &&
-              item.name.toLocaleLowerCase() === message.name.toLocaleLowerCase())) {
-            throw new Error('Essa colecao ja existe.')
-          }
+          assertUniqueTitle(data.catalog, message.name, existing ? { kind: 'card', id: existing.id } : undefined)
           if (message.skillIds.some(id => !data.catalog.skills.some(skill => skill.id === id))) {
             throw new Error('Skill da colecao nao encontrada.')
+          }
+          if (collections.some(item => item.id !== message.id && item.skillIds.some(id => message.skillIds.includes(id)))) {
+            throw new Error('Cada skill pode pertencer a apenas um card. Remova-a do card atual antes de mover.')
+          }
+          if (message.disabledSkillIds?.some(id => !message.skillIds.includes(id))) {
+            throw new Error('Selecao de skills contem membros ausentes do card.')
           }
           const collection = {
             ...existing,
             id: existing?.id ?? randomBytes(16).toString('hex'),
             name: message.name, skillIds: [...new Set(message.skillIds)],
+            ...((message.disabledSkillIds ?? existing?.disabledSkillIds) !== undefined ? {
+              disabledSkillIds: (message.disabledSkillIds ?? existing?.disabledSkillIds ?? []).filter(id => message.skillIds.includes(id))
+            } : {}),
             category: message.category ?? existing?.category ?? data.catalog.categories[0],
             description: message.description ?? existing?.description ?? 'Conjunto de skills para usar no projeto.',
             agents: message.agents ?? existing?.agents ?? ['GitHub Copilot', 'Antigravity'],
             tags: message.tags ?? existing?.tags ?? ['conjunto'],
-            status: message.status ?? existing?.status ?? 'pending',
+            status: message.status ?? existing?.status ?? 'allowed',
             cardColor: message.cardColor === null ? undefined : message.cardColor ?? existing?.cardColor
           }
           if (!collection.category || !data.catalog.categories.includes(collection.category)) throw new Error('Categoria nao encontrada.')
@@ -819,7 +847,8 @@ export function activate(context: vscode.ExtensionContext): void {
             throw new Error('Selecione GitHub Copilot ou Antigravity para habilitar o switch deste card.')
           }
           if (existing &&
-              data.projects.projects.some(project => existing.skillIds.some(id => project.skillIds.includes(id)))) {
+              data.projects.projects.some(project =>
+                (['GitHub Copilot', 'Antigravity'] as const).some(agent => isCollectionLinked(project, existing, agent)))) {
             throw new Error('Desative as skills do card antes de editar.')
           }
           data.catalog.collections = existing
@@ -829,6 +858,36 @@ export function activate(context: vscode.ExtensionContext): void {
         await saveVaultData(root, data)
         await refresh(message.type === 'saveCollection')
       }
+      if (message.type === 'setCollectionSkillEnabled') {
+        const { root, data } = await currentVault()
+        const collection = data.catalog.collections?.find(item => item.id === message.id)
+        const member = data.catalog.skills.find(item => item.id === message.skillId)
+        if (!collection || !member || !collection.skillIds.includes(message.skillId)) {
+          throw new Error('Skill nao encontrada neste card.')
+        }
+        const targets = [...new Set(message.agents)]
+        const labels = collection.agents ?? data.catalog.skills.find(item => collection.skillIds.includes(item.id))?.agents ?? []
+        if (targets.some(agent => !labels.includes(agent))) throw new Error('Selecione somente os agentes exibidos no card.')
+        if (message.enabled && (collection.status === 'blocked' || member.status === 'blocked')) {
+          throw new Error('Cards ou skills bloqueados nao podem ser habilitados.')
+        }
+        const project = data.projects.projects.find(item => item.id === data.projects.activeProject)
+        if (project) {
+          for (const agent of targets) {
+            const active = isCollectionLinked(project, collection, agent)
+            if (active) setCollectionLinked(project, collection.id, agent, true)
+            const bindings = projectBindings(project).filter(binding =>
+              binding.skillId !== member.id || binding.agent !== agent)
+            if (active && message.enabled) bindings.push({ skillId: member.id, agent })
+            setProjectBindings(project, bindings)
+          }
+        }
+        collection.disabledSkillIds = message.enabled
+          ? (collection.disabledSkillIds ?? []).filter(id => id !== member.id)
+          : [...new Set([...(collection.disabledSkillIds ?? []), member.id])]
+        await persist(root, data, targets.length === 1 ? targets[0] : undefined)
+        await refresh()
+      }
       if (message.type === 'toggleProjectSkill' || message.type === 'toggleCollection') {
         const { root, data } = await currentVault()
         const collection = message.type === 'toggleCollection'
@@ -837,9 +896,11 @@ export function activate(context: vscode.ExtensionContext): void {
         if (message.type === 'toggleCollection' && message.enabled && collection?.status === 'blocked') {
           throw new Error('Cards bloqueados nao podem ser ativados.')
         }
-        const ids = collection?.skillIds ?? [message.id]
-        if (!ids.length) throw new Error('Adicione skills a colecao antes de usa-la no projeto.')
-        const skill = data.catalog.skills.find(item => item.id === ids[0])
+        const allIds = collection?.skillIds ?? [message.id]
+        const ids = collection && message.type === 'toggleCollection' && message.enabled
+          ? selectedSkillIds(collection) : allIds
+        if (!allIds.length) throw new Error('Adicione skills a colecao antes de usa-la no projeto.')
+        const skill = data.catalog.skills.find(item => item.id === allIds[0])
         if (!skill) throw new Error('Skill nao encontrada.')
         const agent = message.type === 'toggleProjectSkill' ? message.agent : undefined
         const targets = message.agents ? [...new Set(message.agents)] : undefined
@@ -890,6 +951,20 @@ export function activate(context: vscode.ExtensionContext): void {
           }
         }
         if (!project) throw new Error('Projeto nao encontrado.')
+        if (collection && message.type === 'toggleCollection') {
+          const collectionTargets = targets ?? (['GitHub Copilot', 'Antigravity'] as const)
+          const bindings = projectBindings(project).filter(binding =>
+            !allIds.includes(binding.skillId) || !collectionTargets.includes(binding.agent))
+          for (const target of collectionTargets) {
+            setCollectionLinked(project, collection.id, target, message.enabled)
+            if (message.enabled) for (const id of ids) bindings.push({ skillId: id, agent: target })
+          }
+          setProjectBindings(project, bindings)
+          project.sharedPublication = true
+          await persist(root, data, targets?.length === 1 ? targets[0] : undefined)
+          await refresh()
+          return
+        }
         if (targets) {
           const enabled = message.type === 'toggleCollection' ? message.enabled : !disabling
           const bindings = projectBindings(project).filter(binding =>
@@ -953,7 +1028,8 @@ export function activate(context: vscode.ExtensionContext): void {
           if (pendingSkill.collectionId) {
             const collection = data.catalog.collections?.find(item => item.id === pendingSkill?.collectionId)
             if (!collection) throw new Error('O card deste rascunho nao existe mais.')
-            if (data.projects.projects.some(project => collection.skillIds.some(id => project.skillIds.includes(id)))) {
+            if (data.projects.projects.some(project =>
+              (['GitHub Copilot', 'Antigravity'] as const).some(agent => isCollectionLinked(project, collection, agent)))) {
               throw new Error('Desative as skills do card antes de adicionar uma nova.')
             }
             collection.skillIds.push(message.id)
@@ -969,6 +1045,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const projects = new Set(data.projects.projects.map(project => project.id))
         if (message.projectIds.some(id => !projects.has(id))) throw new Error('Projeto nao encontrado.')
         const current = data.catalog.skills[index]
+        assertUniqueTitle(data.catalog, message.name, { kind: 'skill', id: message.id })
         const updated = skillSchema.parse({
           ...current,
           name: message.name,
@@ -988,7 +1065,8 @@ export function activate(context: vscode.ExtensionContext): void {
           throw new Error('Selecione GitHub Copilot ou Antigravity no card antes de usar no projeto.')
         }
         for (const project of data.projects.projects) {
-          setSharedSkillPublication(project, updated.id, updated.status !== 'blocked' && linked.has(project.id), agents)
+          setSharedSkillPublication(project, updated.id, updated.status !== 'blocked' && linked.has(project.id) &&
+            cards.every(card => card.status !== 'blocked' && selectedSkillIds(card).includes(updated.id)), agents)
         }
         for (const project of data.projects.projects) {
           if (project.skillIds.includes(updated.id) && !project.sourcePath) {

@@ -6,7 +6,7 @@ import {
 
 const skill = {
   id: 'test', name: 'Test', category: 'Geral', description: 'Test description',
-  filePath: 'skills/test.md', agents: [], status: 'pending', tags: []
+  filePath: 'skills/test.md', agents: [], status: 'allowed', tags: []
 }
 
 test('offers exactly ten unique named colors and validates them in skill metadata', () => {

@@ -56,6 +56,9 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.genericAgentLabel, false)
           assert.equal(message.repeatedCollectionButtons, false)
           assert.ok(message.fontSize >= 15)
+          assert.equal(message.searchIconWidth, 20)
+          assert.equal(message.searchIconHeight, 20)
+          assert.equal(message.searchPlaceholder, 'Buscar skills, tags, agentes...')
           assert.ok(message.filterWidths.every(width => width >= 220))
           assert.ok(message.menuIconGap >= 12)
           assert.equal(message.libraryColor, 'rgb(179, 127, 235)')
@@ -75,7 +78,7 @@ module.exports = async function testCardColors(extension) {
           assert.deepEqual(message, { type: 'createSkill' })
           skill = {
             id: 'color-test', name: 'Nova Skill', category: 'Geral', description: 'Descricao de teste',
-            filePath: 'skills/nova-skill.md', agents: ['GitHub Copilot'], status: 'pending', tags: ['teste']
+            filePath: 'skills/nova-skill.md', agents: ['GitHub Copilot'], status: 'allowed', tags: ['teste']
           }
           stage = 'select'
           assert.ok(await webview.postMessage(state(skill.id)))
@@ -143,6 +146,8 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.newSkillColor, 'rgb(115, 209, 61)')
           assert.ok(message.cardLayouts.every(layout => layout.oneRow && layout.contained),
             JSON.stringify(message.cardLayouts))
+          assert.ok(message.gridLayouts.every(layout => layout.columns === 3 && layout.reservedSpace),
+            JSON.stringify(message.gridLayouts))
           assert.equal(message.hasProjectSwitch, true)
           assert.equal(message.hasCreateProject, false)
         } else if (message.type === 'openSkill') {
@@ -240,6 +245,7 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.category, 'Geral')
           assert.ok(message.description)
           assert.ok(message.tags.length)
+          assert.deepEqual(message.disabledSkillIds, [])
           collections = [{ ...message, id: 'quality' }]
           stage = 'collection-filter'
           assert.ok(await webview.postMessage(state(null, true)))
@@ -348,6 +354,13 @@ module.exports = async function testCardColors(extension) {
         if (!card || !category) return null;
         const grid = document.querySelector('.skills-grid');
         const gridStyle = grid.style.cssText;
+        const gridLayouts = [720, 1080, 1600].map(width => {
+          grid.style.width = width + 'px';
+          const columns = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
+          const expected = (grid.getBoundingClientRect().width - 40) / 3;
+          return { width, columns, reservedSpace: Math.abs(card.getBoundingClientRect().width - expected) < 1 };
+        });
+        grid.style.cssText = gridStyle;
         const cardLayouts = [240, 360, 520].map(width => {
           grid.style.width = width + 'px';
           grid.style.gridTemplateColumns = 'minmax(0, 1fr)';
@@ -365,6 +378,7 @@ module.exports = async function testCardColors(extension) {
         const actionButtons = Array.from(document.querySelectorAll('main button.action-button'));
         return {
           cardLayouts,
+          gridLayouts,
           allActionButtonsHaveIcons: actionButtons.every(button => button.querySelector('svg[aria-hidden="true"]')),
           generalButtonsHaveBorders: actionButtons.filter(button => !button.closest('.skill-card-actions') && !button.disabled)
             .every(button => parseFloat(getComputedStyle(button).borderTopWidth) > 0),
@@ -435,6 +449,11 @@ module.exports = async function testCardColors(extension) {
                 waitFor('save collection', () => {
                   const save = button('Salvar');
                   if (!save || !members.closest('.ant-select').querySelector('.ant-select-selection-item')) return false;
+                  const selector = document.querySelector('[aria-label="Selecao de skills do card"]');
+                  const checkbox = selector?.querySelector('input[type="checkbox"]');
+                  if (!checkbox || !checkbox.checked || !selector.textContent.includes('Nova Skill')) {
+                    throw new Error('Card editor must show newly added skills selected in the sidebar');
+                  }
                   save.click();
                   return true;
                 });
@@ -546,6 +565,9 @@ module.exports = async function testCardColors(extension) {
                     repeatedCollectionButtons: Boolean(button('Editar colecao') || button('Ativar colecao') || button('Desativar colecao')),
                     menuIconGap: parseFloat(getComputedStyle(backup.closest('[role="menuitem"]')).columnGap),
                     fontSize: parseFloat(getComputedStyle(document.querySelector('input[aria-label="Buscar skills"]')).fontSize),
+                    searchIconWidth: document.querySelector('.search-input .ant-input-prefix svg').getBoundingClientRect().width,
+                    searchIconHeight: document.querySelector('.search-input .ant-input-prefix svg').getBoundingClientRect().height,
+                    searchPlaceholder: document.querySelector('input[aria-label="Buscar skills"]').placeholder,
                     filterWidths: Array.from(document.querySelectorAll('.filter-select')).map(item => item.getBoundingClientRect().width)
                   });
                   button('Biblioteca').click();

@@ -19,7 +19,7 @@ test('creates exactly four fully populated cards with 1, 4, 2 and 0 independent 
     expect(card.description.trim()).not.toBe('')
     expect(card.tags.length).toBeGreaterThan(0)
     expect(card.agents).toEqual(['GitHub Copilot', 'Antigravity'])
-    expect(card.status).toBe('pending')
+    expect(card.status).toBe('allowed')
     expect(card.cardColor).toBeDefined()
     expect(categories).toContain(card.category)
   }
@@ -52,8 +52,8 @@ test('creates the eight documented, editable skill cards with valid metadata and
     'Testes Unitários com Vitest'
   ])
   expect(examples.map(({ skill }) => skill.status)).toEqual([
-    'blocked', 'pending', 'validated', 'pending',
-    'validated', 'validated', 'validated', 'pending'
+    'blocked', 'allowed', 'allowed', 'allowed',
+    'allowed', 'allowed', 'allowed', 'allowed'
   ])
   expect(examples[4].skill.agents).toEqual(['Antigravity'])
   expect(examples[4].skill.description).toBe('Boas práticas para definição de contratos e endpoints.')
@@ -86,7 +86,7 @@ test('reconciles existing documented cards without replacing their IDs, paths, o
     id: 'existing-rest-id',
     filePath: 'skills/existing-rest.md',
     name: 'REST API',
-    status: 'pending' as const,
+    status: 'allowed' as const,
     agents: ['GitHub Copilot', 'Antigravity'],
     description: 'Boas praticas para definicao de contratos e endpoints.',
     cardColor: SKILL_CARD_COLORS[6]
@@ -95,7 +95,7 @@ test('reconciles existing documented cards without replacing their IDs, paths, o
     ...examples[0].skill,
     id: 'existing-accessibility-id',
     filePath: 'skills/existing-accessibility.md',
-    status: 'pending' as const
+    status: 'allowed' as const
   }
   const skills = [oldRestApi, oldAccessibility]
 
@@ -118,7 +118,7 @@ test('reconciles existing documented cards without replacing their IDs, paths, o
     id: 'existing-rest-id',
     filePath: 'skills/existing-rest.md',
     name: 'Padronização de API REST',
-    status: 'validated',
+    status: 'allowed',
     agents: ['Antigravity'],
     cardColor: SKILL_CARD_COLORS[6],
     description: 'Boas práticas para definição de contratos e endpoints.'

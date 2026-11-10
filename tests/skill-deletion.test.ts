@@ -53,13 +53,13 @@ async function disabledSkill(): Promise<VaultData> {
 const persist = async (path: string, data: VaultData) =>
   saveProjectSkills(path, await readVault(path), data)
 
-test('deleting a card preserves shared skills and other cards without generating standalone cards', async () => {
+test('deleting a card preserves skills exclusive to other cards without generating standalone cards', async () => {
   const first = initial.catalog.skills[0]
   const shared = { ...first, id: 'shared', name: 'Shared', filePath: 'skills/shared.md' }
   initial.catalog.skills.push(shared)
   await writeSkillFile(root, shared.filePath, '# Shared')
   initial.catalog.collections = [
-    { id: 'first', name: 'First', skillIds: [first.id, shared.id] },
+    { id: 'first', name: 'First', skillIds: [first.id] },
     { id: 'second', name: 'Second', skillIds: [shared.id] },
     { id: 'third', name: 'Third', skillIds: [] },
     { id: 'fourth', name: 'Fourth', skillIds: [] }
@@ -92,11 +92,12 @@ test('a failed card deletion restores every exclusive Markdown and the card meta
   expect((await fs.readdir(join(root, 'skills'))).some(name => name.includes('skillvortex-delete'))).toBe(false)
 })
 
-test('changing membership after confirmation prevents deleting skills shared with another card', async () => {
+test('moving membership after confirmation prevents deleting a skill in another card', async () => {
   const skill = initial.catalog.skills[0]
   initial.catalog.collections = [{ id: 'card', name: 'Card', skillIds: [skill.id] }]
   await saveVaultData(root, initial)
   const plan = await planSkillDeletion(root, initial, skill)
+  initial.catalog.collections[0].skillIds = []
   initial.catalog.collections.push({ id: 'other', name: 'Other', skillIds: [skill.id] })
   await saveVaultData(root, initial)
   await expect(deleteCollectionFiles(root, 'card', [plan], persist)).rejects.toThrow('mudaram apos')
@@ -364,12 +365,12 @@ test('refuses a folder also recorded by another skill', async () => {
   await expect(planSkillDeletion(root, data, skill)).rejects.toThrow('outra skill')
 })
 
-test('reserves an inactive skill folder when another skill has the same name', async () => {
+test('reserves an inactive skill folder when another unique title has the same slug', async () => {
   const data = await disabledSkill()
   const first = data.catalog.skills[0]
   const other = createDocumentedExamples()[1]
   other.skill.category = 'Geral'
-  other.skill.name = first.name
+  other.skill.name = `${first.name}!`
   data.catalog.skills.push(other.skill)
   await writeSkillFile(root, other.skill.filePath, other.content)
   const next = structuredClone(data)

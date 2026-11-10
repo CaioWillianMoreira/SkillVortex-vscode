@@ -37,6 +37,7 @@ exports.run = async function run() {
   await require('./clipboard.cjs')(extension)
   await require('./card-colors.cjs')(extension)
   await require('./project-switch.cjs').testProjectSwitch(extension)
+  await require('./markdown-lifecycle.cjs').testMarkdownLifecycle(extension)
 
   // Run the shipped WASM against real data in the host's runtime, not Node/Electron SQLite.
   const { initializeSql, migrateDesktop, rebuildIndex } = require(join(extension.extensionPath, 'dist/database.js'))
@@ -53,7 +54,7 @@ exports.run = async function run() {
       CREATE TABLE project_skills (project_name TEXT, skill_id TEXT);
       CREATE TABLE settings (key TEXT, value TEXT);
     `)
-    db.run('INSERT INTO skills VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', ['host', 'Host', 'Geral', '', markdown, '[]', 'pending', '[]', null])
+    db.run('INSERT INTO skills VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', ['host', 'Host', 'Geral', '', markdown, '[]', 'allowed', '[]', null])
     const source = join(temporary, 'desktop.sqlite')
     await writeFile(source, db.export())
     db.close()

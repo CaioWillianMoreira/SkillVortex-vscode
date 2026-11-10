@@ -113,6 +113,45 @@ main {
   padding-right: 8px;
 }
 
+.card-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(200px, 1fr);
+  gap: 24px;
+}
+
+.card-skill-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  max-height: calc(100vh - 240px);
+  overflow-y: auto;
+  padding-left: 16px;
+  border-left: 1px solid #2b2b2b;
+}
+
+.card-skill-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.card-skill-row .ant-btn {
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .card-editor-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .card-skill-selector {
+    padding-left: 0;
+    border-left: none;
+  }
+}
+
 .form-full-line {
   grid-column: 1 / -1;
 }
@@ -216,6 +255,17 @@ main {
 
 .search-input {
   width: clamp(240px, 28vw, 420px);
+}
+
+.search-input .ant-input-prefix {
+  margin-inline-end: 8px;
+  color: #b8b8b8;
+}
+
+.search-input .ant-input-prefix svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
 .toolbar-spacer {
@@ -376,7 +426,7 @@ main {
 
 .skills-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px;
   grid-auto-rows: 1fr;
 }

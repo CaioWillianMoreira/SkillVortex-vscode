@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, expect, test } from '@jest/globals'
 import { createDocumentedExamples } from '../src/documented-examples'
 import { detectExternalChanges, inspectSkillVersions, resolveExternalChange } from '../src/external-changes'
-import { setSharedSkillPublication, type VaultData } from '../src/model'
-import { saveProjectSkills } from '../src/project-skills'
+import { setProjectBindings, setSharedSkillPublication, type VaultData } from '../src/model'
+import { saveProjectSkills, skillPublicationMarkdown } from '../src/project-skills'
 import { createVault, readVault, saveVaultData, writeSkillFile } from '../src/vault'
 
 let temporary: string
@@ -172,4 +172,108 @@ test('inactive library changes can be reviewed using a captured in-session basel
   change.library.changed = true
   await resolveExternalChange(root, change, library)
   expect(await fs.readFile(library, 'utf8')).toContain('Inactive edit')
+})
+
+test.each(
+  [1, 2].flatMap(projects => ['library', 'copilot', 'antigravity'].flatMap(source =>
+    ['lf', 'crlf', 'unicode'].map(format => ({ projects, source, format }))))
+)('synchronization matrix: $projects project(s), $source source, $format content', async scenario => {
+  if (scenario.projects === 2) {
+    const secondPath = join(temporary, 'second-project')
+    await fs.mkdir(secondPath)
+    const previous = await readVault(root)
+    const next = structuredClone(previous)
+    next.projects.projects.push({ id: 'second', name: 'Second', sourcePath: secondPath, skillIds: [] })
+    setSharedSkillPublication(next.projects.projects[1], skillId, true)
+    await saveProjectSkills(root, previous, next)
+    data = await readVault(root)
+  }
+  const paths = { library, copilot, antigravity }
+  const source = paths[scenario.source as keyof typeof paths]
+  const body = scenario.format === 'unicode' ? '# Revisao\n\nConteudo: ação, 日本語, 🚀.\n' : '# Revision\n\nMerged content.\n'
+  const content = scenario.format === 'crlf' ? body.replace(/\n/g, '\r\n') : body
+  await fs.writeFile(source, content)
+  const [change] = await detectExternalChanges(root, data)
+  expect(change.publications).toHaveLength(scenario.projects * 2)
+  const before = await Promise.all([change.library, ...change.publications].map(version => fs.readFile(version.path, 'utf8')))
+  const recovery = await resolveExternalChange(root, change, source)
+  expect(await fs.readFile(library, 'utf8')).toBe(content)
+  const saved = await readVault(root)
+  expect(await detectExternalChanges(root, saved)).toEqual([])
+  for (const version of change.publications) {
+    expect(await fs.readFile(version.path, 'utf8')).toContain(content)
+  }
+  const manifest: Array<{ path: string; snapshot: string }> = JSON.parse(await fs.readFile(join(recovery, 'manifest.json'), 'utf8'))
+  for (const [index, version] of [change.library, ...change.publications].entries()) {
+    const snapshot = manifest.find(entry => entry.path === version.path)!
+    expect(await fs.readFile(join(recovery, snapshot.snapshot), 'utf8')).toBe(before[index])
+  }
+  const disabled = structuredClone(saved)
+  for (const project of disabled.projects.projects) setProjectBindings(project, [])
+  await saveProjectSkills(root, saved, disabled)
+  const reactivated = structuredClone(disabled)
+  for (const project of reactivated.projects.projects) setSharedSkillPublication(project, skillId, true)
+  await saveProjectSkills(root, disabled, reactivated)
+  expect(await detectExternalChanges(root, await readVault(root))).toEqual([])
+  expect(await fs.readFile(library, 'utf8')).toBe(content)
+})
+
+test('a manual merge must be reviewed again and preserves every divergent version in recovery', async () => {
+  await fs.appendFile(library, '\nLibrary-only requirement')
+  await fs.appendFile(copilot, '\nCopilot-only requirement')
+  await fs.appendFile(antigravity, '\nAntigravity-only requirement')
+  const [stale] = await detectExternalChanges(root, data)
+  const merged = '# Manual merge\n\nLibrary-only requirement\nCopilot-only requirement\nAntigravity-only requirement\n'
+  await fs.writeFile(library, merged)
+  await expect(resolveExternalChange(root, stale, library)).rejects.toThrow('mudaram apos')
+  const [reviewed] = await detectExternalChanges(root, await readVault(root))
+  const recovery = await resolveExternalChange(root, reviewed, library)
+  const manifest: Array<{ path: string; snapshot: string }> = JSON.parse(await fs.readFile(join(recovery, 'manifest.json'), 'utf8'))
+  for (const [file, requirement] of [[copilot, 'Copilot-only requirement'], [antigravity, 'Antigravity-only requirement']]) {
+    const snapshot = manifest.find(entry => entry.path === file)!
+    expect(await fs.readFile(join(recovery, snapshot.snapshot), 'utf8')).toContain(requirement)
+  }
+  expect(await fs.readFile(library, 'utf8')).toBe(merged)
+  expect(await fs.readFile(copilot)).toEqual(await fs.readFile(antigravity))
+  expect(await detectExternalChanges(root, await readVault(root))).toEqual([])
+})
+
+test.each(['library', 'copilot', 'antigravity'])('invalid YAML in selected $0 leaves all versions unchanged', async source => {
+  const path = { library, copilot, antigravity }[source as 'library' | 'copilot' | 'antigravity']
+  await fs.writeFile(path, '---\nname: [broken\n---\n# Invalid')
+  const [change] = await detectExternalChanges(root, data)
+  const before = await Promise.all([library, copilot, antigravity].map(file => fs.readFile(file)))
+  await expect(resolveExternalChange(root, change, path)).rejects.toThrow('YAML invalido')
+  expect(await Promise.all([library, copilot, antigravity].map(file => fs.readFile(file)))).toEqual(before)
+  expect(await readVault(root)).toEqual(data)
+})
+
+test.each(['library', 'copilot', 'antigravity'])('files larger than 2 MB are explicitly rejected: %s', async source => {
+  const path = { library, copilot, antigravity }[source as 'library' | 'copilot' | 'antigravity']
+  await fs.writeFile(path, 'x'.repeat(2 * 1024 * 1024 + 1))
+  const original = await readVault(root)
+  await expect(detectExternalChanges(root, original)).rejects.toThrow('maior que 2 MB')
+  expect(await readVault(root)).toEqual(original)
+  expect((await fs.stat(path)).size).toBe(2 * 1024 * 1024 + 1)
+})
+
+test('frontmatter overhead exceeding 2 MB aborts synchronization before any writes', async () => {
+  const content = 'x'.repeat(2 * 1024 * 1024)
+  await fs.writeFile(library, content)
+  const [change] = await detectExternalChanges(root, data)
+  const original = await fs.readFile(copilot)
+  await expect(resolveExternalChange(root, change, library)).rejects.toThrow('excede o limite de 2 MB')
+  expect(await fs.readFile(library, 'utf8')).toBe(content)
+  expect(await fs.readFile(copilot)).toEqual(original)
+  expect(await fs.readFile(antigravity)).toEqual(original)
+})
+
+test('a publication exactly at the 2 MB limit synchronizes successfully', async () => {
+  const overhead = skillPublicationMarkdown(data.catalog.skills[0], 'testes-unitarios-com-vitest', '').length
+  await fs.writeFile(library, 'x'.repeat(2 * 1024 * 1024 - overhead))
+  const [change] = await detectExternalChanges(root, data)
+  await resolveExternalChange(root, change, library)
+  expect((await fs.stat(copilot)).size).toBe(2 * 1024 * 1024)
+  expect((await fs.readFile(copilot)).equals(await fs.readFile(antigravity))).toBe(true)
+  expect(await detectExternalChanges(root, await readVault(root))).toEqual([])
 })

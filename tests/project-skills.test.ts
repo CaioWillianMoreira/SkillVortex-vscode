@@ -38,12 +38,12 @@ async function activateSkill(): Promise<{ data: VaultData; file: string }> {
   return { data, file: join(projectPath, '.github/skills', deployed.directory, 'SKILL.md') }
 }
 
-test('the pending Vitest example is published as a discoverable Copilot skill', async () => {
+test('the released Vitest example is published as a discoverable Copilot skill', async () => {
   const { data, file } = await activateSkill()
   const content = await fs.readFile(file, 'utf8')
   expect(content).toMatch(/^---\nname: testes-unitarios-com-vitest\ndescription: ".+"\n---\n\n# Testes Unitários com Vitest/)
   expect(data.projects.projects[0].deployedSkills![0].directory).toBe('testes-unitarios-com-vitest')
-  expect(data.catalog.skills[0].status).toBe('pending')
+  expect(data.catalog.skills[0].status).toBe('allowed')
   expect(data.catalog.skills[0].publishedFolders![0].marker).toBeUndefined()
   expect((await fs.readdir(join(file, '..'))).some(name => name.startsWith('.skillvortex-'))).toBe(false)
   expect(await readVault(root)).toEqual(data)

@@ -29,7 +29,7 @@ export function createCardExamples(categories: string[]): {
       const skill: Skill = {
         id: randomBytes(16).toString('hex'), name: item.name, category: item.category,
         description: item.description, agents: ['GitHub Copilot', 'Antigravity'],
-        status: 'pending', tags: [skillSlug(item.category), 'exemplo'],
+        status: 'allowed', tags: [skillSlug(item.category), 'exemplo'],
         filePath: uniqueSkillFilePath(item.name, skills.map(entry => entry.skill.filePath))
       }
       const content = `---\nname: ${skillSlug(skill.name)}\ndescription: ${JSON.stringify(skill.description)}\n---\n\n# ${skill.name}\n\n## Quando usar\n\n${skill.description}\n\n## Procedimento\n\n${item.steps.map(step => `- ${step}`).join('\n')}\n`
@@ -39,7 +39,7 @@ export function createCardExamples(categories: string[]): {
     return {
       id: randomBytes(16).toString('hex'), name: definition.name, category: definition.category,
       description: definition.description, tags: definition.tags,
-      agents: ['GitHub Copilot', 'Antigravity'], status: 'pending' as const,
+      agents: ['GitHub Copilot', 'Antigravity'], status: 'allowed' as const,
       cardColor: definition.color, skillIds
     }
   })
@@ -61,7 +61,7 @@ const examples: Array<Omit<Skill, 'id' | 'filePath'> & { markdown: string; alias
     category: 'Arquitetura',
     description: 'Padrões de design TypeScript robustos e escaláveis.',
     agents: ['GitHub Copilot', 'Antigravity'],
-    status: 'pending',
+    status: 'allowed',
     tags: ['ts', 'patterns'],
     markdown: '## Diretrizes\n\n- Separe dominio, aplicacao e infraestrutura.\n- Adicione as instrucoes desta skill ao contexto.\n- Revise o conteudo antes de validar.'
   },
@@ -70,7 +70,7 @@ const examples: Array<Omit<Skill, 'id' | 'filePath'> & { markdown: string; alias
     category: 'Git',
     description: 'Diretrizes de ramificação, commits e versionamento.',
     agents: ['GitHub Copilot', 'Antigravity'],
-    status: 'validated',
+    status: 'allowed',
     tags: ['git', 'workflow'],
     markdown: '## Diretrizes\n\n- Use branches curtas e com nomes descritivos.\n- Escreva commits pequenos e objetivos.\n- Integre por pull request com revisao.'
   },
@@ -79,7 +79,7 @@ const examples: Array<Omit<Skill, 'id' | 'filePath'> & { markdown: string; alias
     category: 'DevOps',
     description: 'Pipelines de integração contínua consistentes e seguros.',
     agents: ['GitHub Copilot'],
-    status: 'pending',
+    status: 'allowed',
     tags: ['ci', 'actions'],
     markdown: '## Diretrizes\n\n- Execute lint, testes e build em cada alteracao.\n- Mantenha etapas reproduziveis e com falhas visiveis.\n- Armazene credenciais em secrets do ambiente.'
   },
@@ -88,7 +88,7 @@ const examples: Array<Omit<Skill, 'id' | 'filePath'> & { markdown: string; alias
     category: 'API',
     description: 'Boas práticas para definição de contratos e endpoints.',
     agents: ['Antigravity'],
-    status: 'validated',
+    status: 'allowed',
     tags: ['api', 'rest'],
     aliases: ['REST API'],
     markdown: '## Diretrizes\n\n- Defina recursos e contratos HTTP consistentes.\n- Valide entradas e documente respostas e erros.\n- Mantenha compatibilidade entre versões.'
@@ -98,7 +98,7 @@ const examples: Array<Omit<Skill, 'id' | 'filePath'> & { markdown: string; alias
     category: 'Segurança',
     description: 'Práticas para proteger aplicações, dados e usuários.',
     agents: ['GitHub Copilot', 'Antigravity'],
-    status: 'validated',
+    status: 'allowed',
     tags: ['security', 'compliance'],
     markdown: '## Diretrizes\n\n- Minimize a coleta e exposicao de dados.\n- Valide entradas e proteja credenciais.\n- Revise dependencias e controles de acesso.'
   },
@@ -107,7 +107,7 @@ const examples: Array<Omit<Skill, 'id' | 'filePath'> & { markdown: string; alias
     category: 'SEO',
     description: 'Técnicas on-page e off-page para melhorar a descoberta.',
     agents: ['Antigravity'],
-    status: 'validated',
+    status: 'allowed',
     tags: ['seo', 'metadata'],
     markdown: '## Diretrizes\n\n- Use titulos, descricoes e URLs claros.\n- Estruture o conteudo com cabecalhos semanticos.\n- Adicione metadados e dados estruturados relevantes.'
   },
@@ -116,7 +116,7 @@ const examples: Array<Omit<Skill, 'id' | 'filePath'> & { markdown: string; alias
     category: 'Testes',
     description: 'Escreva testes de unidade claros, rápidos e confiáveis.',
     agents: ['GitHub Copilot'],
-    status: 'pending',
+    status: 'allowed',
     tags: ['testing', 'vitest'],
     markdown: '## Diretrizes\n\n- Teste comportamento observavel e casos limite.\n- Mantenha cada teste independente e deterministico.\n- Use nomes que expliquem o resultado esperado.'
   }

@@ -3,7 +3,7 @@ import { beforeEach, afterEach, test, expect } from '@jest/globals'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createVault, readVault, readContained, saveVaultData, writeSkillFile } from '../src/vault'
-import { emptyVault, validateVault } from '../src/model'
+import { emptyVault, validateVault, selectedSkillIds, setCollectionLinked, isCollectionLinked } from '../src/model'
 import { initializeSql, migrateDesktop, rebuildIndex } from '../src/database'
 import { createVaultBackup, listVaultBackups, restoreVaultBackup } from '../src/backup'
 import { SKILL_CARD_COLORS } from '../src/skill-colors'
@@ -28,13 +28,83 @@ test('never overwrites an existing destination', async () => {
   expect(await fs.readFile(join(root, 'keep.txt'), 'utf8')).toBe('original')
 })
 
+test('backup restores checkbox choices and a card active with no selected skills', async () => {
+  const root = join(temporary, 'vault')
+  await createVault(root)
+  const data = await readVault(root)
+  data.catalog.skills.push({ id: 'one', name: 'One skill', category: 'Geral', description: 'QA',
+    filePath: 'skills/one.md', agents: ['GitHub Copilot'], tags: [], status: 'allowed' })
+  data.catalog.collections = [{ id: 'card', name: 'Card', skillIds: ['one'], disabledSkillIds: ['one'] }]
+  data.projects.projects = [{ id: 'project', name: 'Project', skillIds: [] }]
+  setCollectionLinked(data.projects.projects[0], 'card', 'GitHub Copilot', true)
+  await writeSkillFile(root, 'skills/one.md', '# One')
+  await saveVaultData(root, data)
+  const backup = await createVaultBackup(root)
+  data.catalog.collections[0].disabledSkillIds = []
+  setCollectionLinked(data.projects.projects[0], 'card', 'GitHub Copilot', false)
+  await saveVaultData(root, data)
+  await restoreVaultBackup(root, backup.id)
+  const restored = await readVault(root)
+  expect(selectedSkillIds(restored.catalog.collections![0])).toEqual([])
+  expect(isCollectionLinked(restored.projects.projects[0], restored.catalog.collections![0], 'GitHub Copilot')).toBe(true)
+})
+
+test.each(['pending', 'validated', 'allowed', 'blocked'])('legacy status %s migrates without changing Markdown', async status => {
+  const root = join(temporary, 'vault')
+  await createVault(root)
+  const data = await readVault(root)
+  const skill = { id: 'legacy', name: 'Legacy', category: 'Geral', description: 'QA',
+    filePath: 'skills/legacy.md', agents: [], status, tags: [] }
+  const catalog = { ...data.catalog, skills: [skill],
+    collections: [{ id: 'card', name: 'Legacy card', skillIds: ['legacy'], status }] }
+  await writeSkillFile(root, skill.filePath, '# Original')
+  await fs.writeFile(join(root, '.skillvortex/catalogo.json'), JSON.stringify(catalog))
+  const loaded = await readVault(root)
+  const expected = status === 'blocked' ? 'blocked' : 'allowed'
+  expect(loaded.catalog.skills[0].status).toBe(expected)
+  expect(loaded.catalog.collections![0].status).toBe(expected)
+  await saveVaultData(root, loaded)
+  expect(JSON.parse(await fs.readFile(join(root, '.skillvortex/catalogo.json'), 'utf8')).skills[0].status).toBe(expected)
+  expect(await fs.readFile(join(root, skill.filePath), 'utf8')).toBe('# Original')
+})
+
+test('persisting a skill in two cards is rejected without changing library files', async () => {
+  const root = join(temporary, 'vault')
+  await createVault(root)
+  const data = await readVault(root)
+  data.catalog.skills.push({ id: 'exclusive', name: 'Exclusive', category: 'Geral', description: 'QA',
+    filePath: 'skills/exclusive.md', agents: [], status: 'allowed', tags: [] })
+  data.catalog.collections = [
+    { id: 'one', name: 'One', skillIds: ['exclusive'] },
+    { id: 'two', name: 'Two', skillIds: ['exclusive'] }
+  ]
+  await expect(saveVaultData(root, data)).rejects.toThrow('apenas um card')
+  expect((await readVault(root)).catalog.skills).toEqual([])
+})
+
+test.each(['skills', 'cards', 'cross-kind'])('catalog persistence rejects global duplicate titles: %s', async kind => {
+  const root = join(temporary, 'vault')
+  await createVault(root)
+  const data = await readVault(root)
+  const skill = { id: 'first', name: 'Revisão', category: 'Geral', description: 'QA',
+    filePath: 'skills/first.md', agents: [], status: 'allowed' as const, tags: [] }
+  if (kind !== 'cards') data.catalog.skills.push(skill)
+  if (kind === 'skills') data.catalog.skills.push({ ...skill, id: 'second', filePath: 'skills/second.md', name: ' REVISA\u0303O ' })
+  else data.catalog.collections = kind === 'cards'
+    ? [{ id: 'first', name: 'Revisão', skillIds: [] }, { id: 'second', name: ' REVISA\u0303O ', skillIds: [] }]
+    : [{ id: 'second', name: ' REVISA\u0303O ', skillIds: [] }]
+  const original = await readVault(root)
+  await expect(saveVaultData(root, data)).rejects.toThrow('Use um titulo unico')
+  expect(await readVault(root)).toEqual(original)
+})
+
 test('saves edited Markdown and metadata while preserving vault validation', async () => {
   const root = join(temporary, 'vault')
   await createVault(root)
   const data = await readVault(root)
   data.catalog.skills.push({
     id: 'skill-one', name: 'Skill one', category: 'Geral', description: 'Before',
-    filePath: 'skills/skill-one.md', agents: [], status: 'pending', tags: ['old']
+    filePath: 'skills/skill-one.md', agents: [], status: 'allowed', tags: ['old']
   })
 
   await writeSkillFile(root, 'skills/skill-one.md', '# Before')
@@ -59,7 +129,7 @@ test('creates a complete backup and restores it with an automatic recovery point
   const original = await readVault(root)
   original.catalog.skills.push({
     id: 'skill-one', name: 'Original skill', category: 'Geral', description: 'Original',
-    filePath: 'skills/skill-one.md', agents: [], status: 'pending', tags: [],
+    filePath: 'skills/skill-one.md', agents: [], status: 'allowed', tags: [],
     cardColor: SKILL_CARD_COLORS[6]
   })
   original.projects.projects.push({ id: 'project-one', name: 'Original project', skillIds: ['skill-one'] })
@@ -123,7 +193,7 @@ test('failed import cleans only its newly created destination', async () => {
   const data = emptyVault()
   data.catalog.skills.push({
     id: 'test', name: 'Test', category: 'Geral', description: 'Test description', filePath: 'skills/test.md',
-    agents: [], status: 'pending', tags: []
+    agents: [], status: 'allowed', tags: []
   })
   const root = join(temporary, 'vault')
   await expect(createVault(root, data)).rejects.toThrow('Conteudo ausente')
@@ -150,7 +220,7 @@ test('upgrades legacy empty skill descriptions to an explicit edit reminder', as
   const data = emptyVault()
   data.catalog.skills.push({
     id: 'legacy', name: 'Legacy skill', category: 'Geral', description: '',
-    filePath: 'skills/legacy-skill.md', agents: [], status: 'pending', tags: []
+    filePath: 'skills/legacy-skill.md', agents: [], status: 'allowed', tags: []
   })
 
   expect(validateVault(data.catalog, data.projects).catalog.skills[0].description)
@@ -185,7 +255,7 @@ async function legacyFixture() {
     INSERT INTO project_paths VALUES ('Project', '/old/project');
   `)
   db.run('INSERT INTO skills VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-    'one', 'Architecture', 'Custom', 'Description', markdown, '["GitHub Copilot"]', 'validated', '["ts"]', '# Old snapshot'
+    'one', 'Architecture', 'Custom', 'Description', markdown, '["GitHub Copilot"]', 'allowed', '["ts"]', '# Old snapshot'
   ])
   const file = join(temporary, 'desktop.sqlite')
   await fs.writeFile(file, db.export())
@@ -198,7 +268,7 @@ test('migrates metadata, categories and assignments, using current disk content 
   const before = await fs.readFile(file)
   const result = await migrateDesktop(SQL, file)
   expect(result.data.catalog.skills[0]).toMatchObject({
-    id: 'one', status: 'validated', tags: ['ts'], agents: ['GitHub Copilot'], originPath: markdown
+    id: 'one', status: 'allowed', tags: ['ts'], agents: ['GitHub Copilot'], originPath: markdown
   })
   expect(result.data.projects.projects[0]).toMatchObject({ name: 'Project', sourcePath: '/old/project', skillIds: ['one'] })
   expect(result.data.projects.activeProject).toBe(result.data.projects.projects[0].id)

@@ -1,58 +1,550 @@
+<div align="center">
+
+<img src="resources/icon.png" alt="Ícone do SkillVortex" width="112">
+
 # SkillVortex Extension
 
-Extensao independente do VS Code para organizar Markdown em uma biblioteca de skills portatil.
-Esta e a **etapa 1 da migracao** do SkillVortex desktop. O aplicativo antigo
-permanece intacto em sua pasta e repositorio.
+**Suas skills de IA organizadas. Seus projetos no controle. Dentro do VS Code.**
 
-## Funcionalidades implementadas
+Extensão para criar, editar e organizar instruções Markdown em uma biblioteca local,
+selecionando quais skills publicar em cada projeto e agente.
 
-- Dashboard React + Ant Design em Webview, tema escuro, busca, filtros de status,
-  categoria e colecao, e cards de skills em uma grade fixa de tres colunas.
-  Linhas com um ou dois cards preservam as posicoes vazias, sem expandir os cards.
-- Criacao e abertura de cofres locais, com validacao de metadados.
-- Importacao explicita do banco SQLite do desktop para um **cofre novo**.
-- Preservacao de IDs, categorias, tags, agentes, status e vinculos dos projetos.
-- Criacao e importacao de skills Markdown para o cofre.
-- Associacao de pastas locais aos projetos e varredura das pastas `skills` dos
-  agentes com selecao previa dos Markdown encontrados.
-- Editor integrado com Monaco local, titulo, descricao, categoria, tags, agentes,
-  governanca, conteudo Markdown, pre-visualizacao GFM e projetos vinculados.
-- Criacao e exclusao de categorias vazias, associacao automatica de projetos, selecao do projeto ativo e gerenciamento
-  dos vinculos por skill.
-- Inclusao opcional de quatro cards de conjuntos (1, 4, 2 e 0 skills), com metadados e
-  Markdown editaveis; IDs, caminhos e conteudo Markdown existentes sao preservados.
-- Desvinculacao do catalogo preservando o arquivo ou exclusao fisica confirmada.
-- Gravacao validada dos metadados e do Markdown no cofre.
-- Criacao de backups locais completos e restauracao confirmada, com ponto de
-  recuperacao automatico do estado anterior.
-- Tela inicial com acesso direto para criar/abrir o cofre, resumo dos recursos e
-  capturas completas das telas atuais da extensao: dashboard e editor, com dados de exemplo.
-- Indice SQLite local reconstruido ao abrir/atualizar a biblioteca.
-- Repositorio Git local independente, sem commit ou publicacao automatica.
+**🔌 VS Code · ⚛️ React · 🔷 TypeScript · 🎨 Ant Design · 📝 Monaco + Tiptap · 🗃️ SQLite/WASM**
+
+[Instalar](#-instalação) · [Começar](#-primeiros-passos) · [Telas](#-conheça-as-telas) · [Guia de uso](#-guia-de-uso) · [Sincronização](#-alterações-externas-comparação-e-merge) · [Desenvolvimento](#-desenvolvimento)
+
+</div>
+
+---
+
+> [!IMPORTANT]
+> **O que esta extensão faz:** mantém uma biblioteca local e publica as skills
+> selecionadas como `SKILL.md` nas pastas dos agentes do projeto.
+> GitHub Copilot usa `.github/skills/`; Antigravity usa `.agents/skills/`.
+> **Usar no chat** prepara o comando da skill no chat do Copilot; você ainda
+> revisa a solicitação e envia. A extensão não executa demandas nem gera skills
+> com IA automaticamente.
+
+## 🧭 Navegação
+
+- [✨ Recursos disponíveis](#-recursos-disponíveis)
+- [🖼️ Conheça as telas](#-conheça-as-telas)
+- [📦 Instalação](#-instalação)
+- [🚀 Primeiros passos](#-primeiros-passos)
+- [📚 Guia de uso](#-guia-de-uso)
+- [📝 Editor de Texto e Markdown](#-editor-de-texto-e-markdown)
+- [🔌 Projetos, agentes e publicação](#-projetos-agentes-e-publicação)
+- [🔄 Alterações externas, comparação e merge](#-alterações-externas-comparação-e-merge)
+- [💾 Arquivos, dados e backup](#-arquivos-dados-e-backup)
+- [📥 Migração do desktop](#-migração-do-desktop)
+- [🛠️ Desenvolvimento](#-desenvolvimento)
+- [🏗️ Arquitetura](#-arquitetura)
+- [🩺 Solução de problemas](#-solução-de-problemas)
+- [🚧 Limites atuais](#-limites-atuais)
+
+## ✨ Recursos disponíveis
+
+| | Recurso | Como funciona |
+| --- | --- | --- |
+| 📚 | Biblioteca portátil | Markdown e metadados em uma pasta local, sem depender do aplicativo desktop |
+| 🗂️ | Cards de conjuntos | Agrupe de zero a várias skills, cada uma com seu próprio Markdown |
+| 🔎 | Busca e filtros | Localize por texto, agentes, status, categoria e conjunto |
+| ☑️ | Seleção individual | Escolha as skills habilitadas sem removê-las do card |
+| 🚦 | Liberação e ativação separadas | **Liberada/Bloqueada** define permissão; **Usar no Projeto** controla publicação |
+| 📝 | Dois editores sincronizados | Markdown no Monaco e texto visual no Tiptap alteram o mesmo conteúdo |
+| 🎛️ | Barra de formatação | Ícones agrupados atuam na seleção do painel ativo |
+| 🔒 | YAML protegido | Cabeçalho separado e somente leitura no editor integrado |
+| 🔌 | Publicação por agente | Ative e desative destinos sem duplicar o original da biblioteca |
+| 💬 | Usar no chat | Abra o Copilot com o comando da skill ativa preenchido |
+| 📥 | Importação de Markdown | Selecione arquivos ou busque skills nas pastas dos agentes |
+| 🔄 | Revisão de mudanças externas | Compare, mescle manualmente ou escolha qual versão adotar |
+| 💾 | Backup e recuperação | Cópias locais da biblioteca e proteção antes de substituir versões |
+| 🧳 | Migração do desktop | Importe um banco SQLite para uma nova biblioteca, sem alterar a origem |
+
+## 🖼️ Conheça as telas
+
+As capturas abaixo mostram a extensão em uso. Algumas são de etapas anteriores
+da interface; os procedimentos documentados correspondem ao funcionamento atual.
+Caminhos, projetos, conteúdo e disposição dos controles variam conforme seu ambiente.
+Clique nas imagens para abrir os arquivos em tamanho original.
+
+### 📚 Dashboard · Gerenciador de Skills
+
+A tela central reúne projeto ativo, pesquisa, filtros e cards em três colunas.
+Os checkboxes selecionam membros; o switch publica ou desativa o conjunto nos
+destinos exibidos. Cards ativos usam um fundo mais claro.
+
+![Dashboard com filtros, cards e seleção individual de skills](docs/images/dashboard.png)
+
+### 📝 Editor · Texto e Markdown
+
+Os campos de cadastro ficam acima dos painéis. **Projetos** e **Governança**
+também ficam acima da edição. Markdown e Texto são editáveis, sincronizados
+e compartilham a barra de ícones.
+
+![Editor com metadados, abas superiores e painéis Markdown e Texto](docs/images/editor.png)
+
+### 🗂️ Edição do card
+
+O formulário define os metadados e quais skills pertencem ao conjunto.
+A lateral **Skills habilitadas** determina quais serão publicadas ao ativá-lo.
+
+![Modal de edição do card com seleção de membros e checkboxes laterais](docs/images/card-editor.png)
+
+Outras telas e estados estão ilustrados nas seções correspondentes abaixo.
+
+## 📦 Instalação
+
+### Para usar a extensão
+
+Requisitos: **VS Code 1.95 ou superior**, ambiente local e workspace confiável.
+Você não precisa de Node.js para instalar um VSIX já gerado.
+
+1. Obtenha o VSIX de uma origem confiável.
+2. No VS Code, execute **Extensions: Install from VSIX...**.
+3. Selecione o pacote do SkillVortex.
+4. Execute **Developer: Reload Window**.
+5. Clique em **SkillVortex** na barra de status inferior ou execute
+   **SkillVortex: Abrir biblioteca** na Paleta de Comandos.
+
+Não é necessário instalar ou executar o aplicativo desktop.
+O empacotamento local não significa que exista uma versão publicada no Marketplace.
+
+### Gerar um VSIX a partir do código
+
+Com Node.js **22.12 ou superior**, npm e Git:
+
+```sh
+npm ci
+npm run package
+```
+
+O comando compila o código atual e gera o VSIX em `builds/`, com nome e versão
+definidos em [package.json](./package.json). Instale o arquivo recém-gerado.
+Se o build falhar, corrija a falha antes de instalar; não use um pacote antigo
+como se contivesse as alterações atuais.
+
+## 🚀 Primeiros passos
+
+1. **Crie ou abra uma biblioteca.** Escolha uma pasta local para os dados.
+   Mantenha a biblioteca fora das pastas dos projetos onde publicará skills.
+2. **Adicione conteúdo.** Crie um card, importe Markdown ou carregue exemplos.
+3. **Cadastre skills.** No card, use **Adicionar skill**, preencha os campos e salve.
+4. **Escolha os agentes.** Defina GitHub Copilot, Antigravity ou ambos no card.
+5. **Selecione os membros.** Marque somente as skills que deseja publicar.
+6. **Ative Usar no Projeto.** A extensão associa uma pasta local e publica os arquivos.
+7. **Use a skill.** Para Copilot, clique em **Usar no chat**, revise o pedido e envie.
+
+> [!NOTE]
+> Instalar a extensão ou abrir uma biblioteca não importa arquivos nem ativa
+> exemplos automaticamente. **Liberada** também não significa **ativa**.
+
+### Biblioteca vazia e exemplos
+
+Sem cards, a tela oferece **Criar primeiro card**, **Carregar exemplos**
+e **Importar .md**.
+
+![Biblioteca vazia com ações para criar, carregar exemplos e importar Markdown](docs/images/empty-library.png)
+
+**Carregar exemplos** exige confirmação e está disponível somente quando não há
+cards, nem mesmo vazios. Cria quatro conjuntos com **1, 4, 2 e 0 skills**:
+sete Markdown com cabeçalho `name`/`description`, usando categorias já existentes.
+Não procura arquivos no projeto, não exige projeto ativo e não publica nada
+automaticamente. Os exemplos podem ser editados.
+
+## 📚 Guia de uso
+
+### Conceitos
+
+| Conceito | Significado |
+| --- | --- |
+| **Biblioteca / cofre** | Pasta local que armazena os Markdown, o catálogo, os projetos e os backups |
+| **Skill** | Instrução Markdown independente, com título, descrição, categoria, etiquetas e status |
+| **Card / conjunto** | Agrupamento de skills com metadados, agentes e seleção de membros habilitados |
+| **Projeto** | Pasta local onde as skills selecionadas podem ser publicadas |
+| **Agente** | Destino de publicação, como GitHub Copilot ou Antigravity |
+| **Publicação** | Cópia gerenciada `SKILL.md` dentro da pasta do projeto |
+
+Cada skill possui **um único Markdown na biblioteca** e pertence a **no máximo
+um card**. Skills importadas ou antigas sem conjunto aparecem em cards individuais.
+Remover o vínculo de uma skill com um conjunto não apaga seu Markdown:
+ela pode passar a aparecer individualmente.
+
+### Busca, filtros e categorias
+
+- A pesquisa considera nomes, descrições, categorias, etiquetas, agentes e membros.
+- Combine filtros de agente, status, categoria e conjunto.
+- **Todos os agentes** mostra a biblioteca sem restringir o destino.
+- Labels personalizadas de agente servem para organização; não criam integrações.
+- **Categorias** permite criar categorias e excluir as vazias, após confirmação.
+  Mova as skills e os cards antes de excluir uma categoria em uso.
+
+Os cards mantêm três colunas, sem expandir para ocupar posições vazias.
+A lista interna reserva três linhas e mantém o trilho de rolagem visível;
+role para alcançar os demais membros.
+
+### Criar e editar cards
+
+Use **Novo > Novo card** ou **Criar primeiro card**. Informe nome, categoria,
+descrição, etiquetas, status e ao menos um agente compatível. A cor é configurável;
+**Automática (categoria)** usa a identificação visual da categoria.
+
+Um card pode começar vazio. Em **Editar**, selecione skills existentes; em
+**Adicionar skill**, crie um novo membro. Skills vinculadas a outro card
+ficam indisponíveis no seletor: remova o vínculo anterior para movê-las.
+Cards vazios não podem ser ativados nem usados no chat.
+
+**Títulos são únicos em toda a biblioteca**, tanto para cards quanto para skills.
+A comparação ignora maiúsculas/minúsculas, espaços nas pontas e diferenças de
+normalização Unicode. Duplicações são recusadas, sem sobrescrita ou renomeação
+automática de registros existentes.
+
+### Habilitar skills individualmente
+
+Use os checkboxes junto aos títulos ou a lateral **Skills habilitadas** da modal.
+Novas skills começam habilitadas.
+
+| Ação | Resultado |
+| --- | --- |
+| Desmarcar com o card desligado | Altera a seleção, sem publicar arquivos |
+| Marcar/desmarcar com o card ativo | Publica/desativa aquela skill no projeto atual e nos agentes exibidos |
+| Desligar o card | Desativa os membros nos destinos exibidos e preserva os checkboxes |
+| Religar o card | Publica somente os membros selecionados |
+| Desmarcar todos | O card pode continuar ligado, mas sem membros publicados nesses destinos |
+
+A seleção pertence ao card e vale para próximas ativações em outros projetos.
+Alterações imediatas não são propagadas a projetos ou agentes que não estão
+sendo controlados na visualização atual. Desmarcar não exclui arquivos da biblioteca.
+
+### Status e ações disponíveis
+
+| Controle | Significado |
+| --- | --- |
+| **Liberada** | A skill/card pode ser ativada; não comprova revisão ou qualidade |
+| **Bloqueada** | Impede novas ativações e uso no chat; salvar o bloqueio de uma skill remove seus vínculos |
+| **Usar no Projeto** | Indica/controla a ativação no projeto e destinos exibidos |
+| Checkbox da skill | Define participação na publicação do conjunto |
+
+Para editar ou excluir, desative as skills em **todos os projetos e agentes**.
+As ações indisponíveis aparecem desabilitadas; trocar um filtro não remove vínculos.
+
+**Excluir card** remove também suas skills exclusivas, Markdown, arquivos
+desativados e pastas publicadas identificadas, após confirmação dos caminhos.
+**Excluir skill individual** remove o registro e seus arquivos gerenciados,
+retirando-a dos conjuntos sem excluir os conjuntos.
+
+> [!WARNING]
+> A confirmação de exclusão pode incluir outros arquivos dentro das pastas
+> publicadas identificadas. Revise a lista antes de confirmar.
+> Origens importadas protegidas e pastas sem propriedade confiável bloqueiam
+> a exclusão, em vez de serem removidas silenciosamente.
+
+### Importar Markdown
+
+**Importar .md** copia os arquivos selecionados para a biblioteca, sem editar
+o original. Arquivos acima de **2 MB**, YAML inválido e títulos duplicados são recusados.
+Os rascunhos usam nomes livres, como **Nova Skill 2**.
+
+No menu **Projeto**, **Buscar skills no projeto** procura em:
+
+```text
+.github/skills/
+.agents/skills/
+.agent/skills/
+```
+
+A busca considera a pasta associada e as pastas locais abertas no workspace.
+Mostra os resultados para seleção antes de importar; não percorre todo o disco.
+Aceita Markdown solto ou em subpastas, sem exigir o nome `SKILL.md`.
+
+Ignora links simbólicos, diretórios gerados e nomes convencionais de documentação,
+como `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `SECURITY.md` e `CONFIG.md`.
+Também ignora diretórios auxiliares, como `docs`, `references`, `examples`,
+`assets` e `config`. Se uma skill for omitida por essas convenções, selecione-a
+manualmente com **Importar .md**. A busca interrompe com erro acima de
+50.000 entradas ou 1.000 Markdown.
+
+Arquivos já importados são ignorados ao importar novamente. Publicações do próprio
+SkillVortex aparecem desmarcadas na busca. A importação é de **Markdown**, não de
+pacotes completos com scripts e assets; revise referências externas.
+
+## 📝 Editor de Texto e Markdown
+
+### Metadados e salvamento
+
+O editor apresenta título, categoria, etiquetas, status, agentes, descrição,
+cor e caminho do arquivo. O caminho é informativo, somente leitura.
+Título, categoria, ao menos uma etiqueta, status, descrição e conteúdo são
+obrigatórios ao salvar. Cor e vínculos com projetos são opcionais.
+
+**Novo > Nova Skill** abre um rascunho. Cadastro, arquivo e associação ao card
+só são gravados ao salvar. Novos membros herdam os agentes do card;
+skills independentes começam com os dois destinos compatíveis.
+
+Use **Salvar** ou `Ctrl+S` / `Cmd+S`. O indicador **Não salvo** identifica alterações
+pendentes. **Voltar ao Dashboard** solicita confirmação quando há alterações
+para descartar; apenas abrir o editor não altera o arquivo.
+
+<details>
+<summary><strong>Ver exemplo de rascunho com alterações não salvas</strong></summary>
+
+![Editor com indicador Não salvo e botão Salvar habilitado](docs/images/editor-unsaved.png)
+
+</details>
+
+### Painéis sincronizados e barra de ferramentas
+
+**Markdown** edita a sintaxe no Monaco. **Texto** permite edição visual no Tiptap.
+São duas formas de editar o mesmo conteúdo, não arquivos distintos.
+Em telas estreitas, os painéis ficam empilhados.
+
+**Texto é o painel ativo por padrão.** Clique dentro de um painel ou no seu título
+para direcionar a barra. O destaque e a indicação **Barra aplicada a** mostram o
+destino. Não existe uma prévia somente leitura separada abaixo.
+
+| Grupo | Ferramentas |
+| --- | --- |
+| Histórico | Desfazer e refazer |
+| Formatação | Negrito, itálico, riscado, código em linha e limpar formatação |
+| Parágrafo e títulos | Texto normal e títulos H1 a H6 |
+| Listas e recuos | Marcadores, numeração, tarefas e aumentar/diminuir recuo |
+| Inserir | Link, remover link, citação, bloco de código, separador e tabela |
+| Editar tabela | No painel Texto, adicionar/excluir linhas, colunas e tabela |
+
+Os ícones possuem dicas e nomes acessíveis. Botões refletem os estilos na seleção
+ou posição do cursor, inclusive no Markdown. Títulos continuam reconhecidos no
+final da linha e quando a seleção inclui sua quebra. Uma seleção que ultrapassa
+um trecho formatado não destaca esse estilo. Ações indisponíveis são desabilitadas.
+
+A edição visual pode normalizar a sintaxe Markdown. Arquivos com HTML devem ser
+editados pelo painel Markdown; o painel visual mostra um aviso para preservar
+essas estruturas. As ferramentas usam Markdown/GFM: não acrescentam cores de
+fonte, alinhamento ou tamanhos arbitrários.
+
+### Cabeçalho YAML protegido
+
+O cabeçalho existente fica separado em **Cabeçalho YAML protegido (somente leitura)**.
+Pode ser expandido para consulta e cópia, mas não é parte da área editável.
+Selecionar tudo, apagar, colar ou formatar afeta somente o corpo.
+O painel Texto não renderiza o YAML como conteúdo.
+
+![Editor Markdown com cabeçalho YAML expandido e protegido](docs/images/protected-yaml.png)
+
+Essa proteção vale para o **editor integrado**, não para editores externos:
+a extensão não muda as permissões do `.md` no disco.
+Na publicação, `name` e `description` são definidos a partir do cadastro;
+outros campos YAML existentes são preservados. Não é necessário seguir o
+template de corpo usado nos exemplos.
+
+### Projetos e Governança
+
+- **Projetos** lista vínculos da skill. Salvar com projetos selecionados publica
+  nos destinos dos agentes do card; projetos sem pasta precisam ser associados.
+- **Governança** explica liberação, bloqueio e efeitos de desativar.
+  Liberar não é uma certificação de qualidade.
+- Desativar não remove instruções já carregadas em uma conversa nem impede
+  leitura explícita de arquivos aos quais o agente tenha acesso.
+
+## 🔌 Projetos, agentes e publicação
+
+### Associar um projeto
+
+Ao ativar **Usar no Projeto**, a extensão usa a única pasta local aberta
+ou solicita uma pasta quando necessário, criando o cadastro do projeto.
+O campo **Projeto** mostra o projeto ativo. Seu menu concentra associação
+de pasta e busca de skills.
+
+Mantenha a biblioteca **fora da pasta do projeto**. O Markdown original é único;
+as publicações são cópias gerenciadas:
+
+```text
+meu-projeto/
+├── .github/skills/revisar-alteracoes/SKILL.md   # GitHub Copilot
+└── .agents/skills/revisar-alteracoes/SKILL.md   # Antigravity
+```
+
+Nomes de novos arquivos e pastas derivam do título em kebab-case,
+com sufixos numéricos quando necessários para evitar colisões.
+IDs permanecem nos metadados, sem arquivos de identificação no projeto.
+
+### O filtro de agente também define o escopo do switch
+
+Com ambos os agentes exibidos, o switch controla ambos numa transação.
+Ao filtrar por um agente, apenas aquele destino é alterado; o outro é preservado.
+O switch reflete os destinos visíveis, não simplesmente qualquer publicação existente.
+
+As labels do card valem para seus membros. Labels personalizadas não publicam
+arquivos; é necessário selecionar GitHub Copilot ou Antigravity.
+Ativações e desativações do conjunto são transacionais, com tentativa de
+restauração dos arquivos em caso de falha.
+
+Arquivos preexistentes diferentes e links simbólicos não são sobrescritos.
+Se um `SKILL.md` já existente for a origem importada ou tiver conteúdo idêntico,
+o vínculo pode ser ativado sem substituir o arquivo.
+
+O destino não garante exclusividade de descoberta: Copilot também pode reconhecer
+`.agents/skills`. Agentes que leem ambos os locais podem mostrar entradas duplicadas;
+confira a origem no gerenciador de customizações do agente.
+Publicações antigas não são movidas automaticamente ao abrir a biblioteca.
+
+### Desativar e reativar
+
+Desativar retira o `SKILL.md` da descoberta pelo caminho publicado e arquiva
+seu conteúdo em `.skillvortex/disabled-skills/` na biblioteca, preservando
+alterações feitas no projeto. Ao reativar, a cópia arquivada é restaurada.
+Divergências entre cópias bloqueiam a operação para revisão, sem descartar conteúdo.
+
+Pastas vazias gerenciadas são removidas. Se houver arquivos adicionais, a pasta
+é preservada e registrada para eventual exclusão confirmada. O mesmo arquivamento
+vale quando o `SKILL.md` publicado foi a origem importada; seu caminho continua
+registrado como referência.
+
+### Usar no chat
+
+**Usar no chat** exige skill liberada e publicada para GitHub Copilot no projeto
+selecionado, com a pasta associada aberta no workspace.
+Para um conjunto com vários membros, uma modal permite escolher a skill;
+membros indisponíveis permanecem desabilitados.
+
+![Modal de escolha da skill ativa para usar no chat do Copilot](docs/images/chat-skill-picker.png)
+
+A extensão abre o chat com `/<nome-legivel>` preenchido.
+Descreva a demanda, revise e envie. Para Antigravity, a integração implementada
+é a publicação dos arquivos; o botão não abre seu chat.
+Skills são procedimentos carregados por relevância, não instruções permanentes
+como `AGENTS.md` ou `copilot-instructions.md`, que ficam fora da busca de skills.
+
+## 🔄 Alterações externas, comparação e merge
+
+A extensão monitora mudanças nos Markdown da biblioteca e nas publicações enquanto
+o gerenciador está aberto. O aviso **Alterações externas detectadas** não adota
+uma versão nem descarta o rascunho automaticamente.
+Skills inativas passam a ter referência de conteúdo a partir da primeira leitura
+na sessão. **Sincronizar** também verifica o disco sob demanda.
+
+![Aviso de alterações externas com ação Revisar alterações](docs/images/external-changes.png)
+
+### Revisar versões
+
+1. Salve a alteração externa no disco.
+2. Clique em **Sincronizar** ou **Revisar alterações**.
+3. Escolha a skill alterada.
+4. Escolha **Biblioteca** ou uma publicação de agente/projeto.
+5. Selecione a ação:
+
+| Ação | Efeito |
+| --- | --- |
+| **Comparar versões** | Abre snapshots lado a lado, somente leitura; não modifica os arquivos |
+| **Mesclar manualmente na biblioteca** | Cria backup e abre a publicação ao lado do Markdown editável da biblioteca |
+| **Importar para a biblioteca** | Adota o conteúdo da publicação escolhida |
+| **Restaurar da biblioteca** | Usa o conteúdo da biblioteca para atualizar as publicações |
+
+![Comparação de versões no editor de diferenças do VS Code](docs/images/version-comparison.png)
+
+Após mesclar manualmente, salve o lado da biblioteca e revise novamente:
+**Sincronizar > Biblioteca > Restaurar da biblioteca**.
+Não há merge automático.
+
+> [!WARNING]
+> **Criar backup e sincronizar** atualiza o original e **todas as publicações
+> ativas da skill**, inclusive outros projetos e agentes, independentemente do
+> filtro do dashboard. Revise a origem antes de confirmar.
+> Nome e descrição de publicação continuam sendo definidos pelo cadastro.
+
+Antes de substituir, a extensão cria backup e snapshots das publicações em
+`.skillvortex/backups/<backup>/external-changes/`, com um `manifest.json`
+relacionando os caminhos. Se o original estiver ausente, pode ser criado um
+diretório `external-recovery-*` com snapshots e `metadata.json`, destinado à
+recuperação manual, não listado como backup completo.
+
+Mudanças posteriores à comparação bloqueiam a sincronização. Falhas de escrita
+tentam restaurar as versões anteriores e informam o caminho de recuperação.
+Um rascunho antigo não pode sobrescrever silenciosamente um original alterado.
+Resolver mudanças externas não exige desativar uma skill publicada.
+
+## 💾 Arquivos, dados e backup
+
+### Estrutura da biblioteca
 
 ```text
 MeuCofre/
 ├── skills/
-│   └── <nome-legivel-da-skill>.md
+│   └── revisar-alteracoes.md
 └── .skillvortex/
     ├── catalogo.json
     ├── projetos.json
+    ├── disabled-skills/
     └── backups/
 ```
 
-Os JSON e Markdown sao a fonte de verdade. Os caminhos dos Markdown sao
-relativos ao cofre. Novos nomes de arquivo e pastas publicadas derivam do titulo
-da skill em kebab-case; um sufixo numerico evita colisoes. Os IDs internos
-permanecem nos metadados, e cofres antigos continuam sendo lidos.
+JSON e Markdown são a **fonte de verdade**. Caminhos dos Markdown são relativos
+à biblioteca. O índice SQLite é descartável e fica no armazenamento global da
+extensão, fora da biblioteca; é reconstruído ao abrir/atualizar.
+O estado global do VS Code guarda a localização da biblioteca.
 
-O SQLite fica em `globalStorageUri`, fora do cofre. Utilizamos **sql.js / WASM**
-para nao depender de bindings nativos ou do `node:sqlite` do Electron.
-O indice e descartavel e pode ser reconstruido. `globalState` guarda somente
-a localizacao do cofre, nao os dados da biblioteca.
+### Menu Biblioteca
 
-## Executar
+![Menu Biblioteca com atualização, backup, restauração e importação do desktop](docs/images/library-menu.png)
 
-Requisitos: Node.js 22.12 ou superior e VS Code 1.95 ou superior.
+| Ação | Função |
+| --- | --- |
+| **Atualizar** | Recarrega os dados e verifica o estado da biblioteca |
+| **Criar backup** | Copia catálogo, projetos e Markdown da biblioteca |
+| **Restaurar backup** | Seleciona uma cópia e confirma a restauração |
+| **Abrir outra biblioteca** | Alterna para outra pasta de biblioteca |
+| **Importar desktop** | Inicia a migração para uma nova biblioteca |
+
+Restaurar cria antes um ponto de recuperação do estado atual. Substitui metadados,
+preserva arquivos que não pertencem ao backup e sincroniza as publicações ativas.
+Backups inválidos geram erro explícito.
+
+**Arquivos desativados não fazem parte do snapshot dos Markdown da biblioteca.**
+Snapshots de publicações em `external-changes/` são para recuperação manual:
+restaurar um backup completo não reaplica automaticamente esses snapshots externos.
+
+### Cópia portátil e privacidade
+
+- Para backup manual, termine as operações e copie **toda a pasta da biblioteca**.
+- Uma pasta sincronizada pode transportar os dados, mas **sincronização não é backup**.
+- Edição simultânea da mesma biblioteca por várias instâncias não é suportada.
+- Backups ficam dentro da biblioteca: mantenha também uma cópia independente.
+- Não há criptografia nem política automática de retenção.
+- “Cofre” significa pasta organizada, não armazenamento criptografado.
+- A extensão não solicita tokens de IA nem envia a biblioteca automaticamente
+  a um serviço. O uso de um agente/chat obedece às políticas daquele serviço.
+- Não armazene credenciais nos Markdown ou nos metadados.
+
+## 📥 Migração do desktop
+
+O aplicativo [SkillVortex desktop](https://github.com/CaioWillianMoreira/SkillVortex)
+é um projeto separado. A extensão funciona sem ele e não usa seu banco em tempo real.
+
+1. Feche o desktop normalmente e faça backup dos dados originais.
+2. Execute **SkillVortex: Importar banco do desktop** ou **Biblioteca > Importar desktop**.
+3. Selecione `skillvortex.sqlite`.
+4. Confirme que o desktop está fechado.
+5. Revise quantidades e avisos.
+6. Escolha pasta pai e nome de uma biblioteca que **ainda não exista**.
+
+Banco e arquivos originais são somente lidos. A migração preserva IDs, categorias,
+etiquetas, agentes, status e vínculos válidos. O conteúdo atual do Markdown tem
+prioridade; se faltar, o conteúdo salvo no banco pode ser recuperado com aviso.
+Sem conteúdo recuperável, a importação falha. O limite de 2 MB também se aplica.
+
+Um WAL não vazio interrompe a migração para evitar uma leitura incompleta:
+feche o desktop para consolidá-lo; **não apague o WAL**.
+A migração não mescla nem sobrescreve uma biblioteca existente.
+Erros desfazem o destino recém-criado; uma interrupção abrupta pode deixar
+uma pasta parcial. Preserve a origem e escolha outro destino para repetir.
+
+Estados antigos `pending` e `validated` são lidos como `allowed` (**Liberada**);
+`blocked` permanece **Bloqueada**. Títulos duplicados e associação de uma skill
+a vários cards são recusados com erro explícito, sem exclusão automática.
+Projetos em outra máquina precisam ter suas pastas reassociadas.
+
+## 🛠️ Desenvolvimento
+
+Requisitos: **Node.js 22.12+**, npm, Git e VS Code.
 
 ```sh
 npm ci
@@ -61,396 +553,107 @@ npm test
 npm run build
 ```
 
-`npm test` executa a regressao de criacao, abertura, recriacao e portabilidade
-de bibliotecas; cadastros, cancelamentos, etiquetas e agentes; importacao com
-rollback; publicacao isolada; backups e restauracao; edicao externa, conflitos,
-merge manual, snapshots e limites de 2 MB. A matriz de sincronizacao cobre
-as tres origens (biblioteca, Copilot e Antigravity), um ou dois projetos e
-conteudo LF, CRLF e Unicode.
+Abra o repositório no VS Code, pressione **F5** e escolha
+**SkillVortex Extension**. No Extension Development Host, execute
+**SkillVortex: Abrir biblioteca**.
 
-`npm run test:host` valida em um perfil isolado do VS Code:
-ativacao, comandos, aba Webview, botoes, formularios, filtros, switches e colagem;
-edicao e salvamento no editor real, comparacao, merge manual, sincronizacao em
-dois projetos, recuperacao, exclusao e recriacao de biblioteca; importacao de
-um banco de teste e indice WASM.
-Nao instala a extensao no perfil pessoal nem importa seus dados. Usa o VS Code
-instalado no macOS quando disponivel; em outros ambientes pode baixar um host
-de teste. `VSCODE_EXECUTABLE_PATH` permite selecionar um executavel existente.
-Os seletores nativos e as confirmacoes sao simulados nos testes dos handlers;
-as interacoes da Webview sao automatizadas em paineis de teste. Isso nao equivale
-a testar todas as combinacoes de sistema operacional, permissoes, falhas de disco
-ou respostas dos agentes externos.
-
-Abra esta pasta no VS Code e pressione **F5**, selecionando
-**SkillVortex Extension**. Na janela Extension Development Host, abra a paleta
-e execute **SkillVortex: Abrir biblioteca**.
-
-Depois de instalada, clique em **$(book) SkillVortex** na barra de status
-inferior do VS Code para abrir as telas. Na tela inicial, **Criar biblioteca** abre
-o seletor de local e nome; **Abrir biblioteca** carrega uma existente. A tela tambem
-mostra as funcionalidades e capturas de referencia do dashboard e editor. O
-comando da Paleta de Comandos continua disponivel como alternativa.
-
-Um cofre novo comeca vazio: instalar a extensao nao importa seus Markdown nem
-adiciona exemplos automaticamente. Depois de criar ou abrir o cofre, clique em
-**Carregar exemplos** para adicionar quatro cards com 1, 4, 2 e 0 skills.
-Os exemplos sao editaveis e nao constituem validacao automatica de qualidade.
-
-Titulos sao unicos em toda a biblioteca: skills e cards nao podem compartilhar
-o mesmo titulo, ignorando maiusculas/minusculas e espacos nas pontas.
-Criacao, edicao, importacao e validacao do catalogo rejeitam duplicacoes sem
-sobrescrever arquivos. Rascunhos usam nomes disponiveis, como **Nova Skill 2**.
-Bibliotecas antigas com titulos duplicados precisam ter esses titulos corrigidos
-antes de serem abertas; nenhum registro e renomeado automaticamente.
-
-Alternativamente:
+Alternativa:
 
 ```sh
 code --extensionDevelopmentPath=/caminho/SkillVortex-vscode
 ```
 
-Para gerar e instalar um VSIX:
+### Comandos
 
-```sh
-npm run package
+| Comando | Resultado |
+| --- | --- |
+| `npm run typecheck` | Verifica TypeScript do backend e da Webview |
+| `npm test` | Executa os testes unitários/regressão com Jest |
+| `npm run build` | Compila extensão, WASM e interface |
+| `npm run test:host` | Compila e testa em um perfil isolado do VS Code |
+| `npm run package` | Compila e gera o VSIX em `builds/` |
+
+Os testes cobrem biblioteca, importação/rollback, títulos, seleção individual,
+publicação isolada, backups, conflitos, merge manual, metadados protegidos,
+formatação e reconhecimento de seleção Markdown. A matriz de sincronização
+inclui biblioteca/Copilot/Antigravity, um ou dois projetos e LF/CRLF/Unicode.
+
+No host, os testes exercitam Webview, formulários, filtros, switches, colagem,
+dois editores, comparação, merge e ciclo de vida de arquivos em dados temporários.
+Não importam a biblioteca pessoal nem instalam a extensão no perfil pessoal.
+No macOS, utilizam o VS Code instalado quando disponível; em outros ambientes,
+o runner pode baixar um host. `VSCODE_EXECUTABLE_PATH` seleciona um executável.
+
+Seletores nativos e confirmações são simulados em testes dos handlers.
+Essa cobertura não garante todas as combinações de sistema, permissões,
+falhas de disco ou comportamento de agentes externos.
+
+## 🏗️ Arquitetura
+
+```text
+Webview React + Ant Design
+  ├── dashboard, formulários e controles de publicação
+  └── Monaco ↔ Markdown ↔ Tiptap + barra compartilhada
+                 │ mensagens validadas
+Extension Host (VS Code)
+  ├── biblioteca: JSON + Markdown
+  ├── publicação por projeto/agente
+  ├── detecção externa, comparação e sincronização
+  └── backups + índice SQLite/WASM descartável
 ```
 
-O comando compila o codigo atual e gera o VSIX em `builds/`, com o nome e a
-versao do `package.json`. Use **Extensions: Install from VSIX...** e selecione o
-arquivo recem-gerado. Recarregue a janela do VS Code apos instalar. Nao ha
-Electron ou instalador desktop proprio na nova versao.
+| Área | Código principal |
+| --- | --- |
+| Comandos, mensagens e integração VS Code | [src/extension.ts](./src/extension.ts) |
+| Modelo e validações | [src/model.ts](./src/model.ts) |
+| Leitura/gravação da biblioteca | [src/vault.ts](./src/vault.ts) |
+| Publicação e varredura | [src/project-skills.ts](./src/project-skills.ts), [src/project-scan.ts](./src/project-scan.ts) |
+| Revisão externa e recuperação | [src/external-changes.ts](./src/external-changes.ts), [src/backup.ts](./src/backup.ts) |
+| Exclusão de arquivos gerenciados | [src/skill-deletion.ts](./src/skill-deletion.ts) |
+| Migração e índice | [src/database.ts](./src/database.ts) |
+| Interface e estilos | [webview/main.tsx](./webview/main.tsx), [webview/styles.css](./webview/styles.css) |
+| Editores e barra | [MonacoMarkdownEditor](./webview/MonacoMarkdownEditor.tsx), [VisualMarkdownEditor](./webview/VisualMarkdownEditor.tsx), [EditorToolbar](./webview/EditorToolbar.tsx) |
 
-## Biblioteca, projetos e editor
+Monaco, workers e demais recursos da interface são empacotados localmente,
+sem baixar o editor de um CDN. SQLite usa **sql.js/WASM**, sem bindings nativos
+ou dependência do `node:sqlite` do Electron.
 
-Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
+## 🩺 Solução de problemas
 
-- **SkillVortex: Criar biblioteca**: selecione uma pasta pai e um nome novo.
-- **SkillVortex: Abrir biblioteca**: selecione uma pasta com os dois JSON validos.
-- **Novo > Nova Skill**: abre um rascunho no editor. O cadastro, o Markdown e a
-  associacao a um conjunto so sao gravados ao clicar em **Salvar**.
-  Voltar e confirmar o descarte nao cria cards nem arquivos.
-- **Cor do card**: no editor de uma skill nova ou existente, escolha uma das 10
-  cores no seletor e clique em **Salvar**. A opcao **Automatica (categoria)**
-  usa a cor da categoria, como nas skills existentes sem uma cor escolhida.
-- **Campos obrigatorios**: ao salvar uma skill, informe titulo, categoria,
-  pelo menos uma etiqueta, status, descricao e conteudo
-  Markdown. Cor automatica e vinculos com projetos continuam opcionais.
-  O nome legivel da skill determina o nome do arquivo e da pasta publicada,
-  convertendo acentos e espacos para kebab-case; por exemplo,
-  `Verifica consistencia do HTML` usa `skills/verifica-consistencia-do-html.md`.
-- **Importar .md**: copia arquivos Markdown selecionados para o cofre; arquivos
-  acima de 2 MB sao recusados.
-- **Categorias**: abre uma janela para criar categorias ou excluir as vazias.
-  Os projetos sao
-  cadastrados automaticamente ao ativar **Usar no Projeto** para uma pasta,
-  sem formulario de criacao manual. O campo **Projeto** e somente leitura e
-  exibe o projeto ativo, que controla os switches dos cards.
-- **Excluir categoria**: abra **Categorias** e use a lixeira ao lado do nome.
-  Categorias vazias sao removidas apos confirmacao. Se houver skills, mova
-  todas para outra categoria pelo editor antes de excluir. Nenhuma skill e
-  excluida nessa operacao; o filtro volta para todas as categorias apos a remocao.
-- Cards ativos no projeto ficam com o fundo um pouco mais claro, preservando
-  a cor escolhida. Ao passar o cursor, os cards aumentam levemente com uma
-  transicao suave; o efeito respeita a preferencia por movimento reduzido.
-- Os botoes gerais mantem os icones e o padrao vermelho com bordas.
-  Novo (verde claro), Salvar e Criar backup (verde escuro),
-  Restaurar backup (laranja), Importar .md e Voltar ao Dashboard (azul claro) recebem destaque diferente.
-  Carregar exemplos so e permitido quando nao existe nenhum card na biblioteca,
-  independentemente dos filtros ou de Markdown ainda existentes nos projetos.
-  As acoes dos cards nao possuem bordas: Usar no chat em verde, Editar em azul
-  e Excluir em vermelho. Conjuntos tambem possuem **Adicionar skill**.
-  As acoes dos cards ficam alinhadas em uma unica linha; em cards
-  estreitos, os icones preservam os nomes acessiveis e dicas de cada acao.
-  Acoes indisponiveis permanecem visualmente desabilitadas.
-- **Skill independente do agente**: cada skill tem um unico Markdown, mesmo
-  quando usada por varios agentes. Cada skill pertence a no maximo um card. Os agentes selecionados no card
-  definem os destinos controlados pelo switch. Selecione GitHub Copilot ou
-  Antigravity para habilitar a ativacao; labels personalizadas apenas organizam a visualizacao.
-  Edicoes exigem desativar a skill em todos os projetos e agentes.
-- **Cards de conjuntos**: cada card possui titulo, categoria, descricao,
-  etiquetas, compatibilidade, status e cor, contendo de zero a varias skills
-  com Markdown independentes. **Novo > Novo card** cria um conjunto vazio; **Editar**
-  permite selecionar skills existentes e **Adicionar skill** cria uma skill
-  dentro dele. Clique no nome de uma skill para editar seu Markdown.
-  Skills antigas/importadas sem conjunto aparecem em cards individuais.
-  **Ativar colecao** e **Desativar colecao** aplicam a
-  acao ao conjunto no projeto em uma transacao: falhas restauram os arquivos.
-  Uma skill nao pode participar de varios cards. O seletor desabilita skills
-  ja associadas a outro card; para mover, remova o vinculo anterior primeiro.
-  Excluir um card remove tambem suas skills exclusivas,
-  incluindo Markdown, publicacoes identificadas e arquivos desativados, apos
-  confirmacao dos caminhos. Skills de outros cards sao preservadas.
-  Nenhum card individual e criado como efeito da exclusao.
-  Desative os membros em todos os projetos antes de excluir.
-  Cards vazios nao podem ser ativados ou executados.
-  Cada skill tem um **checkbox** ao lado do nome no card e no seletor lateral
-  de **Editar card**. Todas comecam habilitadas; desmarcar nao exclui o Markdown.
-  A lista de titulos reserva altura fixa para tres skills, mesmo com um ou dois
-  membros. A barra de rolagem fica visivel; da quarta skill em diante, role a lista
-  sem aumentar o bloco.
-  Os cards usam espacamentos internos compactos e distancia uniforme entre linhas
-  e colunas. O trilho da rolagem permanece visivel mesmo sem exceder tres skills.
-  Com o card ativo, mudar um checkbox publica ou desativa somente essa skill
-  no projeto atual e nos agentes exibidos, preservando outros projetos/agentes.
-  Com o card desligado, muda somente a selecao, sem publicar arquivos.
-  Desligar o card desativa todos os seus membros nos destinos exibidos, mas
-  preserva a selecao; religar publica apenas os marcados. Mesmo sem nenhuma skill
-  marcada, o card mantem seu switch ligado ate ser desativado explicitamente.
-  A selecao pertence ao card e sera usada nas proximas ativacoes em qualquer projeto;
-  alteracoes imediatas nao sao propagadas para destinos que nao estao exibidos.
-- **Usar no Projeto**: controla somente os agentes exibidos no card.
-  GitHub Copilot publica em `.github/skills/<nome-legivel>/SKILL.md`;
-  Antigravity publica em `.agents/skills/<nome-legivel>/SKILL.md`.
-  Com ambos exibidos, a acao controla os dois destinos numa transacao.
-  Ao filtrar por um agente, apenas sua label aparece e apenas sua publicacao muda;
-  o estado do outro agente e preservado. O switch reflete os destinos visiveis,
-  nao apenas a existencia de alguma publicacao.
-  A biblioteca continua contendo uma unica skill, com o mesmo Markdown para ambos.
-  Em conjuntos, as labels do card valem para todos os membros.
-  Nao ha sincronizacao continua entre edicoes manuais dessas copias:
-  arquivos ou arquivos desativados divergentes geram conflito explicito.
-  Agentes que leem os dois locais podem descobrir duas entradas com o mesmo nome;
-  confira a origem no gerenciador de customizacoes do agente.
-  Publicacoes antigas em `.github/skills` e `.agent/skills` nao sao movidas ao
-  abrir a biblioteca. Ative os agentes desejados usando o switch nas respectivas visualizacoes.
-  Desativar arquiva as publicacoes selecionadas; reativar restaura o conteudo nos destinos selecionados.
-  Copias arquivadas divergentes bloqueiam a restauracao com
-  erro explicito, sem descartar edicoes. Revise as copias antes de reativar.
-  Sem projeto ativo ou pasta associada, usa a unica pasta local aberta
-  no VS Code ou solicita uma pasta; cria o cadastro do projeto quando necessario.
-  Se o `SKILL.md` ja existir e for a origem importada ou tiver conteudo identico
-  ao da skill, ativa o vinculo sem sobrescrever o arquivo. Arquivos diferentes
-  e conflitos com copias desativadas sao preservados e informados para revisao.
-  **Usar no chat** abre o chat do GitHub Copilot com o comando `/<nome-legivel>`
-  preenchido para a skill ativa; revise o pedido e envie no chat. A pasta
-  associada precisa estar aberta como pasta do workspace no VS Code.
-  Ao desativar, move o Markdown para `.skillvortex/disabled-skills/` no cofre,
-  preservando inclusive edicoes feitas no projeto. Reativar restaura esse arquivo.
-  Isso tambem se aplica quando o proprio `SKILL.md` foi a origem importada:
-  o caminho de origem continua registrado como referencia, o conteudo e arquivado
-  e a pasta vazia e removida. Origens de outras skills continuam protegidas.
-  A pasta publicada tambem e removida quando nao contem arquivos adicionais;
-  pastas com outros arquivos ficam registradas para a exclusao confirmada do card.
-  O cofre deve ficar fora da pasta do projeto. Arquivos existentes e links
-  simbolicos nao sao sobrescritos. A propriedade das pastas e registrada no
-  cofre, sem criar arquivos de identificacao no projeto.
-- **Acoes da skill individual**: **Usar no chat** exige publicacao no projeto selecionado.
-  **Excluir** exige desativar em todos os projetos e remove o
-  Markdown do cofre, suas pastas publicadas identificadas e arquivos arquivados;
-  a confirmacao lista o que sera apagado. A exclusao remove o membro das colecoes,
-  sem excluir os conjuntos. Salvar com projetos selecionados publica a skill
-  nos destinos definidos pelos agentes do seu unico card.
-- **Carregar exemplos**: disponivel somente com a biblioteca sem cards, inclusive
-  sem cards vazios. Apos confirmacao, cria exatamente quatro conjuntos com 1,
-  4, 2 e 0 skills (sete Markdown com frontmatter `name`/`description`).
-  Usa somente categorias ja cadastradas, sem criar categorias extras.
-  Todos os metadados dos exemplos sao preenchidos; o card vazio nao tem Markdown
-  ficticio. Nao busca arquivos na pasta do projeto nem exige um projeto ativo.
-  **Usar no chat** em conjuntos com varias skills permite escolher qual usar.
-- **Associar pasta** vincula uma pasta local ao projeto ativo. **Buscar skills
-  no projeto** procura Markdown nas pastas `skills` dos agentes e mostra os
-  encontrados antes de importar os selecionados.
-- **Gerenciador de Skills**: pesquise por texto e filtre por status, categoria
-  e conjunto numa unica barra.
-  Quando nao houver cards, os botoes **Criar primeiro card**, **Carregar exemplos**
-  e **Importar .md** ficam disponiveis diretamente. Cards precisam de ao menos
-  um destino compativel (GitHub Copilot ou Antigravity) para habilitar o switch;
-  labels personalizadas servem apenas para organizar a visualizacao.
-  A visualizacao **Todos os agentes** permite filtrar pelas labels de agentes
-  ja declaradas no card, incluindo labels personalizadas. Cards com duas labels
-  aparecem nas duas visualizacoes; sem labels, aparecem somente em Todos os agentes.
-  Trocar o filtro nao modifica arquivos, mas define quais agentes ficam exibidos
-  e serao controlados ao clicar no switch. Editar continua alterando a mesma skill
-  da biblioteca em qualquer visualizacao. A label generica Agent Skills nao aparece nos cards.
-  O destino controla os arquivos gerenciados, nao a exclusividade de descoberta:
-  o Copilot tambem pode reconhecer skills em `.agents/skills`.
-  As acoes de conjuntos ficam nos proprios cards, sem botoes duplicados de editar/excluir/ativar acima da grade.
-  O menu **Projeto** concentra alteracao de pasta e busca de skills.
-  O menu **Biblioteca**, com icone de livros e destaque violeta, concentra
-  atualizacao, backups e importacao do desktop. **Adicionar skill** recebe destaque amarelo.
-  A pasta organizada da biblioteca, tambem chamada de cofre nesta documentacao,
-  mantem o mesmo formato e local dos dados existentes.
-  Cards usam largura minima de 360 px quando ha espaco, altura minima de 440 px
-  e altura uniforme na grade. Em telas menores, adaptam a largura sem rolagem horizontal.
-  Dicas nos icones de informacao aparecem por foco ou hover e fecham ao sair
-  ou pressionar Escape. A opcao **Desvincular** nao aparece na interface.
-  Seletores mais largos, menus descritivos e campos alinhados facilitam a leitura.
-  O formulario de cards usa duas colunas em telas maiores e uma em telas pequenas.
-- **Editor**: os paineis **Markdown** e **Texto** ficam lado a lado, ambos editaveis
-  e sincronizados no mesmo `.md`. Em telas estreitas, ficam empilhados.
-  **Projetos** e **Governanca** ficam acima do editor, sem pre-visualizacao separada.
-  **Texto** e o painel ativo por padrao, com uma unica barra de icones agrupada por
-  historico, formatacao, titulos, listas e insercoes. Os botoes indicam a formatacao
-  ativa e desabilitam acoes indisponiveis. Edite visualmente com negrito,
-  italico, riscado, titulos, listas, tarefas, citacoes, links e codigo; ou **Markdown**
-  para editar a sintaxe no Monaco. Clique em um painel ou em seu titulo para
-  direcionar a barra a ele; o painel ativo fica destacado. A barra formata a selecao
-  do painel ativo, sem salvar automaticamente, e destaca os estilos na posicao
-  do cursor em ambos os paineis, incluindo titulos, listas, links e formatacoes
-  combinadas no Markdown. Uma selecao que ultrapassa um trecho formatado nao
-  destaca esse estilo.
-  Titulos continuam destacados com o cursor no final da linha ou com a quebra
-  de linha incluida na selecao.
-  A edicao visual pode normalizar a sintaxe Markdown. O cabecalho YAML
-  e preservado e nao aparece no texto visual. No painel Markdown, ele fica separado
-  em **Cabecalho YAML protegido (somente leitura)**: selecionar tudo, apagar,
-  colar e formatar afetam apenas o corpo. Esta protecao vale para o editor integrado,
-  nao para edicoes externas do arquivo. Monaco fornece realce Markdown e permite colar texto
-  com `Ctrl+V` / `Cmd+V`; `Ctrl+S` / `Cmd+S` ou **Salvar** grava as alteracoes
-  no cofre. Existe somente um botao **Salvar**, ao lado de **Voltar ao Dashboard**,
-  na linha do titulo **Editando**. Em telas pequenas, as acoes ficam abaixo do titulo.
-  Abrir uma skill para editar ou voltar sem salvar nao altera os dados.
-  Arquivos com HTML devem ser editados no modo Markdown para preservar as estruturas.
-  A barra inclui titulos H1 a H6, limpar formatacao, recuos em listas e insercao
-  de tabelas em ambos os paineis. No painel Texto, dentro de uma tabela, aparecem controles para adicionar ou remover
-  linhas e colunas e excluir a tabela. As ferramentas usam recursos Markdown/GFM;
-  cores de fonte, alinhamento e tamanho arbitrario nao sao adicionados ao arquivo.
-- **Liberada / Bloqueada**: sao os unicos estados de skills e cards.
-  Liberada permite ativar, mas nao indica revisao ou teste de qualidade.
-  Bloqueada impede novas ativacoes; uma skill bloqueada nao pode ser usada no chat.
-  O switch **Usar no Projeto** indica separadamente se esta ativa ou inativa.
-  Os estados antigos `pending` e `validated` sao lidos como `allowed` (Liberada)
-  sem alterar Markdown ou publicacoes; o proximo salvamento persiste o novo estado.
-  Bibliotecas antigas com uma skill em varios cards sao rejeitadas com erro
-  explicito; os vinculos devem ser corrigidos, sem remocao automatica de conteudo.
-- **Alteracoes externas**: enquanto o gerenciador esta aberto, alteracoes nos Markdown
-  da biblioteca e nos `SKILL.md` publicados geram um aviso, sem sobrescrita automatica
-  nem descarte do rascunho aberto. Publicacoes ativas tambem sao verificadas ao atualizar.
-  Edicoes de skills inativas sao reconhecidas a partir da primeira leitura na sessao.
-  O botao **Sincronizar**, sempre disponivel no dashboard ao lado de **Biblioteca**,
-  verifica os arquivos no disco mesmo sem aviso automatico.
-  As notificacoes informativas da sincronizacao nao bloqueiam os switches dos cards,
-  mesmo enquanto estiverem abertas.
-  Para trazer uma edicao do projeto: salve o arquivo, clique em **Sincronizar**,
-  escolha a skill, selecione a versao do agente/projeto, escolha **Importar para a biblioteca**
-  e confirme **Criar backup e sincronizar**. Isso atualiza o Markdown original
-  e as publicacoes ativas; nao e necessario desativar a skill.
-  **Revisar alteracoes** permite escolher a skill e a versao de origem:
-  - **Comparar versoes** abre snapshots lado a lado, somente leitura.
-  - **Mesclar manualmente na biblioteca** cria backup e abre a biblioteca editavel
-    ao lado da publicacao. Salve a mesclagem e revise novamente para sincronizar.
-  - **Importar para a biblioteca** adota a publicacao escolhida; **Restaurar da biblioteca**
-    usa o original. Ambas atualizam todas as publicacoes ativas da skill em todos os
-    projetos/agentes, apos confirmacao explicita, preservando as labels e os destinos.
-    Os metadados de nome e descricao continuam sendo definidos pelo cadastro.
-  Antes de substituir arquivos, um backup da biblioteca e snapshots das publicacoes
-  sao gravados em `.skillvortex/backups/<backup>/external-changes/`.
-  O `manifest.json` relaciona os caminhos originais aos snapshots numerados.
-  Se o original tiver sido removido, e criado um diretorio `external-recovery-*`
-  com snapshots e `metadata.json`, para recuperacao manual (nao listado como backup completo).
-  Os snapshots de publicacoes sao para recuperacao manual; restaurar um backup completo
-  da biblioteca nao restaura automaticamente esses arquivos externos.
-  Mudancas posteriores a comparacao bloqueiam a sincronizacao; falhas durante a escrita
-  tentam restaurar as versoes anteriores e informam o caminho de recuperacao.
-  Um rascunho antigo nao pode sobrescrever um original alterado externamente.
-- **Excluir** remove o cadastro e, apos confirmacao, apaga o Markdown do cofre,
-  as copias desativadas e as pastas publicadas identificadas em todos os projetos,
-  inclusive outros arquivos dentro dessas pastas. O arquivo original importado
-  e preservado; se ele estiver dentro de uma pasta a excluir, a operacao e
-  recusada. Pastas preexistentes ou sem identificacao confiavel nao sao apagadas.
-  Quando uma dessas pastas existir, a exclusao e bloqueada ate que ela seja
-  preservada ou removida manualmente. Em cofres antigos, se uma skill ja havia
-  sido desativada sem registrar a pasta, preserve ou remova a pasta antiga
-  manualmente e ative e desative a skill novamente para registrar uma nova pasta.
+| Sintoma | O que verificar |
+| --- | --- |
+| Tela não abre | Use **SkillVortex: Abrir biblioteca**, consulte **Exibir > Saída > SkillVortex** e recarregue a janela |
+| Mudanças recentes não aparecem | Gere/instale um novo VSIX e execute **Developer: Reload Window**; a versão pode ser a mesma em builds locais |
+| Erro espera `validated/pending/blocked` | Verifique se está usando um leitor antigo, como o desktop ou um host não recarregado; a extensão atual aceita `allowed/blocked` e os estados legados |
+| Switch desabilitado | Confira agentes compatíveis, status, membros e skills selecionadas bloqueadas |
+| Editar/Excluir desabilitado | Desative a skill em todos os projetos e agentes, não apenas no filtro atual |
+| Skill não aparece no chat | Confira publicação para Copilot, pasta aberta no workspace e descoberta do agente |
+| Skill aparece duas vezes no agente | Confira se ele descobre tanto `.github/skills` quanto `.agents/skills` |
+| Alteração externa não aparece imediatamente | Salve no disco e use **Sincronizar** |
+| Conflito ao ativar/reativar | Compare arquivos existentes e cópias arquivadas; não apague conteúdo sem revisar |
+| YAML não pode ser editado na Webview | É intencional: o cabeçalho está separado e protegido no editor integrado |
+| Texto visual mostra aviso de HTML | Edite pelo painel Markdown para preservar estruturas não suportadas |
+| Busca não encontra um Markdown | Confira pastas pesquisadas, exclusões convencionais e use **Importar .md** |
+| Exclusão bloqueada por pasta antiga | Preserve/remova manualmente a pasta não identificada após backup; publicações antigas podem exigir um novo ciclo de ativação/desativação para registrar a pasta |
+| Falha durante sincronização | Consulte a mensagem e o caminho de backup/recuperação antes de repetir |
 
-O editor Monaco e seus workers sao empacotados localmente; a extensao nao baixa
-o editor de um CDN. A pre-visualizacao suporta GitHub Flavored Markdown sem
-permitir HTML embutido. Skills ativadas sao publicadas para descoberta automatica
-do GitHub Copilot; os nomes de agentes no catalogo continuam sendo metadados.
-Desativar ou bloquear uma skill retira o `SKILL.md` do projeto e preserva seu
-conteudo no cofre.
-Isso nao remove instrucoes ja carregadas numa
-conversa nem impede um agente de ler explicitamente arquivos acessiveis.
-Vinculos antigos sem pasta associada precisam de **Associar pasta** antes de
-serem publicados. A restauracao de backups tambem sincroniza os arquivos ativos;
-as copias desativadas permanecem no cofre, mas nao fazem parte do snapshot dos
-Markdown da biblioteca.
+## 🚧 Limites atuais
 
-A varredura procura `.github/skills`, `.agents/skills` e `.agent/skills` na raiz
-do projeto associado e em todas as pastas locais abertas como workspace no VS
-Code. Assim, encontra as skills mesmo quando a pasta associada esta em outro
-caminho ou volume. Inclui Markdown solto diretamente nas pastas `skills` ou
-em subpastas, com qualquer nome, como `SKILL.md`,
-`1-skill-de-teste.md` ou `ANALISE-SEO.md`, inclusive em subpastas, sem exigir
-metadados. Ignora nomes convencionais de documentacao ou configuracao, como
-`README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `SECURITY.md` e `CONFIG.md`, e
-pastas como `docs`, `references`, `examples`, `assets` e `config`. Tambem ignora
-links simbolicos e diretorios gerados como `.git`, `node_modules`, `vendor`,
-`dist`, `out`, `build`, `release`, `.next`, `.venv`, `venv` e `coverage`.
-Prompts, instrucoes, workflows e arquivos fora das pastas `skills` nao aparecem
-na busca. Ela nao percorre todo o disco: considera apenas o projeto associado e
-as pastas locais que estao abertas no workspace.
+- Requer ambiente **local e confiável**; remoto, VS Code Web e workspaces virtuais
+  não são suportados.
+- Não há geração de cards/skills com IA, avaliação automática de qualidade
+  nem garantia de que um agente seguirá todas as instruções.
+- Não há serviço de nuvem, colaboração simultânea ou gestão centralizada de squad.
+- A importação não traz pacotes completos de skills com scripts e assets.
+- Publicações externas não são adotadas automaticamente; divergências exigem revisão.
+- A proteção do YAML é da interface, não uma restrição de permissão no sistema.
+- Backups não são criptografados nem têm retenção automática.
+- Desativar/bloquear não apaga contexto já carregado pelo agente.
+- A compatibilidade de descoberta e execução depende do cliente e de sua versão.
+- Operações incluem rollback/recuperação em fluxos específicos, mas não há garantia
+  de recuperação automática de toda interrupção abrupta; mantenha backups independentes.
 
-A classificacao usa convencoes: um documento com nome incomum ainda pode
-aparecer, e uma skill com nome reservado pode ser omitida. Nesse caso, use
-**Importar .md** para seleciona-la manualmente. Cada item mostra o agente de
-origem; skills publicadas pelo proprio SkillVortex em `.github/skills` ou
-`.agents/skills` aparecem desmarcadas. A busca para com erro acima de 50.000
-entradas ou 1.000 Markdown.
-Importar copia o Markdown para o cofre sem alterar o original. A publicacao
-converte Markdown solto para uma pasta com `SKILL.md` e frontmatter YAML
-`name`/`description`, preservando outros campos YAML quando existentes.
-YAML invalido gera erro explicito. Encontrar um Markdown solto nao significa
-que o agente o reconheca como skill. A importacao ainda e de Markdown, nao de
-pacotes completos com scripts/assets; recursos externos precisam ser revisados.
-Skills sao procedimentos carregados por relevancia, nao instrucoes permanentes
-como `AGENTS.md` ou `copilot-instructions.md`; estes continuam fora da busca.
-Arquivos selecionados maiores que 2 MB sao recusados. Arquivos ja importados
-aparecem na selecao e sao ignorados ao importar novamente.
+---
 
-O backup cria uma copia completa do catalogo, projetos e Markdown dentro de
-`.skillvortex/backups/`. A restauracao substitui os metadados, preserva arquivos
-que nao estao no backup e cria antes um ponto de recuperacao do estado atual.
-Backups invalidos geram erro explicito. A extensao ainda nao monitora alteracoes
-externas.
-
-## Migrar os dados do desktop
-
-1. Feche completamente o desktop e faca backup do seu diretorio de dados.
-2. Execute **SkillVortex: Importar banco do desktop**.
-3. Selecione o arquivo `skillvortex.sqlite` em `userData` do desktop.
-4. Confirme que o desktop esta fechado.
-5. Revise a quantidade de skills/projetos e os avisos.
-6. Selecione uma pasta pai e um nome de cofre que **ainda nao exista**.
-
-O banco e os arquivos originais sao apenas lidos. O conteudo atual do Markdown
-tem prioridade. Se o arquivo nao existir, o conteudo salvo no banco pode ser
-recuperado, com aviso na previa. Se nao houver conteudo recuperavel, a importacao
-falha explicitamente. Arquivos maiores que 2 MB sao recusados.
-
-Um WAL nao vazio interrompe a importacao para evitar ler um banco incompleto.
-Feche o desktop normalmente para consolidar o WAL; **nao apague o WAL**.
-A migracao nao mescla nem sobrescreve um cofre existente. A gravacao prepara
-os arquivos antes de publicar os metadados; erros desfazem o destino recem-criado.
-Uma interrupcao abrupta pode deixar uma pasta parcial, que nao deve ser usada
-como cofre: preserve o banco original e escolha outro destino para repetir.
-
-O caminho original de cada skill e preservado como referencia. Caminhos dos
-projetos precisam ser reassociados se voce trocar de maquina (interface prevista
-para uma proxima etapa). A migracao mantem bloqueios; vinculos invalidos sao
-recusados, nao corrigidos silenciosamente.
-
-## Backup, Drive e credenciais
-
-- O cofre pode ser copiado ou colocado em uma pasta sincronizada.
-- **Sincronizacao nao e backup** e edicao simultanea nao e suportada nesta etapa.
-- Para backup manual, termine as operacoes e copie **toda a pasta do cofre**.
-- **Criar backup** guarda uma copia local versionada do cofre. **Restaurar
-  backup** permite selecionar uma copia e confirma antes de substituir os
-  metadados; o estado atual vira um ponto de recuperacao automatico.
-- Os backups ficam dentro do proprio cofre. Copie toda a pasta para ter uma
-  copia independente; sincronizacao simultanea nao e suportada.
-- Backups nao sao criptografados e ainda nao ha politica automatica de retencao.
-- Cofre significa pasta organizada; nao significa dados criptografados.
-- Credenciais futuras devem usar `SecretStorage`, nunca catalogo ou projetos.
-  Nesta etapa nao ha integracao que solicite tokens, portanto nao ha cofre de
-  credenciais ou exportacao de segredos implementados.
-
-## Proximas etapas
-
-1. Journal e recuperacao de operacoes interrompidas.
-2. Monitoramento de alteracoes externas e sincronizacao opcional com agentes,
-   sempre com previa e protecao contra sobrescrita.
-
-A extensao exige ambiente local e confiavel. Remoto, VS Code Web e workspaces
-virtuais nao sao suportados nesta primeira etapa.
+**SkillVortex Extension** — biblioteca local, publicação controlada e edição de
+skills no VS Code, sem depender do aplicativo desktop.

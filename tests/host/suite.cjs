@@ -35,6 +35,7 @@ exports.run = async function run() {
   }
   assert.ok(hasTab())
   await require('./clipboard.cjs')(extension)
+  await require('./visual-editor.cjs')(extension)
   await require('./card-colors.cjs')(extension)
   await require('./project-switch.cjs').testProjectSwitch(extension)
   await require('./markdown-lifecycle.cjs').testMarkdownLifecycle(extension)

@@ -26,7 +26,7 @@ permanece intacto em sua pasta e repositorio.
 - Criacao de backups locais completos e restauracao confirmada, com ponto de
   recuperacao automatico do estado anterior.
 - Tela inicial com acesso direto para criar/abrir o cofre, resumo dos recursos e
-  capturas de referencia das telas desktop de dashboard e editor.
+  capturas completas das telas atuais da extensao: dashboard e editor, com dados de exemplo.
 - Indice SQLite local reconstruido ao abrir/atualizar a biblioteca.
 - Repositorio Git local independente, sem commit ou publicacao automatica.
 
@@ -185,6 +185,11 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   Cards vazios nao podem ser ativados ou executados.
   Cada skill tem um **checkbox** ao lado do nome no card e no seletor lateral
   de **Editar card**. Todas comecam habilitadas; desmarcar nao exclui o Markdown.
+  A lista de titulos reserva altura fixa para tres skills, mesmo com um ou dois
+  membros. A barra de rolagem fica visivel; da quarta skill em diante, role a lista
+  sem aumentar o bloco.
+  Os cards usam espacamentos internos compactos e distancia uniforme entre linhas
+  e colunas. O trilho da rolagem permanece visivel mesmo sem exceder tres skills.
   Com o card ativo, mudar um checkbox publica ou desativa somente essa skill
   no projeto atual e nos agentes exibidos, preservando outros projetos/agentes.
   Com o card desligado, muda somente a selecao, sem publicar arquivos.
@@ -271,12 +276,35 @@ Crie ou abra um cofre pelos botoes da Webview ou pelos comandos:
   ou pressionar Escape. A opcao **Desvincular** nao aparece na interface.
   Seletores mais largos, menus descritivos e campos alinhados facilitam a leitura.
   O formulario de cards usa duas colunas em telas maiores e uma em telas pequenas.
-- **Editor**: altere metadados e Markdown, confira a pre-visualizacao e ajuste
-  os projetos vinculados. Monaco fornece realce Markdown e permite colar texto
+- **Editor**: os paineis **Markdown** e **Texto** ficam lado a lado, ambos editaveis
+  e sincronizados no mesmo `.md`. Em telas estreitas, ficam empilhados.
+  **Projetos** e **Governanca** ficam acima do editor, sem pre-visualizacao separada.
+  **Texto** e o painel ativo por padrao, com uma unica barra de icones agrupada por
+  historico, formatacao, titulos, listas e insercoes. Os botoes indicam a formatacao
+  ativa e desabilitam acoes indisponiveis. Edite visualmente com negrito,
+  italico, riscado, titulos, listas, tarefas, citacoes, links e codigo; ou **Markdown**
+  para editar a sintaxe no Monaco. Clique em um painel ou em seu titulo para
+  direcionar a barra a ele; o painel ativo fica destacado. A barra formata a selecao
+  do painel ativo, sem salvar automaticamente, e destaca os estilos na posicao
+  do cursor em ambos os paineis, incluindo titulos, listas, links e formatacoes
+  combinadas no Markdown. Uma selecao que ultrapassa um trecho formatado nao
+  destaca esse estilo.
+  Titulos continuam destacados com o cursor no final da linha ou com a quebra
+  de linha incluida na selecao.
+  A edicao visual pode normalizar a sintaxe Markdown. O cabecalho YAML
+  e preservado e nao aparece no texto visual. No painel Markdown, ele fica separado
+  em **Cabecalho YAML protegido (somente leitura)**: selecionar tudo, apagar,
+  colar e formatar afetam apenas o corpo. Esta protecao vale para o editor integrado,
+  nao para edicoes externas do arquivo. Monaco fornece realce Markdown e permite colar texto
   com `Ctrl+V` / `Cmd+V`; `Ctrl+S` / `Cmd+S` ou **Salvar** grava as alteracoes
   no cofre. Existe somente um botao **Salvar**, ao lado de **Voltar ao Dashboard**,
   na linha do titulo **Editando**. Em telas pequenas, as acoes ficam abaixo do titulo.
   Abrir uma skill para editar ou voltar sem salvar nao altera os dados.
+  Arquivos com HTML devem ser editados no modo Markdown para preservar as estruturas.
+  A barra inclui titulos H1 a H6, limpar formatacao, recuos em listas e insercao
+  de tabelas em ambos os paineis. No painel Texto, dentro de uma tabela, aparecem controles para adicionar ou remover
+  linhas e colunas e excluir a tabela. As ferramentas usam recursos Markdown/GFM;
+  cores de fonte, alinhamento e tamanho arbitrario nao sao adicionados ao arquivo.
 - **Liberada / Bloqueada**: sao os unicos estados de skills e cards.
   Liberada permite ativar, mas nao indica revisao ou teste de qualidade.
   Bloqueada impede novas ativacoes; uma skill bloqueada nao pode ser usada no chat.

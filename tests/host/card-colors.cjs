@@ -267,10 +267,21 @@ module.exports = async function testCardColors(extension) {
           assert.deepEqual(message.counts, [1, 4, 2, 0])
           assert.equal(message.examplesVisible, false)
           assert.equal(message.emptyDisabled, true)
-          assert.ok(message.cardHeights.every(height => height >= 440))
+          assert.ok(message.cardHeights.every(height => height >= 400))
           assert.ok(Math.max(...message.cardHeights) - Math.min(...message.cardHeights) <= 1)
-          assert.ok(message.cardPaddings.every(padding => padding === '20px'))
+          assert.ok(message.cardPaddings.every(padding => padding === '12px'))
+          assert.deepEqual(message.horizontalSpacing, {
+            grid: '20px', heading: '8px', file: '8px', row: '4px',
+            project: '4px', actions: '4px', button: '2px', tag: '4px'
+          })
           assert.equal(message.addColor, 'rgb(250, 219, 20)')
+          assert.deepEqual(message.skillListScroll.map(item => item.scrollable), [false, false, false, true])
+          assert.ok(message.skillListScroll.every(item => item.height === 104 && item.overflowY === 'scroll'))
+          assert.ok(message.skillListScroll.every(item => item.railVisible))
+          assert.equal(message.gridRowGap, message.horizontalSpacing.grid)
+          assert.deepEqual(message.internalSpacing, { tags: '8px', description: '8px', file: '4px', footer: '4px' })
+          assert.ok(Math.max(...message.skillBlockHeights) - Math.min(...message.skillBlockHeights) <= 1)
+          assert.equal(message.lastSkillReachable, true)
         } else if (message.type === 'color-test-error') {
           reject(new Error(message.message))
         }
@@ -419,10 +430,41 @@ module.exports = async function testCardColors(extension) {
             const add = cards[3].querySelector('.action-add');
             if (!add || add.disabled || getComputedStyle(add).color !== 'rgb(250, 219, 20)') return false;
             const counts = cards.map(card => card.querySelectorAll('.skill-file button[title="Editar Markdown desta skill"]').length);
+            const list = cards[1].querySelector('.card-skill-list');
+            const rows = Array.from(list.children);
+            const skillListScroll = [1, 2, 3, 4].map(count => {
+              rows.forEach((row, index) => { row.style.display = index < count ? '' : 'none'; });
+              return { height: list.clientHeight, scrollable: list.scrollHeight > list.clientHeight,
+                overflowY: getComputedStyle(list).overflowY,
+                railVisible: getComputedStyle(list).backgroundImage.includes('linear-gradient') &&
+                  getComputedStyle(list, '::-webkit-scrollbar').width === '8px' };
+            });
+            rows.forEach(row => { row.style.display = ''; });
+            list.scrollTop = list.scrollHeight;
+            const lastSkillReachable = rows[3].getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1;
             bridge.postMessage({ type: 'example-test-shape', counts,
+              skillListScroll, lastSkillReachable,
+              skillBlockHeights: cards.slice(0, 3).map(card => card.querySelector('.skill-file').getBoundingClientRect().height),
               examplesVisible: Boolean(button('Carregar exemplos')),
               cardHeights: cards.map(card => card.offsetHeight),
               cardPaddings: cards.map(card => getComputedStyle(card.querySelector('.ant-card-body')).padding),
+              gridRowGap: getComputedStyle(document.querySelector('.skills-grid')).rowGap,
+              internalSpacing: {
+                tags: getComputedStyle(cards[1].querySelector('.skill-tags')).marginTop,
+                description: getComputedStyle(cards[1].querySelector('.skill-description')).marginTop,
+                file: getComputedStyle(cards[1].querySelector('.skill-file')).rowGap,
+                footer: getComputedStyle(cards[1].querySelector('.skill-card-footer')).rowGap
+              },
+              horizontalSpacing: {
+                grid: getComputedStyle(document.querySelector('.skills-grid')).columnGap,
+                heading: getComputedStyle(cards[1].querySelector('.skill-card-heading')).columnGap,
+                file: getComputedStyle(cards[1].querySelector('.skill-file')).paddingLeft,
+                row: getComputedStyle(rows[0]).columnGap,
+                project: getComputedStyle(cards[1].querySelector('.skill-card-project')).columnGap,
+                actions: getComputedStyle(cards[1].querySelector('.skill-card-actions')).columnGap,
+                button: getComputedStyle(add).paddingLeft,
+                tag: getComputedStyle(cards[1].querySelector('.ant-tag')).paddingLeft
+              },
               addColor: getComputedStyle(add).color,
               emptyDisabled: cards[3].querySelector('[role="switch"]').disabled });
             add.click();
@@ -453,6 +495,22 @@ module.exports = async function testCardColors(extension) {
                   const checkbox = selector?.querySelector('input[type="checkbox"]');
                   if (!checkbox || !checkbox.checked || !selector.textContent.includes('Nova Skill')) {
                     throw new Error('Card editor must show newly added skills selected in the sidebar');
+                  }
+                  const layout = document.querySelector('.card-editor-layout');
+                  const form = layout.querySelector('.card-form');
+                  const modal = layout.closest('.ant-modal');
+                  const body = modal.querySelector('.ant-modal-body');
+                  if (selector.parentElement !== layout || form.parentElement !== layout) {
+                    throw new Error('Card fields and skill sidebar must occupy separate layout columns');
+                  }
+                  if (layout.scrollWidth > body.clientWidth + 1 ||
+                      modal.querySelector('.ant-modal-content').getBoundingClientRect().bottom > innerHeight + 1) {
+                    throw new Error('Card modal must fit the viewport without horizontal overflow');
+                  }
+                  body.scrollTop = body.scrollHeight;
+                  if (selector.getBoundingClientRect().bottom > body.getBoundingClientRect().bottom + 1 ||
+                      members.closest('.ant-select').getBoundingClientRect().bottom > body.getBoundingClientRect().bottom + 1) {
+                    throw new Error('Card modal must allow scrolling to the last field and skill selection');
                   }
                   save.click();
                   return true;

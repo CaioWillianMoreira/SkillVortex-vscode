@@ -9,6 +9,7 @@ import {
 } from './model'
 import { assertImportedOriginsPreserved, skillArchiveName } from './skill-deletion'
 import { readContained, saveVaultData } from './vault'
+import { splitMarkdown } from './markdown-content'
 
 type Project = VaultData['projects']['projects'][number]
 const hash = (content: string | Buffer) => createHash('sha256').update(content).digest('hex')
@@ -136,9 +137,7 @@ function updateFrontmatter(content: Buffer, skill: Skill, name: string): Buffer 
 }
 
 function markdownBody(content: Buffer): string {
-  const text = content.toString('utf8')
-  const frontmatter = text.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
-  return frontmatter ? text.slice(frontmatter[0].length) : text
+  return splitMarkdown(content.toString('utf8')).body
 }
 
 export function skillPublicationMarkdown(skill: Skill, name: string, content: string): Buffer {

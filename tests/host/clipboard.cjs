@@ -75,7 +75,7 @@ module.exports = async function testClipboard(extension) {
             }));
             const pasteStarted = Date.now();
             const resultTimer = setInterval(() => {
-              const text = document.querySelector('.markdown-preview')?.textContent ?? '';
+              const text = document.querySelector('.tiptap')?.textContent ?? '';
               if (text.includes('TESTE_DE_COLAGEM') && text.includes('Segunda linha') && text.includes('Conteudo original')) {
                 clearInterval(resultTimer);
                 bridge.postMessage({type:'clipboard-test-result', inserted:true});

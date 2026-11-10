@@ -5,8 +5,6 @@ import {
   Select, Space, Switch, Tabs, Tag, Tooltip, Typography, theme
 } from 'antd'
 import type { ButtonProps } from 'antd'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import type { Catalog, Projects, Skill, SkillCard, SkillAgent } from '../src/model'
 import { isAgentLinked, isCollectionLinked, selectedSkillIds, skillCards, skillRegistrationSchema } from '../src/model'
 import {
@@ -19,6 +17,7 @@ import './styles.css'
 declare function acquireVsCodeApi(): { postMessage(message: unknown): void }
 const api = acquireVsCodeApi()
 const MonacoMarkdownEditor = lazy(() => import('./MonacoMarkdownEditor'))
+const VisualMarkdownEditor = lazy(() => import('./VisualMarkdownEditor'))
 const labels = { allowed: 'Liberada', blocked: 'Bloqueada' }
 const colors = { allowed: 'green', blocked: 'red' }
 const actionIcons = {
@@ -121,6 +120,8 @@ function App(): React.JSX.Element {
   const [runningCard, setRunningCard] = useState<SkillCard | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [saving, setSaving] = useState(false)
+  const [editorMode, setEditorMode] = useState<'markdown' | 'text'>('text')
+  const [editorToolbar, setEditorToolbar] = useState<HTMLDivElement | null>(null)
   const baseline = useRef('')
 
   useEffect(() => {
@@ -353,25 +354,25 @@ function App(): React.JSX.Element {
             </Card>
             <section className="feature-grid" aria-label="Funcionalidades">
               <Card><Typography.Title level={5}>Biblioteca e projetos</Typography.Title><Typography.Text type="secondary">Busque, filtre e vincule skills Markdown a projetos locais.</Typography.Text></Card>
-              <Card><Typography.Title level={5}>Editor e visualizacao</Typography.Title><Typography.Text type="secondary">Edite com Monaco e confira a previa Markdown com suporte GFM.</Typography.Text></Card>
-              <Card><Typography.Title level={5}>Governanca e backup</Typography.Title><Typography.Text type="secondary">Organize estados de revisao e restaure backups da biblioteca.</Typography.Text></Card>
+              <Card><Typography.Title level={5}>Editor de texto e Markdown</Typography.Title><Typography.Text type="secondary">Edite nos dois paineis sincronizados, com barra de formatacao e cabecalho YAML protegido.</Typography.Text></Card>
+              <Card><Typography.Title level={5}>Governanca e backup</Typography.Title><Typography.Text type="secondary">Controle skills liberadas ou bloqueadas e restaure backups da biblioteca.</Typography.Text></Card>
             </section>
             <section className="screen-previews">
               <div className="screen-previews-heading">
                 <Typography.Title level={3}>Conheca as telas</Typography.Title>
-                <Typography.Text type="secondary">Referencias visuais do aplicativo desktop SkillVortex.</Typography.Text>
+                <Typography.Text type="secondary">Capturas completas da extensao SkillVortex com dados de exemplo.</Typography.Text>
               </div>
               <Row gutter={[16, 16]}>
                 <Col xs={24} xl={12}>
-                  <Card className="screen-preview-card" cover={<img src={dashboardPreview} alt="Captura de referencia do dashboard e biblioteca de skills do SkillVortex desktop" />}>
+                  <Card className="screen-preview-card" cover={<img src={dashboardPreview} alt="Captura completa do dashboard atual da extensao SkillVortex" />}>
                     <Typography.Title level={5}>Dashboard · Biblioteca de Skills</Typography.Title>
                     <Typography.Text type="secondary">Busca, filtros, categorias, estados de governanca e vinculos por projeto.</Typography.Text>
                   </Card>
                 </Col>
                 <Col xs={24} xl={12}>
-                  <Card className="screen-preview-card" cover={<img src={editorPreview} alt="Captura de referencia do editor Markdown e governanca do SkillVortex desktop" />}>
-                    <Typography.Title level={5}>Editor · Markdown e governanca</Typography.Title>
-                    <Typography.Text type="secondary">Metadados, editor Markdown, visualizacao, projetos vinculados e revisao.</Typography.Text>
+                  <Card className="screen-preview-card" cover={<img src={editorPreview} alt="Captura completa do editor atual com Markdown e Texto lado a lado" />}>
+                    <Typography.Title level={5}>Editor · Texto e Markdown</Typography.Title>
+                    <Typography.Text type="secondary">Paineis editaveis sincronizados, icones de formatacao, YAML protegido, projetos e governanca.</Typography.Text>
                   </Card>
                 </Col>
               </Row>
@@ -491,6 +492,7 @@ function App(): React.JSX.Element {
               </Space>
             </Modal>
             <Modal title={collectionId ? 'Editar card' : 'Novo card'} open={collectionEditorOpen} width={920}
+              className="card-editor-modal"
               okText="Salvar" cancelText="Cancelar"
               okButtonProps={{ disabled: !collectionName.trim() || !collectionCategory || !collectionDescription.trim() ||
                 !collectionTags.length || !collectionAgents.some(agent => agent === 'GitHub Copilot' || agent === 'Antigravity'),
@@ -556,6 +558,7 @@ function App(): React.JSX.Element {
                         card.id !== collectionId && card.skillIds.includes(item.id)))
                     }))} />
                 </div>
+              </div>
                 <aside className="card-skill-selector" aria-label="Selecao de skills do card">
                   <Typography.Title level={5}>Skills habilitadas</Typography.Title>
                   <Typography.Paragraph type="secondary">Ao ativar o card, somente as marcadas serao publicadas.</Typography.Paragraph>
@@ -568,7 +571,6 @@ function App(): React.JSX.Element {
                     </Checkbox>)}
                   {!collectionSkillIds.length && <Typography.Text type="secondary">Adicione skills ao conjunto.</Typography.Text>}
                 </aside>
-                </div>
               </div>
             </Modal>
             <Modal title="Escolha a skill para usar no chat" open={Boolean(runningCard)}
@@ -626,7 +628,8 @@ function App(): React.JSX.Element {
                           {members.length} {members.length === 1 ? 'skill' : 'skills'}
                           {linkedCount > 0 && !linked ? ` (${linkedCount} ativa${linkedCount > 1 ? 's' : ''})` : ''}
                         </Typography.Text>
-                        <Space direction="vertical" size={4}>
+                        <div className="card-skill-list" tabIndex={members.length >= 3 ? 0 : undefined}
+                          role="group" aria-label={`Skills do card ${item.name}`}>
                           {members.map(member => <div key={member.id} className="card-skill-row">
                             {!item.standaloneSkillId && <Checkbox
                               aria-label={`Habilitar ${member.name} no card ${item.name}`}
@@ -641,14 +644,14 @@ function App(): React.JSX.Element {
                             onClick={() => api.postMessage({ type: 'openSkill', id: member.id })}>{member.name}</Button>
                           </div>)}
                           {!members.length && <Typography.Text type="secondary">Adicione uma skill ou selecione skills em Editar.</Typography.Text>}
-                        </Space>
+                        </div>
                         <Space wrap size={[4, 4]}>
                           {visibleAgents.map(agent => <Tag key={agent} className="agent-label">{agent}</Tag>)}
                           <HelpTip label="Compatibilidade da skill">O switch controla os agentes exibidos: Copilot usa .github/skills; Antigravity usa .agents/skills. O Markdown original e unico.</HelpTip>
                         </Space>
                       </div>
                       <div className="skill-card-footer">
-                        <Space className="skill-card-project">
+                        <Space className="skill-card-project" size={4}>
                           <Switch
                             size="small"
                             aria-label={`Usar ${item.name} no projeto`}
@@ -818,65 +821,63 @@ function App(): React.JSX.Element {
                 </Col>
               </Row>
             </Card>
-            <Row className="editor-workspace" gutter={[16, 16]}>
-              <Col xs={24} xl={12}>
-                <Card className="markdown-editor-card" title="Conteudo Markdown *">
-                  <Suspense fallback={<div className="editor-loading">Carregando Monaco...</div>}>
-                    <MonacoMarkdownEditor
-                      value={draft.content}
-                      readOnly={saving}
-                      onChange={value => updateDraft('content', value)}
-                    />
+            <Card className="editor-settings">
+              <Tabs items={[
+                {
+                  key: 'projects', label: `Projetos (${draft.projectIds.length})`,
+                  children: <div className="project-checklist">
+                    {state.projects?.projects.length ? (
+                      <Checkbox.Group
+                        value={draft.projectIds}
+                        disabled={saving || draft.status === 'blocked'}
+                        onChange={value => updateDraft('projectIds', value as string[])}
+                      >
+                        <Space direction="vertical">
+                          {state.projects.projects.map(project => (
+                            <Checkbox key={project.id} value={project.id} disabled={!project.sourcePath && !draft.projectIds.includes(project.id)}>
+                              {project.name}{project.sourcePath ? ` · ${project.sourcePath}` : ' · sem pasta associada'}
+                            </Checkbox>
+                          ))}
+                        </Space>
+                      </Checkbox.Group>
+                    ) : <Empty description="Ative Usar no Projeto no Dashboard para associar uma pasta." />}
+                  </div>
+                },
+                {
+                  key: 'governance', label: 'Governanca',
+                  children: <div className="governance-panel">
+                    <Tag color={colors[draft.status]}>{labels[draft.status]}</Tag>
+                    <Typography.Paragraph>
+                      {draft.status === 'allowed' && 'A skill pode ser ativada no projeto. Liberada nao significa revisao ou teste de qualidade; o switch indica se esta ativa.'}
+                      {draft.status === 'blocked' && 'Skills bloqueadas nao podem ser vinculadas. Ao salvar o bloqueio, os vinculos existentes serao removidos.'}
+                    </Typography.Paragraph>
+                    <Alert type="warning" showIcon message="Desativar remove o SKILL.md da descoberta automatica do Copilot e preserva o arquivo na biblioteca. Nao remove instrucoes ja carregadas numa conversa nem impede leitura explicita do arquivo." />
+                  </div>
+                }
+              ]} />
+            </Card>
+            <Card className="markdown-editor-card" title="Conteudo da skill *"
+              extra={<Typography.Text type="secondary">Barra aplicada a: {editorMode === 'text' ? 'Texto' : 'Markdown'}</Typography.Text>}>
+              <div ref={setEditorToolbar} className="shared-editor-toolbar" />
+              <div className="dual-editor-workspace">
+                <section className={`editor-pane${editorMode === 'markdown' ? ' editor-pane-active' : ''}`} aria-label="Editor Markdown">
+                  <Button type="text" className="editor-pane-heading" onClick={() => setEditorMode('markdown')}>Markdown</Button>
+                  <Suspense fallback={<div className="editor-loading">Carregando Markdown...</div>}>
+                    <MonacoMarkdownEditor key={draft.id} value={draft.content} readOnly={saving}
+                      toolbar={editorToolbar} active={editorMode === 'markdown'} onFocus={() => setEditorMode('markdown')}
+                      onChange={value => updateDraft('content', value)} />
                   </Suspense>
-                </Card>
-              </Col>
-              <Col xs={24} xl={12}>
-                <Card className="editor-panel">
-                  <Tabs
-                    items={[
-                      {
-                        key: 'preview', label: 'Visualizacao',
-                        children: <article className="markdown-preview">
-                          <Typography.Title level={3}>{draft.name}</Typography.Title>
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{draft.content}</ReactMarkdown>
-                        </article>
-                      },
-                      {
-                        key: 'projects', label: `Projetos (${draft.projectIds.length})`,
-                        children: <div className="project-checklist">
-                          {state.projects?.projects.length ? (
-                            <Checkbox.Group
-                              value={draft.projectIds}
-                              disabled={saving || draft.status === 'blocked'}
-                              onChange={value => updateDraft('projectIds', value as string[])}
-                            >
-                              <Space direction="vertical">
-                                {state.projects.projects.map(project => (
-                                  <Checkbox key={project.id} value={project.id} disabled={!project.sourcePath && !draft.projectIds.includes(project.id)}>
-                                    {project.name}{project.sourcePath ? ` · ${project.sourcePath}` : ' · sem pasta associada'}
-                                  </Checkbox>
-                                ))}
-                              </Space>
-                            </Checkbox.Group>
-                          ) : <Empty description="Ative Usar no Projeto no Dashboard para associar uma pasta." />}
-                        </div>
-                      },
-                      {
-                        key: 'governance', label: 'Governanca',
-                        children: <div className="governance-panel">
-                          <Tag color={colors[draft.status]}>{labels[draft.status]}</Tag>
-                          <Typography.Paragraph>
-                            {draft.status === 'allowed' && 'A skill pode ser ativada no projeto. Liberada nao significa revisao ou teste de qualidade; o switch indica se esta ativa.'}
-                            {draft.status === 'blocked' && 'Skills bloqueadas nao podem ser vinculadas. Ao salvar o bloqueio, os vinculos existentes serao removidos.'}
-                          </Typography.Paragraph>
-                          <Alert type="warning" showIcon message="Desativar remove o SKILL.md da descoberta automatica do Copilot e preserva o arquivo na biblioteca. Nao remove instrucoes ja carregadas numa conversa nem impede leitura explicita do arquivo." />
-                        </div>
-                      }
-                    ]}
-                  />
-                </Card>
-              </Col>
-            </Row>
+                </section>
+                <section className={`editor-pane${editorMode === 'text' ? ' editor-pane-active' : ''}`} aria-label="Editor Texto">
+                  <Button type="text" className="editor-pane-heading" onClick={() => setEditorMode('text')}>Texto</Button>
+                  <Suspense fallback={<div className="editor-loading">Carregando texto...</div>}>
+                    <VisualMarkdownEditor key={draft.id} value={draft.content} readOnly={saving}
+                      toolbar={editorToolbar} active={editorMode === 'text'} onFocus={() => setEditorMode('text')}
+                      onChange={value => updateDraft('content', value)} />
+                  </Suspense>
+                </section>
+              </div>
+            </Card>
           </section>
         )}
       </main>

@@ -108,9 +108,32 @@ main {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
-  max-height: calc(100vh - 240px);
+  min-width: 0;
+  align-content: start;
+}
+
+.card-editor-modal.ant-modal {
+  top: 24px;
+  max-width: calc(100vw - 32px);
+  padding-bottom: 0;
+}
+
+.card-editor-modal .ant-modal-content {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 48px);
+  overflow: hidden;
+}
+
+.card-editor-modal .ant-modal-body {
+  min-height: 0;
   overflow-y: auto;
-  padding-right: 8px;
+  scrollbar-gutter: stable;
+}
+
+.card-editor-modal .ant-modal-header,
+.card-editor-modal .ant-modal-footer {
+  flex-shrink: 0;
 }
 
 .card-editor-layout {
@@ -124,8 +147,6 @@ main {
   flex-direction: column;
   gap: 12px;
   min-width: 0;
-  max-height: calc(100vh - 240px);
-  overflow-y: auto;
   padding-left: 16px;
   border-left: 1px solid #2b2b2b;
 }
@@ -149,6 +170,14 @@ main {
   .card-skill-selector {
     padding-left: 0;
     border-left: none;
+    padding-top: 16px;
+    border-top: 1px solid #2b2b2b;
+  }
+}
+
+@media (max-width: 480px) {
+  .card-form {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -350,8 +379,7 @@ main {
 .screen-preview-card .ant-card-cover img {
   display: block;
   width: 100%;
-  aspect-ratio: 1229 / 768;
-  object-fit: cover;
+  height: auto;
   object-position: top;
 }
 
@@ -438,7 +466,7 @@ main {
 
 .skill-card.ant-card {
   display: flex;
-  min-height: 440px;
+  min-height: 400px;
   height: 100%;
   overflow: hidden;
   flex-direction: column;
@@ -472,15 +500,15 @@ main {
   display: flex;
   flex: 1;
   flex-direction: column;
-  padding: 20px;
+  padding: 12px;
 }
 
 .skill-card-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  min-height: 48px;
+  gap: 8px;
+  min-height: 28px;
 }
 
 .skill-card-heading h5.ant-typography {
@@ -493,16 +521,20 @@ main {
 
 .skill-card-heading .ant-tag {
   flex: 0 0 auto;
+  margin-inline-end: 0;
+}
+
+.skill-card .ant-tag {
+  padding-inline: 4px;
 }
 
 .skill-tags {
-  min-height: 32px;
-  margin-top: 12px;
+  min-height: 22px;
+  margin-top: 8px;
 }
 
 .skill-description.ant-typography {
-  min-height: 72px;
-  margin: 12px 0 16px;
+  margin: 8px 0;
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
@@ -512,9 +544,9 @@ main {
   min-height: 112px;
   flex-direction: column;
   justify-content: center;
-  gap: 8px;
-  margin-top: auto;
-  padding: 12px;
+  gap: 4px;
+  margin-top: 0;
+  padding: 8px;
   border: 1px solid #303030;
   border-radius: 6px;
   background: #111;
@@ -530,24 +562,64 @@ main {
   margin-inline-end: 0;
 }
 
+.card-skill-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  height: 104px;
+  flex-shrink: 0;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  background: linear-gradient(to left, #444 8px, transparent 8px);
+}
+
+.card-skill-list::-webkit-scrollbar {
+  width: 8px;
+  display: block;
+  background: #444;
+}
+
+.card-skill-list::-webkit-scrollbar-track {
+  background: #444;
+  border-radius: 4px;
+}
+
+.card-skill-list::-webkit-scrollbar-thumb {
+  background: #999;
+  border-radius: 4px;
+}
+
+.card-skill-list::-webkit-scrollbar-thumb:hover {
+  background: #888;
+}
+
+.card-skill-list .card-skill-row {
+  flex: 0 0 32px;
+  height: 32px;
+  gap: 4px;
+}
+
 .skill-file .ant-btn-link {
   height: auto;
   min-height: 32px;
   padding: 4px 0;
   text-align: left;
-  white-space: normal;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .skill-file .ant-btn-link > span {
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .skill-card-footer {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin: 16px 0 0;
-  padding-top: 16px;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding-top: 8px;
   border-top: 1px solid #2b2b2b;
 }
 
@@ -560,7 +632,7 @@ main {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
-  gap: 8px;
+  gap: 4px;
   width: 100%;
 }
 
@@ -582,8 +654,8 @@ main {
 
 .skill-card-footer .ant-btn {
   min-width: 0;
-  gap: 6px;
-  padding-inline: 4px;
+  gap: 4px;
+  padding-inline: 2px;
   font-size: 13px;
   min-height: 36px;
 }
@@ -676,19 +748,93 @@ main {
 }
 
 .markdown-editor-card .ant-card-body {
-  height: calc(100% - 57px);
-  min-height: 480px;
   padding: 0;
   overflow: hidden;
 }
 
+.editor-settings {
+  margin-bottom: 16px;
+}
+
+.dual-editor-workspace {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.editor-pane {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.editor-pane + .editor-pane {
+  border-left: 1px solid #404040;
+}
+
+.editor-pane-heading.ant-btn {
+  display: block;
+  width: 100%;
+  height: 36px;
+  border-radius: 0;
+  text-align: left;
+  font-weight: 600;
+  background: #202020;
+  border-bottom: 2px solid transparent;
+}
+
+.editor-pane-active .editor-pane-heading.ant-btn {
+  color: #ff7875;
+  border-bottom-color: #ff7875;
+}
+
+@media (max-width: 640px) {
+  .dual-editor-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .editor-pane + .editor-pane {
+    border-left: none;
+    border-top: 1px solid #404040;
+  }
+}
+
 .monaco-editor-shell {
-  height: 100%;
-  min-height: 480px;
+  display: flex;
+  flex-direction: column;
+  height: 560px;
+}
+
+.markdown-body-editor {
+  flex: 1;
+  min-height: 0;
+}
+
+.protected-markdown-metadata {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid #404040;
+  color: #b8b8b8;
+  font-size: 12px;
+}
+
+.protected-markdown-metadata summary {
+  cursor: pointer;
+}
+
+.protected-markdown-metadata textarea {
+  box-sizing: border-box;
+  width: 100%;
+  height: 120px;
+  margin-top: 8px;
+  padding: 8px;
+  resize: none;
+  color: #b8b8b8;
+  background: #181818;
+  border: 1px solid #404040;
+  font-family: var(--vscode-editor-font-family, monospace);
 }
 
 .markdown-editor-card .monaco-editor {
-  min-height: 480px;
+  min-height: 0;
 }
 
 .editor-loading {
@@ -696,6 +842,144 @@ main {
   min-height: 480px;
   place-items: center;
   color: #aaa;
+}
+
+.visual-editor-hint {
+  padding: 8px;
+  color: #aaa;
+  font-size: 12px;
+}
+
+.visual-editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  background: #202020;
+  border-bottom: 1px solid #303030;
+}
+
+.visual-editor-tool-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  padding-right: 8px;
+  border-right: 1px solid #404040;
+}
+
+.visual-editor-tool-group:last-child {
+  padding-right: 0;
+  border-right: none;
+}
+
+.visual-editor-group-label {
+  color: #b8b8b8;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.visual-editor-group-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.visual-editor-tool.ant-btn {
+  min-width: 32px;
+  height: 30px;
+  padding-inline: 6px;
+  border-color: #484848;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.visual-editor-tool.ant-btn[aria-pressed="true"] {
+  color: #fff;
+  background: #54302e;
+  border-color: #ff7875;
+}
+
+.visual-editor-tool.format-bold {
+  font-weight: 700;
+}
+
+.visual-editor-tool.format-italic {
+  font-style: italic;
+}
+
+.visual-editor-tool.format-strike {
+  text-decoration: line-through;
+}
+
+.visual-editor-tool.format-code {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.markdown-editor-card .ant-card-head-wrapper {
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-block: 8px;
+}
+
+.visual-markdown-editor .tiptap {
+  height: 520px;
+  box-sizing: border-box;
+  overflow: auto;
+  padding: 20px 24px;
+  outline: none;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+  font-size: 16px;
+}
+
+.visual-markdown-editor .tiptap pre {
+  padding: 12px;
+  background: #111;
+  white-space: pre-wrap;
+}
+
+.visual-markdown-editor .tiptap blockquote {
+  margin-left: 0;
+  padding-left: 12px;
+  border-left: 3px solid #ff4d4f;
+}
+
+.visual-markdown-editor .tiptap table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.visual-markdown-editor .tiptap td,
+.visual-markdown-editor .tiptap th {
+  border: 1px solid #555;
+  padding: 6px;
+}
+
+.visual-markdown-editor .tiptap ul[data-type="taskList"] {
+  padding-left: 0;
+  list-style: none;
+}
+
+.visual-markdown-editor .tiptap li[data-type="taskItem"] {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.visual-markdown-editor .tiptap img {
+  max-width: 100%;
+}
+
+.visual-markdown-editor .tiptap:focus-visible {
+  outline: 2px solid #ff7875;
+  outline-offset: -2px;
+}
+
+.visual-markdown-editor .tiptap .selectedCell {
+  background: #54302e;
 }
 
 .editor-panel .ant-card-body {

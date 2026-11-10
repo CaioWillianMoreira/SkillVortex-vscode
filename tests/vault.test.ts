@@ -103,8 +103,8 @@ test('refuses backup directories that escape the vault through a symlink', async
   await fs.mkdir(outside)
   await fs.rm(join(root, '.skillvortex/backups'), { recursive: true, force: true })
   await fs.symlink(outside, join(root, '.skillvortex/backups'), 'dir')
-  await expect(createVaultBackup(root)).rejects.toThrow('fora do cofre')
-  await expect(listVaultBackups(root)).rejects.toThrow('fora do cofre')
+  await expect(createVaultBackup(root)).rejects.toThrow('fora da biblioteca')
+  await expect(listVaultBackups(root)).rejects.toThrow('fora da biblioteca')
   expect(await fs.readdir(outside)).toEqual([])
 })
 
@@ -163,7 +163,7 @@ test('rejects metadata symlinks escaping the vault', async () => {
   const outside = join(temporary, 'outside.md')
   await fs.writeFile(outside, '# Outside')
   await fs.symlink(outside, join(root, 'skills/outside.md'))
-  await expect(readContained(root, join(root, 'skills/outside.md'))).rejects.toThrow('fora do cofre')
+  await expect(readContained(root, join(root, 'skills/outside.md'))).rejects.toThrow('fora da biblioteca')
 })
 
 async function legacyFixture() {

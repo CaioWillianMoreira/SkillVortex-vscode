@@ -17,7 +17,7 @@ exports.run = async function run() {
   assert.ok(mainBundle, 'Webview entry bundle must be packaged')
   const mainSource = await readFile(join(extension.extensionPath, 'dist/webview/assets', mainBundle), 'utf8')
   assert.doesNotMatch(mainSource, /process\.env\.NODE_ENV/, 'Webview bundle must not require Node.js process globals')
-  assert.match(mainSource, /Criar cofre/, 'Welcome screen must contain the create-vault action')
+  assert.match(mainSource, /Criar biblioteca/, 'Welcome screen must contain the create-library action')
   assert.match(mainSource, /Conheca as telas/, 'Welcome screen must describe the screen previews')
   assert.match(mainSource, /data:image\/png;base64,/, 'Desktop reference screenshots must be bundled locally')
   const extensionSource = await readFile(join(extension.extensionPath, 'dist/extension.js'), 'utf8')
@@ -36,6 +36,7 @@ exports.run = async function run() {
   assert.ok(hasTab())
   await require('./clipboard.cjs')(extension)
   await require('./card-colors.cjs')(extension)
+  await require('./project-switch.cjs').testProjectSwitch(extension)
 
   // Run the shipped WASM against real data in the host's runtime, not Node/Electron SQLite.
   const { initializeSql, migrateDesktop, rebuildIndex } = require(join(extension.extensionPath, 'dist/database.js'))

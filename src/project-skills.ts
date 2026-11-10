@@ -141,7 +141,7 @@ function markdownBody(content: Buffer): string {
   return frontmatter ? text.slice(frontmatter[0].length) : text
 }
 
-function markdown(skill: Skill, name: string, content: string): Buffer {
+export function skillPublicationMarkdown(skill: Skill, name: string, content: string): Buffer {
   if (!skill.description.trim()) throw new Error(`Informe a descricao da skill ${skill.name}.`)
   skillMarkdownMetadata(content)
   const body = markdownBody(Buffer.from(content))
@@ -151,6 +151,7 @@ function markdown(skill: Skill, name: string, content: string): Buffer {
   }
   return Buffer.from(`---\nname: ${name}\ndescription: ${JSON.stringify(skill.description.trim())}\n---\n\n${body}`)
 }
+const markdown = skillPublicationMarkdown
 
 // Journal filesystem changes so a metadata failure cannot leave the switch out of sync.
 export async function saveProjectSkills(
@@ -183,7 +184,7 @@ export async function saveProjectSkills(
     if (!project.sourcePath) throw new Error(`Associe uma pasta ao projeto ${project.name}.`)
     const path = await fs.realpath(project.sourcePath)
     if (inside(path, canonicalRoot)) {
-      throw new Error('O cofre deve ficar fora da pasta do projeto para preservar skills desativadas fora da descoberta do Copilot.')
+      throw new Error('A biblioteca deve ficar fora da pasta do projeto para preservar skills desativadas fora da descoberta do Copilot.')
     }
     if (!(await fs.stat(path)).isDirectory()) throw new Error(`Pasta de projeto invalida: ${path}`)
     return path
@@ -272,6 +273,8 @@ export async function saveProjectSkills(
       const deployedSkills: NonNullable<Project['deployedSkills']> = agentScope
         ? (project.deployedSkills ?? []).filter(item => deploymentAgent(item) !== agentScope) : []
       const usedDirectories = new Set<string>()
+      const sharedArchives = new Map<string, Array<{ path: string; content: Buffer }>>()
+      const consumedArchives = new Map<string, Buffer>()
       for (const { skillId, agent } of projectBindings(project)) {
         if (agentScope && agent !== agentScope) continue
         const skill = next.catalog.skills.find(item => item.id === skillId)
@@ -289,20 +292,24 @@ export async function saveProjectSkills(
             continue
           }
         }
-        const shared = project.sharedPublication && agent === 'Antigravity' && !agentScope &&
-          projectBindings(project).filter(item => item.skillId === skillId).length === 1
+        const shared = project.sharedPublication && !agentScope &&
+          projectBindings(project).some(item => item.skillId === skillId && item.agent === 'Antigravity')
         const agents: SkillAgent[] = ['GitHub Copilot', 'Antigravity']
         const archivePaths = existing ? [] : shared
           ? await Promise.all(agents.map(value => archivedPath(project, skillId, value)))
           : [await archivedPath(project, skillId, agent)]
-        const archives: Array<{ path: string; content: Buffer }> = []
-        for (const archivePath of archivePaths) {
-          const content = await readFile(archivePath)
-          if (content) archives.push({ path: archivePath, content })
+        let archives = sharedArchives.get(skillId) ?? []
+        if (!shared || !sharedArchives.has(skillId)) {
+          archives = []
+          for (const archivePath of archivePaths) {
+            const content = await readFile(archivePath)
+            if (content) archives.push({ path: archivePath, content })
+          }
+          if (shared) sharedArchives.set(skillId, archives)
         }
         const preserved = archives[0]?.content
         if (preserved && archives.some(item => !item.content.equals(preserved))) {
-          throw new Error(`Existem copias desativadas diferentes para ${skill.name}. Revise os arquivos no cofre antes de consolidar a publicacao compartilhada.`)
+          throw new Error(`Existem copias desativadas diferentes para ${skill.name}. Revise os arquivos na biblioteca antes de consolidar a publicacao compartilhada.`)
         }
         const baseName = (preserved ? archivedSkillDirectory(preserved) : undefined) ??
           skillDirectory(skill)
@@ -322,7 +329,7 @@ export async function saveProjectSkills(
         const importedAgentDirectory = agent === 'Antigravity' &&
           importedRelativePath[0] === '.agent' && importedRelativePath[1] === 'skills' ? '.agent' : undefined
         const agentDirectory = existing ? deploymentRoot(existing)
-          : shared ? '.agents'
+          : shared ? agentRoot(agent)
             : knownAgentFolder ? deploymentRoot(knownAgentFolder) : importedAgentDirectory ?? agentRoot(agent)
         let name = existing && isDirectoryVariant(baseName, existing.directory)
           ? existing.directory : baseName
@@ -452,6 +459,17 @@ export async function saveProjectSkills(
           deployedSkills.push({ skillId, directory: name, hash: hash(content), sourceHash: hash(content), ...agentMetadata })
         } else {
           let published = preserved ?? content
+          const peer = oldProject?.deployedSkills?.find(item => item.skillId === skillId &&
+            deploymentAgent(item) !== agent && isAgentLinked(project, skillId, deploymentAgent(item)))
+          if (peer && hash(markdown(skill, peer.directory, sourceContent)) === peer.sourceHash) {
+            const peerFolder = await directory(path, [deploymentRoot(peer), 'skills', peer.directory])
+            const peerContent = await readFile(join(peerFolder, 'SKILL.md'))
+            if (!peerContent) throw new Error(`Publicacao do outro agente ausente: ${peerFolder}`)
+            if (peer.directory !== name || (preserved && !preserved.equals(peerContent))) {
+              throw new Error(`As publicacoes de ${skill.name} divergem. Revise as copias dos agentes antes de ativar.`)
+            }
+            published = peerContent
+          }
           if (shared) {
             const metadata = skillMarkdownMetadata(published.toString('utf8'))
             if (!metadata.name || !metadata.description) {
@@ -461,6 +479,9 @@ export async function saveProjectSkills(
             }
           }
           const current = await readFile(destination)
+          if (peer && current && !current.equals(published)) {
+            throw new Error(`As publicacoes de ${skill.name} divergem: ${destination}. Preserve e revise as duas copias.`)
+          }
           if (shared && current) {
             const metadata = skillMarkdownMetadata(current.toString('utf8'))
             if (metadata.name !== name || !metadata.description || metadata.description.length > 1024) {
@@ -469,7 +490,7 @@ export async function saveProjectSkills(
           }
           const importedOrigin = current ? await isImportedOrigin(skill, destination) : false
           if (current && preserved && !current.equals(preserved)) {
-            throw new Error(`O SKILL.md do projeto difere da copia desativada no cofre: ${destination}. Preserve e revise as duas versoes antes de reativar.`)
+            throw new Error(`O SKILL.md do projeto difere da copia desativada na biblioteca: ${destination}. Preserve e revise as duas versoes antes de reativar.`)
           }
           if (current && !importedOrigin && !current.equals(published) &&
               !current.equals(Buffer.from(sourceContent))) {
@@ -477,11 +498,12 @@ export async function saveProjectSkills(
           }
           if (!current) await write(destination, published)
           if (preserved && (!current || current.equals(preserved))) {
-            for (const archive of archives) await remove(archive.path, archive.content)
+            for (const archive of archives) consumedArchives.set(archive.path, archive.content)
           }
           deployedSkills.push({ skillId, directory: name, hash: hash(current ?? published), sourceHash: hash(content), ...agentMetadata })
         }
       }
+      for (const [path, content] of consumedArchives) await remove(path, content)
       if (deployedSkills.length || project.deployedSkills) project.deployedSkills = deployedSkills
     }
     await save(canonicalRoot, next)
@@ -494,7 +516,7 @@ export async function saveProjectSkills(
         errors.push(rollbackError)
       }
     }
-    if (errors.length) throw new AggregateError([error, ...errors], 'Falha ao sincronizar skills e restaurar arquivos. Preserve o cofre e os arquivos do projeto.')
+    if (errors.length) throw new AggregateError([error, ...errors], 'Falha ao sincronizar skills e restaurar arquivos. Preserve a biblioteca e os arquivos do projeto.')
     throw error
   }
 }

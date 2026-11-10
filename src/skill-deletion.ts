@@ -102,9 +102,9 @@ export async function planSkillDeletion(root: string, data: VaultData, skill: Sk
   } else assertSkillInactive(data, skill.id)
   const canonicalRoot = await fs.realpath(root)
   const vaultDirectory = await optionalDirectory(canonicalRoot, ['skills'])
-  if (!vaultDirectory) throw new Error('Diretorio de skills do cofre nao encontrado.')
+  if (!vaultDirectory) throw new Error('Diretorio de skills da biblioteca nao encontrado.')
   const vaultFile = join(canonicalRoot, skill.filePath)
-  if (!await optionalFile(vaultFile)) throw new Error(`Markdown do cofre nao encontrado: ${vaultFile}`)
+  if (!await optionalFile(vaultFile)) throw new Error(`Markdown da biblioteca nao encontrado: ${vaultFile}`)
   await readContained(canonicalRoot, vaultFile)
 
   const folders = new Set<string>()
@@ -117,7 +117,7 @@ export async function planSkillDeletion(root: string, data: VaultData, skill: Sk
     }
     const target = await optionalDirectory(projectPath, [deploymentRoot(folder), 'skills', folder.directory])
     if (!target) continue
-    if (inside(target, canonicalRoot)) throw new Error(`A pasta publicada contem o cofre: ${target}`)
+    if (inside(target, canonicalRoot)) throw new Error(`A pasta publicada contem a biblioteca: ${target}`)
     if (!folder.owned) {
       throw new Error(`A pasta nao foi identificada como criada pelo SkillVortex: ${target}. Preserve seus arquivos e remova-a manualmente, se desejar.`)
     }
@@ -178,41 +178,80 @@ export async function deleteSkillFiles(
   approved: DeletionPlan,
   save: (root: string, data: VaultData) => Promise<void>
 ): Promise<void> {
+  await deletePlannedSkills(root, [approved], save)
+}
+
+export async function deleteCollectionFiles(
+  root: string,
+  collectionId: string,
+  approved: DeletionPlan[],
+  save: (root: string, data: VaultData) => Promise<void>
+): Promise<void> {
+  await deletePlannedSkills(root, approved, save, collectionId)
+}
+
+async function deletePlannedSkills(
+  root: string,
+  approved: DeletionPlan[],
+  save: (root: string, data: VaultData) => Promise<void>,
+  collectionId?: string
+): Promise<void> {
   const data = await readVault(root)
-  const skill = data.catalog.skills.find(item => item.id === approved.skillId)
-  if (!skill) throw new Error('Skill nao encontrada.')
-  const plan = await planSkillDeletion(root, data, skill, approved.agent)
-  if (JSON.stringify(plan) !== JSON.stringify(approved)) {
-    throw new Error('Os arquivos da skill mudaram apos a confirmacao. Tente excluir novamente.')
+  if (collectionId) {
+    const collection = data.catalog.collections?.find(item => item.id === collectionId)
+    if (!collection) throw new Error('Colecao nao encontrada.')
+    for (const id of collection.skillIds) assertSkillInactive(data, id)
+    const exclusive = collection.skillIds.filter(id => !data.catalog.collections?.some(item =>
+      item.id !== collectionId && item.skillIds.includes(id)))
+    if (JSON.stringify([...exclusive].sort()) !== JSON.stringify(approved.map(plan => plan.skillId).sort())) {
+      throw new Error('As skills do card mudaram apos a confirmacao. Tente excluir novamente.')
+    }
+  }
+  const plans: DeletionPlan[] = []
+  for (const approval of approved) {
+    const skill = data.catalog.skills.find(item => item.id === approval.skillId)
+    if (!skill) throw new Error('Skill nao encontrada.')
+    const plan = await planSkillDeletion(root, data, skill, approval.agent)
+    if (JSON.stringify(plan) !== JSON.stringify(approval)) {
+      throw new Error('Os arquivos da skill mudaram apos a confirmacao. Tente excluir novamente.')
+    }
+    plans.push(plan)
   }
   const staged: Array<{ original: string; temporary: string; directory: boolean }> = []
   let saveStarted = false
   try {
-    for (const [path, directory] of [
+    const paths = new Map<string, boolean>()
+    for (const plan of plans) for (const [path, directory] of [
       ...plan.folders.map(path => [path, true] as const),
       ...plan.archives.map(path => [path, false] as const),
       ...(plan.deleteVault === false ? [] : [[plan.vaultFile, false] as const])
-    ]) {
+    ]) paths.set(path, directory)
+    for (const [path, directory] of paths) {
       const temporary = join(dirname(path), `.${basename(path)}.skillvortex-delete-${randomUUID()}`)
       if (await optionalFileOrDirectory(temporary)) throw new Error(`Destino temporario ja existe: ${temporary}`)
       await fs.rename(path, temporary)
       staged.push({ original: path, temporary, directory })
     }
-    if (plan.deleteVault === false && plan.agent) {
-      skill.agents = skill.agents.filter(agent => agent !== plan.agent)
-      skill.publishedFolders = skill.publishedFolders?.filter(folder => deploymentAgent(folder) !== plan.agent)
-    } else {
-      data.catalog.skills = data.catalog.skills.filter(item => item.id !== skill.id)
-      removeSkillFromCollections(data.catalog, skill.id)
-    }
-    if (plan.agent) {
-      for (const project of data.projects.projects) {
-        setProjectBindings(project, projectBindings(project).filter(item =>
-          item.skillId !== skill.id || item.agent !== plan.agent))
-        project.deployedSkills = project.deployedSkills?.filter(item =>
-          item.skillId !== skill.id || deploymentAgent(item) !== plan.agent)
+    for (const plan of plans) {
+      const skill = data.catalog.skills.find(item => item.id === plan.skillId)
+      if (!skill) throw new Error('Skill nao encontrada.')
+      if (plan.deleteVault === false && plan.agent) {
+        skill.agents = skill.agents.filter(agent => agent !== plan.agent)
+        skill.publishedFolders = skill.publishedFolders?.filter(folder => deploymentAgent(folder) !== plan.agent)
+      } else {
+        data.catalog.skills = data.catalog.skills.filter(item => item.id !== skill.id)
+        removeSkillFromCollections(data.catalog, skill.id)
+      }
+      if (plan.agent) {
+        for (const project of data.projects.projects) {
+          setProjectBindings(project, projectBindings(project).filter(item =>
+            item.skillId !== skill.id || item.agent !== plan.agent))
+          project.deployedSkills = project.deployedSkills?.filter(item =>
+            item.skillId !== skill.id || deploymentAgent(item) !== plan.agent)
+        }
       }
     }
+    if (collectionId) data.catalog.collections = data.catalog.collections?.filter(item => item.id !== collectionId)
     saveStarted = true
     await save(root, data)
   } catch (error) {
@@ -224,8 +263,9 @@ export async function deleteSkillFiles(
         throw new AggregateError([error, verificationError],
           `Nao foi possivel verificar os metadados. Arquivos preservados em: ${staged.map(item => item.temporary).join(', ')}`)
       }
-      if (!persisted.catalog.skills.some(item => item.id === skill.id) ||
-          (plan.agent && !persisted.catalog.skills.find(item => item.id === skill.id)?.agents.includes(plan.agent))) {
+      if ((collectionId && !persisted.catalog.collections?.some(item => item.id === collectionId)) ||
+          plans.some(plan => !persisted.catalog.skills.some(item => item.id === plan.skillId) ||
+            (plan.agent && !persisted.catalog.skills.find(item => item.id === plan.skillId)?.agents.includes(plan.agent)))) {
         throw new AggregateError([error],
           `Cadastro removido, mas houve uma falha ao salvar. Arquivos preservados em: ${staged.map(item => item.temporary).join(', ')}`)
       }

@@ -15,12 +15,14 @@ import { projectMarkdownAgent, readProjectMarkdown, scanProjectMarkdown } from '
 import { createVaultBackup, listVaultBackups, restoreVaultBackup } from './backup'
 import { createCardExamples } from './documented-examples'
 import { saveProjectSkills, skillMarkdownMetadata } from './project-skills'
-import { assertSkillInactive, deleteSkillFiles, planSkillDeletion } from './skill-deletion'
+import { assertSkillInactive, deleteCollectionFiles, deleteSkillFiles, planSkillDeletion } from './skill-deletion'
 import type { SkillCardColor } from './skill-colors'
+import { detectExternalChanges, inspectSkillVersions, resolveExternalChange } from './external-changes'
 
 const messageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready') }),
   z.object({ type: z.literal('refresh') }),
+  z.object({ type: z.literal('reviewExternalChanges') }),
   z.object({ type: z.literal('openSkill'), id: z.string() }),
   z.object({ type: z.literal('backToDashboard') }),
   z.object({ type: z.literal('createVault') }),
@@ -45,11 +47,13 @@ const messageSchema = z.discriminatedUnion('type', [
     cardColor: skillSchema.shape.cardColor.nullable()
   }),
   z.object({ type: z.literal('deleteCollection'), id: z.string() }),
-  z.object({ type: z.literal('toggleCollection'), id: z.string(), enabled: z.boolean() }),
+  z.object({ type: z.literal('toggleCollection'), id: z.string(), enabled: z.boolean(),
+    agents: z.array(skillAgentSchema).min(1).max(2).optional() }),
   z.object({ type: z.literal('setProjectFolder') }),
   z.object({ type: z.literal('scanProject') }),
   z.object({ type: z.literal('setActiveProject'), id: z.string().nullable() }),
-  z.object({ type: z.literal('toggleProjectSkill'), id: z.string(), agent: skillAgentSchema.optional() }),
+  z.object({ type: z.literal('toggleProjectSkill'), id: z.string(), agent: skillAgentSchema.optional(),
+    agents: z.array(skillAgentSchema).min(1).max(2).optional() }),
   z.object({ type: z.literal('runSkill'), id: z.string(), agent: skillAgentSchema.optional() }),
   z.object({
     type: z.literal('saveSkill'), id: z.string(),
@@ -96,6 +100,23 @@ export function activate(context: vscode.ExtensionContext): void {
   let pendingSkill: { root: string; skill: z.infer<typeof skillSchema>; content: string; collectionId?: string } | undefined
   let queue = Promise.resolve()
   let disposed = false
+  let editingContent: { id: string; content: string } | undefined
+  let watchedKey = ''
+  let watchers: vscode.Disposable[] = []
+  let watchTimer: ReturnType<typeof setTimeout> | undefined
+  const libraryContents = new Map<string, string>()
+  const comparisonContents = new Map<string, string>()
+  context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider('skillvortex-compare', {
+    provideTextDocumentContent: uri => {
+      const content = comparisonContents.get(uri.toString())
+      if (content === undefined) throw new Error('Comparacao expirada. Abra a revisao novamente.')
+      return content
+    }
+  }))
+  context.subscriptions.push({ dispose: () => {
+    if (watchTimer) clearTimeout(watchTimer)
+    for (const watcher of watchers) watcher.dispose()
+  } })
   context.subscriptions.push({ dispose: () => { disposed = true } })
 
   const report = (error: unknown): void => {
@@ -107,6 +128,109 @@ export function activate(context: vscode.ExtensionContext): void {
   const run = (action: () => Promise<void>) => {
     queue = queue.then(async () => { if (!disposed) await action() }).catch(report)
     return queue
+  }
+  async function externalChanges(root: string, data: Awaited<ReturnType<typeof readVault>>) {
+    const changes = await detectExternalChanges(root, data)
+    for (const skill of data.catalog.skills) {
+      const path = join(root, skill.filePath)
+      const previous = libraryContents.get(path)
+      let content: string
+      try { content = await readContained(root, path) } catch (error) {
+        if (hasErrorCode(error, 'ENOENT')) continue
+        throw error
+      }
+      if (previous !== undefined && content !== previous && !changes.some(item => item.skillId === skill.id)) {
+        const change = await inspectSkillVersions(root, data, skill.id)
+        change.library.changed = true
+        changes.push(change)
+      }
+      if (!libraryContents.has(path)) libraryContents.set(path, content)
+    }
+    return changes
+  }
+  function watchFiles(root: string, data: Awaited<ReturnType<typeof readVault>>): void {
+    const locations = [root, ...data.projects.projects.flatMap(project => project.sourcePath ? [project.sourcePath] : [])]
+    const key = JSON.stringify(locations)
+    if (key === watchedKey) return
+    for (const watcher of watchers) watcher.dispose()
+    watchers = []
+    watchedKey = key
+    const changed = () => {
+      if (watchTimer) clearTimeout(watchTimer)
+      watchTimer = setTimeout(() => { void run(async () => {
+        const current = await currentVault()
+        const changes = await externalChanges(current.root, current.data)
+        await panel?.webview.postMessage({ type: 'externalChanges', externalChanges: changes.map(item => ({
+          skillId: item.skillId, name: item.name, libraryChanged: item.library.changed,
+          publications: item.publications.filter(version => version.changed).length
+        })) })
+      }) }, 500)
+    }
+    for (const location of new Set(locations)) {
+      const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(location,
+        location === root ? 'skills/*.md' : '{.github,.agents,.agent}/skills/**/SKILL.md'))
+      watchers.push(watcher, watcher.onDidChange(changed), watcher.onDidCreate(changed), watcher.onDidDelete(changed))
+    }
+  }
+  async function reviewExternalChanges(): Promise<void> {
+    const { root, data } = await currentVault()
+    const changes = await externalChanges(root, data)
+    if (!changes.length) {
+      void vscode.window.showInformationMessage('Arquivos verificados. Nenhuma alteracao pendente para sincronizar.')
+      return
+    }
+    const selected = await vscode.window.showQuickPick(changes.map(change => ({
+      label: change.name, description: change.library.error ?? change.publications.find(version => version.error)?.error ??
+        (change.library.changed ? 'Biblioteca alterada' : 'Publicacao alterada'), change
+    })), { title: 'Sincronizar: escolha a skill alterada' })
+    if (!selected) return
+    const change = selected.change
+    const source = await vscode.window.showQuickPick([
+      { label: 'Biblioteca', description: 'Restaurar/sincronizar as publicacoes a partir do original', version: change.library },
+      ...change.publications.map(version => ({
+        label: `${version.agent} · ${data.projects.projects.find(project => project.id === version.projectId)?.name}`,
+        description: version.error ?? `${version.changed ? 'Alterada · ' : ''}${version.path}`,
+        detail: 'Escolha esta versao para trazer a edicao do projeto para o Markdown da biblioteca.', version
+      }))
+    ].filter(item => item.version.content !== null), { title: 'Escolha a versao para comparar ou adotar' })
+    if (!source) return
+    const action = await vscode.window.showQuickPick([
+      { label: 'Comparar versoes', action: 'compare' },
+      { label: 'Mesclar manualmente na biblioteca', action: 'merge' },
+      { label: source.version === change.library ? 'Restaurar da biblioteca' : 'Importar para a biblioteca', action: 'resolve' }
+    ], { title: 'Nenhum arquivo sera substituido sem confirmacao' })
+    if (!action) return
+    if (action.action === 'compare' || action.action === 'merge') {
+      const other = source.version === change.library
+        ? change.publications.find(version => version.changed) ?? change.publications[0] : change.library
+      if (!other) throw new Error('Nao existe publicacao para comparar. Edite o Markdown da biblioteca e revise novamente.')
+      const snapshot = (content: string | null, label: string) => {
+        const uri = vscode.Uri.parse(`skillvortex-compare:/${randomBytes(8).toString('hex')}/${label}.md`)
+        comparisonContents.set(uri.toString(), content ?? '(Arquivo removido)')
+        return uri
+      }
+      if (action.action === 'merge') {
+        const external = source.version === change.library ? other : source.version
+        const backup = await createVaultBackup(root)
+        await vscode.commands.executeCommand('vscode.diff', snapshot(external.content, 'publicacao'),
+          vscode.Uri.file(change.library.path), `${change.name}: publicacao ↔ biblioteca (editavel)`)
+        void vscode.window.showInformationMessage(`Edite e salve o lado da biblioteca. Depois use Sincronizar > Biblioteca > Restaurar da biblioteca. Backup: ${backup.id}`)
+        return
+      }
+      await vscode.commands.executeCommand('vscode.diff',
+        snapshot(other.content, 'versao-atual'), snapshot(source.version.content, 'versao-selecionada'),
+        `${change.name}: atual ↔ selecionada`)
+      return
+    }
+    const confirmed = await vscode.window.showWarningMessage(
+      `Adotar esta versao de ${change.name}?`, { modal: true,
+        detail: 'Atualiza o original na biblioteca e TODAS as publicacoes ativas desta skill, inclusive outros projetos e agentes. As versoes anteriores serao guardadas em backup. Copias divergentes serao substituidas pela versao escolhida.' },
+      'Criar backup e sincronizar')
+    if (confirmed !== 'Criar backup e sincronizar') return
+    const backup = await resolveExternalChange(root, change, source.version.path)
+    libraryContents.delete(change.library.path)
+    await refresh()
+    void vscode.window.showInformationMessage(`Skill sincronizada. Versoes anteriores: ${backup}`)
   }
   async function publishedMarkdownSkills(data: Awaited<ReturnType<typeof readVault>>): Promise<string[]> {
     const skillIds = new Set<string>()
@@ -154,7 +278,7 @@ export function activate(context: vscode.ExtensionContext): void {
         type: 'state', root: null, catalog: null, projects: null,
         editingSkillId: null, content: '', saved
       })
-      const message = 'A pasta do cofre salvo nao foi encontrada. Use “Abrir cofre” para escolher outra pasta ou “Criar cofre” para iniciar.'
+      const message = 'A pasta da biblioteca salva nao foi encontrada. Use “Abrir biblioteca” para escolher outra pasta ou “Criar biblioteca” para iniciar.'
       output.appendLine(`${message} Caminho anterior: ${root}`)
       await panel?.webview.postMessage({ type: 'error', message })
       return
@@ -170,7 +294,7 @@ export function activate(context: vscode.ExtensionContext): void {
         type: 'state', root: null, catalog: null, projects: null,
         editingSkillId: null, content: '', saved
       })
-      const message = 'A pasta selecionada nao contem os arquivos de cofre esperados (.skillvortex/catalogo.json e projetos.json). Use “Abrir cofre” para escolher um cofre valido ou “Criar cofre” para iniciar.'
+      const message = 'A pasta selecionada nao contem os arquivos de biblioteca esperados (.skillvortex/catalogo.json e projetos.json). Use “Abrir biblioteca” para escolher uma biblioteca valida ou “Criar biblioteca” para iniciar.'
       output.appendLine(`${message} Caminho: ${canonical}`)
       await panel?.webview.postMessage({ type: 'error', message })
       return
@@ -189,6 +313,9 @@ export function activate(context: vscode.ExtensionContext): void {
     const content = creating && pendingSkill ? pendingSkill.content
       : skill ? await readContained(canonical, join(canonical, skill.filePath)) : ''
     if (editingSkillId && !skill) editingSkillId = null
+    editingContent = skill && !creating ? { id: skill.id, content } : undefined
+    const changes = await externalChanges(canonical, await readVault(canonical))
+    watchFiles(canonical, data)
     const activeProject = data.projects.projects.find(project => project.id === data.projects.activeProject)
     const projectPaths = activeProject?.sourcePath ? [activeProject.sourcePath]
       : (vscode.workspace.workspaceFolders ?? [])
@@ -205,12 +332,16 @@ export function activate(context: vscode.ExtensionContext): void {
     await panel?.webview.postMessage({
       type: 'state', root: canonical, ...data, editingSkillId, content, creating,
       hasProjectMarkdown: (await scanProjectMarkdown(existingProjectPaths)).length > 0,
-      publishedMarkdown: await publishedMarkdownSkills(data), saved
+      publishedMarkdown: await publishedMarkdownSkills(data), saved,
+      externalChanges: changes.map(item => ({
+        skillId: item.skillId, name: item.name, libraryChanged: item.library.changed,
+        publications: item.publications.filter(version => version.changed).length
+      }))
     })
   }
   async function currentVault(): Promise<{ root: string; data: Awaited<ReturnType<typeof readVault>> }> {
     const selected = context.globalState.get<string>('vaultPath')
-    if (!selected) throw new Error('Crie ou abra um cofre primeiro.')
+    if (!selected) throw new Error('Crie ou abra uma biblioteca primeiro.')
     const root = await fs.realpath(selected)
     return { root, data: await readVault(root) }
   }
@@ -239,7 +370,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const { root } = await currentVault()
     const backups = await listVaultBackups(root)
     if (!backups.length) {
-      void vscode.window.showInformationMessage('Este cofre ainda nao tem backups.')
+      void vscode.window.showInformationMessage('Esta biblioteca ainda nao tem backups.')
       return
     }
     const selected = await vscode.window.showQuickPick(backups.map(backup => ({
@@ -288,7 +419,7 @@ export function activate(context: vscode.ExtensionContext): void {
       id, name, category,
       description: 'Descreva o objetivo e quando usar esta skill.',
       filePath,
-      agents: [], status: 'pending' as const, tags: [],
+      agents: collection?.agents ?? ['GitHub Copilot', 'Antigravity'], status: 'pending' as const, tags: [],
       ...(cardColor ? { cardColor } : {})
     }
     pendingSkill = { root, skill, content: `# ${name}\n\n`, collectionId }
@@ -510,11 +641,11 @@ export function activate(context: vscode.ExtensionContext): void {
   async function chooseDestination(): Promise<string | undefined> {
     const parent = await vscode.window.showOpenDialog({
       canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
-      openLabel: 'Selecionar pasta que recebera o cofre'
+      openLabel: 'Selecionar pasta que recebera a biblioteca'
     })
     if (!parent?.[0]) return
     const name = await vscode.window.showInputBox({
-      prompt: 'Nome de uma nova pasta para o cofre', value: 'MeuCofre',
+      prompt: 'Nome de uma nova pasta para a biblioteca', value: 'MinhaBiblioteca',
       validateInput: value => /^[a-zA-Z0-9_-]{1,60}$/.test(value)
         ? null : 'Use 1 a 60 letras ASCII, numeros, hifen ou sublinhado.'
     })
@@ -526,11 +657,11 @@ export function activate(context: vscode.ExtensionContext): void {
     await createVault(destination)
     await context.globalState.update('vaultPath', destination)
     await refresh()
-    void vscode.window.showInformationMessage('Cofre criado. Abra a biblioteca para visualizar.')
+    void vscode.window.showInformationMessage('Biblioteca criada. Abra o gerenciador para visualizar.')
   }
   async function openVault(): Promise<void> {
     const selected = await vscode.window.showOpenDialog({
-      canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: 'Abrir cofre'
+      canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: 'Abrir biblioteca'
     })
     if (!selected?.[0]) return
     await readVault(selected[0].fsPath)
@@ -544,7 +675,7 @@ export function activate(context: vscode.ExtensionContext): void {
     })
     if (!selected?.[0]) return
     const confirmation = await vscode.window.showWarningMessage(
-      'Feche o SkillVortex desktop antes de continuar. O banco sera apenas lido e os Markdown serao copiados para um cofre novo.',
+      'Feche o SkillVortex desktop antes de continuar. O banco sera apenas lido e os Markdown serao copiados para uma biblioteca nova.',
       { modal: true }, 'Desktop fechado, continuar'
     )
     if (!confirmation) return
@@ -586,6 +717,7 @@ export function activate(context: vscode.ExtensionContext): void {
       if (message.type === 'ready' || message.type === 'refresh') await refresh()
       if (message.type === 'createVault') await create()
       if (message.type === 'openVault') await openVault()
+      if (message.type === 'reviewExternalChanges') await reviewExternalChanges()
       if (message.type === 'migrateDesktop') await migrate()
       if (message.type === 'createBackup') await createBackup()
       if (message.type === 'restoreBackup') await restoreBackup()
@@ -636,7 +768,33 @@ export function activate(context: vscode.ExtensionContext): void {
         const existing = message.id ? collections.find(item => item.id === message.id) : undefined
         if (message.id && !existing) throw new Error('Colecao nao encontrada.')
         if (message.type === 'deleteCollection') {
-          data.catalog.collections = collections.filter(item => item.id !== message.id)
+          if (!existing) throw new Error('Colecao nao encontrada.')
+          for (const id of existing.skillIds) assertSkillInactive(data, id)
+          const exclusive = existing.skillIds.filter(id => !collections.some(item =>
+            item.id !== existing.id && item.skillIds.includes(id)))
+          const plans = []
+          for (const id of exclusive) {
+            const skill = data.catalog.skills.find(item => item.id === id)
+            if (!skill) throw new Error('Skill nao encontrada.')
+            plans.push(await planSkillDeletion(root, data, skill))
+          }
+          const confirmation = await vscode.window.showWarningMessage(
+            `Excluir o card ${existing.name} e ${plans.length} skill(s) exclusiva(s)?`,
+            { modal: true, detail: `Skills usadas em outros cards serao preservadas. Arquivos e pastas a apagar, incluindo seu conteudo:\n${plans.flatMap(plan =>
+              [plan.vaultFile, ...plan.archives, ...plan.folders]).join('\n') || 'Nenhum arquivo.'}` },
+            'Excluir permanentemente'
+          )
+          if (confirmation !== 'Excluir permanentemente') return
+          try {
+            await deleteCollectionFiles(root, existing.id, plans, persist)
+          } catch (error) {
+            try { await refresh() } catch (refreshError) {
+              throw new AggregateError([error, refreshError], 'Falha ao excluir o card e atualizar a biblioteca.')
+            }
+            throw error
+          }
+          await refresh()
+          return
         } else {
           if (collections.some(item => item.id !== message.id &&
               item.name.toLocaleLowerCase() === message.name.toLocaleLowerCase())) {
@@ -657,6 +815,9 @@ export function activate(context: vscode.ExtensionContext): void {
             cardColor: message.cardColor === null ? undefined : message.cardColor ?? existing?.cardColor
           }
           if (!collection.category || !data.catalog.categories.includes(collection.category)) throw new Error('Categoria nao encontrada.')
+          if (!collection.agents.some(agent => agent === 'GitHub Copilot' || agent === 'Antigravity')) {
+            throw new Error('Selecione GitHub Copilot ou Antigravity para habilitar o switch deste card.')
+          }
           if (existing &&
               data.projects.projects.some(project => existing.skillIds.some(id => project.skillIds.includes(id)))) {
             throw new Error('Desative as skills do card antes de editar.')
@@ -681,6 +842,13 @@ export function activate(context: vscode.ExtensionContext): void {
         const skill = data.catalog.skills.find(item => item.id === ids[0])
         if (!skill) throw new Error('Skill nao encontrada.')
         const agent = message.type === 'toggleProjectSkill' ? message.agent : undefined
+        const targets = message.agents ? [...new Set(message.agents)] : undefined
+        if (targets) {
+          const labels = collection?.agents ?? skill.agents
+          if (targets.some(target => !labels.includes(target))) {
+            throw new Error('Selecione somente os agentes exibidos no card.')
+          }
+        }
         for (const id of ids) {
           const member = data.catalog.skills.find(item => item.id === id)
           if (!member) throw new Error('Skill nao encontrada.')
@@ -691,8 +859,10 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         if (agent && !skill.agents.includes(agent)) throw new Error('Agente nao associado a esta skill.')
         let project = data.projects.projects.find(item => item.id === data.projects.activeProject)
+        const currentProject = project
         const disabling = message.type === 'toggleCollection' ? !message.enabled
-          : Boolean(project?.skillIds.includes(skill.id))
+          : targets ? Boolean(currentProject && targets.every(target => isAgentLinked(currentProject, skill.id, target)))
+            : Boolean(project?.skillIds.includes(skill.id))
         if (message.type === 'toggleCollection' && disabling && !project) {
           throw new Error('Selecione um projeto antes de desativar a colecao.')
         }
@@ -720,7 +890,16 @@ export function activate(context: vscode.ExtensionContext): void {
           }
         }
         if (!project) throw new Error('Projeto nao encontrado.')
-        if (agent) {
+        if (targets) {
+          const enabled = message.type === 'toggleCollection' ? message.enabled : !disabling
+          const bindings = projectBindings(project).filter(binding =>
+            !ids.includes(binding.skillId) || !targets.includes(binding.agent))
+          if (enabled) for (const id of ids) {
+            for (const target of targets) bindings.push({ skillId: id, agent: target })
+          }
+          setProjectBindings(project, bindings)
+          project.sharedPublication = true
+        } else if (agent) {
           const bindings = projectBindings(project)
           setProjectBindings(project, isAgentLinked(project, skill.id, agent)
             ? bindings.filter(item => item.skillId !== skill.id || item.agent !== agent)
@@ -732,7 +911,7 @@ export function activate(context: vscode.ExtensionContext): void {
             setSharedSkillPublication(project, id, enabled)
           }
         }
-        await persist(root, data, agent)
+        await persist(root, data, targets?.length === 1 ? targets[0] : agent)
         await refresh()
       }
       if (message.type === 'runSkill') {
@@ -802,13 +981,14 @@ export function activate(context: vscode.ExtensionContext): void {
         })
         data.catalog.skills[index] = updated
         const linked = new Set(message.projectIds)
+        const cards = skillCards(data.catalog).filter(card => card.skillIds.includes(updated.id))
+        const agents = [...new Set(cards.flatMap(card => card.agents))]
+          .filter((agent): agent is SkillAgent => agent === 'GitHub Copilot' || agent === 'Antigravity')
+        if (linked.size && updated.status !== 'blocked' && !agents.length) {
+          throw new Error('Selecione GitHub Copilot ou Antigravity no card antes de usar no projeto.')
+        }
         for (const project of data.projects.projects) {
-          const bindings = projectBindings(project).filter(item => item.skillId !== updated.id)
-          if (updated.status !== 'blocked' && linked.has(project.id)) {
-            bindings.push({ skillId: updated.id, agent: 'Antigravity' })
-            project.sharedPublication = true
-          }
-          setProjectBindings(project, bindings)
+          setSharedSkillPublication(project, updated.id, updated.status !== 'blocked' && linked.has(project.id), agents)
         }
         for (const project of data.projects.projects) {
           if (project.skillIds.includes(updated.id) && !project.sourcePath) {
@@ -817,6 +997,9 @@ export function activate(context: vscode.ExtensionContext): void {
         }
         const previousFilePath = current.filePath
         const previousContent = creating ? undefined : await readContained(root, join(root, previousFilePath))
+        if (editingContent?.id === message.id && previousContent !== editingContent.content) {
+          throw new Error('O Markdown foi alterado fora do gerenciador. Preserve seu rascunho e revise as alteracoes externas antes de salvar.')
+        }
         const nextFilePath = await availableSkillFilePath(
           root,
           updated.name,
@@ -835,12 +1018,14 @@ export function activate(context: vscode.ExtensionContext): void {
               await fs.unlink(join(root, nextFilePath))
             }
           } catch (rollbackError) {
-            throw new AggregateError([error, rollbackError], 'Falha ao salvar a skill e restaurar o Markdown do cofre.')
+            throw new AggregateError([error, rollbackError], 'Falha ao salvar a skill e restaurar o Markdown da biblioteca.')
           }
           throw error
         }
         if (!creating && nextFilePath !== previousFilePath) await fs.unlink(join(root, previousFilePath))
         if (creating) pendingSkill = undefined
+        libraryContents.delete(join(root, previousFilePath))
+        libraryContents.delete(join(root, nextFilePath))
         editingSkillId = data.projects.projects.some(project => project.skillIds.includes(updated.id))
           ? null : updated.id
         await refresh(true)

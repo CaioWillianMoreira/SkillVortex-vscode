@@ -20,6 +20,7 @@ module.exports = async function testCardColors(extension) {
   let otherProjectLinked = false
   let collections = []
   let stage = 'create'
+  let externalReviewRequested = false
   const state = (editingSkillId = null, saved = false) => ({
     type: 'state', root: '/test-vault',
     catalog: { version: 1, categories: ['Geral'], collections, skills: skill ? [skill] : [] },
@@ -52,10 +53,17 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.heading, 'Gerenciador de Skills')
           assert.equal(message.backupColor, 'rgb(56, 158, 13)')
           assert.equal(message.helpClosed, true)
+          assert.equal(message.genericAgentLabel, false)
           assert.equal(message.repeatedCollectionButtons, false)
           assert.ok(message.fontSize >= 15)
           assert.ok(message.filterWidths.every(width => width >= 220))
           assert.ok(message.menuIconGap >= 12)
+          assert.equal(message.libraryColor, 'rgb(179, 127, 235)')
+          assert.equal(message.libraryIcon, true)
+          assert.equal(message.syncVisibleWithoutWarning, true)
+        } else if (message.type === 'reviewExternalChanges') {
+          assert.equal(stage, 'create')
+          externalReviewRequested = true
         } else if (message.type === 'createSkill') {
           if (stage === 'example-empty-add') {
             assert.deepEqual(message, { type: 'createSkill', collectionId: collections[3].id, cardColor: null })
@@ -63,6 +71,7 @@ module.exports = async function testCardColors(extension) {
             return
           }
           assert.equal(stage, 'create')
+          assert.equal(externalReviewRequested, true)
           assert.deepEqual(message, { type: 'createSkill' })
           skill = {
             id: 'color-test', name: 'Nova Skill', category: 'Geral', description: 'Descricao de teste',
@@ -119,7 +128,7 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.categoryColor, rgb(SKILL_CARD_COLORS[colorIndex]))
           assert.equal(message.categoryTextColor, rgb(skillCardTextColor(SKILL_CARD_COLORS[colorIndex])))
           assert.notEqual(message.backgroundImage, 'none')
-          assert.deepEqual(message.actions, ['Executar', 'Editar', 'Excluir'])
+          assert.deepEqual(message.actions, ['Usar no chat', 'Editar', 'Excluir'])
           assert.deepEqual(message.disabledActions, [true, false, false])
           assert.equal(message.actionIconCount, 3)
           assert.deepEqual(message.actionColors.slice(1), [
@@ -164,6 +173,7 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.id, skill.id)
           if (stage === 'agent-filter') {
             assert.equal(message.agent, undefined)
+            assert.deepEqual(message.agents, ['Antigravity'])
             stage = 'collection-create'
             assert.ok(await webview.postMessage({ type: 'collection-test-create' }))
             return
@@ -215,13 +225,14 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.shared, true)
           assert.equal(message.examplesVisible, false)
           assert.deepEqual(message.cards, [
-            { agent: 'Agent Skills', active: true }
+            { agent: 'GitHub Copilot', active: false }
           ])
         } else if (message.type === 'agent-test-filtered') {
           assert.equal(message.examplesVisible, false)
           assert.equal(message.count, 1)
           assert.equal(message.active, true)
-          assert.equal(message.agent, 'Agent Skills')
+          assert.equal(message.agent, 'Antigravity')
+          assert.deepEqual(message.views, ['GitHub Copilot', 'Antigravity'])
         } else if (message.type === 'saveCollection') {
           assert.equal(stage, 'collection-create')
           assert.equal(message.name, 'Quality')
@@ -235,7 +246,7 @@ module.exports = async function testCardColors(extension) {
           assert.ok(await webview.postMessage({ type: 'collection-test-filter' }))
         } else if (message.type === 'toggleCollection') {
           assert.equal(stage, 'collection-filter')
-          assert.deepEqual(message, { type: 'toggleCollection', id: 'quality', enabled: true })
+          assert.deepEqual(message, { type: 'toggleCollection', id: 'quality', enabled: true, agents: ['Antigravity'] })
           const { createCardExamples } = require(join(extension.extensionPath, 'dist/documented-examples.js'))
           const categories = ['Geral', 'Arquitetura', 'Git', 'DevOps', 'SEO']
           const examples = createCardExamples(categories)
@@ -250,6 +261,10 @@ module.exports = async function testCardColors(extension) {
           assert.deepEqual(message.counts, [1, 4, 2, 0])
           assert.equal(message.examplesVisible, false)
           assert.equal(message.emptyDisabled, true)
+          assert.ok(message.cardHeights.every(height => height >= 440))
+          assert.ok(Math.max(...message.cardHeights) - Math.min(...message.cardHeights) <= 1)
+          assert.ok(message.cardPaddings.every(padding => padding === '20px'))
+          assert.equal(message.addColor, 'rgb(250, 219, 20)')
         } else if (message.type === 'color-test-error') {
           reject(new Error(message.message))
         }
@@ -356,10 +371,10 @@ module.exports = async function testCardColors(extension) {
           cardActionsHaveNoBorders: Array.from(card.querySelectorAll('.skill-card-actions button'))
             .every(button => parseFloat(getComputedStyle(button).borderTopWidth) === 0),
           secondaryButtonsAreRed: actionButtons.filter(button => !button.closest('.skill-card-actions') &&
-              !button.matches('.action-save, .action-backup, .action-restore, .import-markdown-button, .new-skill-button') && !button.disabled)
+              !button.matches('.action-save, .action-backup, .action-restore, .action-library, .import-markdown-button, .new-skill-button') && !button.disabled)
             .every(button => getComputedStyle(button).color === 'rgb(255, 120, 117)'),
           secondaryButtonColors: actionButtons.filter(button => !button.closest('.skill-card-actions') &&
-              !button.matches('.action-save, .action-backup, .action-restore, .import-markdown-button, .new-skill-button') && !button.disabled)
+              !button.matches('.action-save, .action-backup, .action-restore, .action-library, .import-markdown-button, .new-skill-button') && !button.disabled)
             .map(button => ({label: button.textContent, color: getComputedStyle(button).color})),
           importMarkdownColor: getComputedStyle(document.querySelector('.import-markdown-button')).color,
           newSkillColor: getComputedStyle(document.querySelector('.new-skill-button')).color,
@@ -387,12 +402,15 @@ module.exports = async function testCardColors(extension) {
           waitFor('four example cards with exact member counts', () => {
             const cards = Array.from(document.querySelectorAll('.skill-card'));
             if (cards.length !== 4 || !cards[3].textContent.includes('Meu proximo conjunto')) return false;
+            const add = cards[3].querySelector('.action-add');
+            if (!add || add.disabled || getComputedStyle(add).color !== 'rgb(250, 219, 20)') return false;
             const counts = cards.map(card => card.querySelectorAll('.skill-file button[title="Editar Markdown desta skill"]').length);
             bridge.postMessage({ type: 'example-test-shape', counts,
               examplesVisible: Boolean(button('Carregar exemplos')),
+              cardHeights: cards.map(card => card.offsetHeight),
+              cardPaddings: cards.map(card => getComputedStyle(card.querySelector('.ant-card-body')).padding),
+              addColor: getComputedStyle(add).color,
               emptyDisabled: cards[3].querySelector('[role="switch"]').disabled });
-            const add = Array.from(cards[3].querySelectorAll('button')).find(item => item.textContent.trim() === 'Adicionar skill');
-            if (!add || add.disabled) throw new Error('Empty card cannot receive a skill');
             add.click();
             return true;
           });
@@ -452,18 +470,49 @@ module.exports = async function testCardColors(extension) {
             const cards = Array.from(document.querySelectorAll('.skill-card'));
             if (cards.length !== 1) return false;
             bridge.postMessage({ type: 'agent-test-cards', cards: cards.map(card => ({
-              agent: card.querySelector('.skill-file .ant-tag').textContent.trim(),
+              agent: card.querySelector('.agent-label').textContent.trim(),
               active: card.querySelector('[role="switch"]').getAttribute('aria-checked') === 'true'
             })), shared: cards.every(card => card.querySelector('[aria-label="Compatibilidade da skill"]')),
               examplesVisible: Boolean(button('Carregar exemplos')) });
-            const toggle = cards[0].querySelector('[role="switch"]');
-            bridge.postMessage({
-              type: 'agent-test-filtered', count: cards.length,
-              examplesVisible: Boolean(button('Carregar exemplos')),
-              agent: cards[0].querySelector('.skill-file .ant-tag').textContent.trim(),
-              active: toggle.getAttribute('aria-checked') === 'true'
-            });
-            toggle.click();
+            const views = [];
+            const originalTitle = cards[0].querySelector('h5').textContent;
+            function selectView(label, next) {
+              const filter = document.querySelector('[aria-label="Visualizar por agente"]');
+              filter.closest('.ant-select').querySelector('.ant-select-selector')
+                .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+              waitFor('agent view option ' + label, () => {
+                const option = Array.from(document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'))
+                  .find(item => item.textContent.trim() === label);
+                if (!option) return false;
+                option.click();
+                waitFor('shared card in view ' + label, () => {
+                  const selected = filter.closest('.ant-select').querySelector('.ant-select-selection-item');
+                  const visible = Array.from(document.querySelectorAll('.skill-card'));
+                  if (selected?.textContent.trim() !== label || visible.length !== 1) return false;
+                  const expectedActive = label === 'Antigravity' ? 'true' : 'false';
+                  const labels = Array.from(visible[0].querySelectorAll('.agent-label')).map(tag => tag.textContent.trim());
+                  if (visible[0].querySelector('h5').textContent !== originalTitle ||
+                      visible[0].querySelector('[role="switch"]').getAttribute('aria-checked') !== expectedActive ||
+                      labels.length !== 1 || labels[0] !== label) {
+                    throw new Error('Agent view must display and control only the selected destination');
+                  }
+                  views.push(label);
+                  next(visible[0]);
+                  return true;
+                });
+                return true;
+              });
+            }
+            selectView('GitHub Copilot', () => selectView('Antigravity', card => {
+              const toggle = card.querySelector('[role="switch"]');
+              bridge.postMessage({
+                type: 'agent-test-filtered', count: 1, views,
+                examplesVisible: Boolean(button('Carregar exemplos')),
+                agent: card.querySelector('.agent-label').textContent.trim(),
+                active: toggle.getAttribute('aria-checked') === 'true'
+              });
+              toggle.click();
+            }));
             return true;
           });
         } else if (event.data.type === 'color-test-create') {
@@ -475,12 +524,12 @@ module.exports = async function testCardColors(extension) {
             help.focus();
             waitFor('manager help tooltip', () => {
               const tooltip = document.querySelector('.ant-tooltip:not(.ant-tooltip-hidden)');
-              if (!tooltip || !tooltip.textContent.includes('Novas ativacoes')) return false;
+              if (!tooltip || !tooltip.textContent.includes('O switch controla')) return false;
               help.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
               help.blur();
               waitFor('closed help tooltip', () => {
                 if (document.querySelector('.ant-tooltip:not(.ant-tooltip-hidden)')) return false;
-                button('Cofre').click();
+                button('Biblioteca').click();
                 waitFor('vault menu', () => {
                   const backup = document.querySelector('.vault-menu-backup');
                   if (!backup) return false;
@@ -488,14 +537,30 @@ module.exports = async function testCardColors(extension) {
                     type: 'manager-chrome',
                     heading: document.querySelector('.library-heading h2').textContent.trim(),
                     backupColor: getComputedStyle(backup).color,
+                    libraryColor: getComputedStyle(button('Biblioteca')).color,
+                    libraryIcon: Boolean(button('Biblioteca').querySelector('.ant-btn-icon svg')),
+                    syncVisibleWithoutWarning: Boolean(button('Sincronizar')) && !document.querySelector('.ant-alert-warning'),
+                    genericAgentLabel: Array.from(document.querySelectorAll('.skill-file .ant-tag'))
+                      .some(tag => tag.textContent.trim() === 'Agent Skills'),
                     helpClosed: !document.querySelector('.ant-tooltip:not(.ant-tooltip-hidden)'),
                     repeatedCollectionButtons: Boolean(button('Editar colecao') || button('Ativar colecao') || button('Desativar colecao')),
                     menuIconGap: parseFloat(getComputedStyle(backup.closest('[role="menuitem"]')).columnGap),
                     fontSize: parseFloat(getComputedStyle(document.querySelector('input[aria-label="Buscar skills"]')).fontSize),
                     filterWidths: Array.from(document.querySelectorAll('.filter-select')).map(item => item.getBoundingClientRect().width)
                   });
-                  button('Cofre').click();
-                  createItem('Nova Skill');
+                  button('Biblioteca').click();
+                  button('Sincronizar').click();
+                  window.dispatchEvent(new MessageEvent('message', { data: {
+                    type: 'externalChanges', externalChanges: [{ skillId: 'external', name: 'External', libraryChanged: true, publications: 1 }]
+                  } }));
+                  waitFor('external changes warning and review action', () => {
+                    const review = button('Revisar alteracoes');
+                    if (!review || !document.querySelector('.ant-alert-warning')?.textContent.includes('Alteracoes externas')) return false;
+                    review.click();
+                    window.dispatchEvent(new MessageEvent('message', { data: { type: 'externalChanges', externalChanges: [] } }));
+                    createItem('Nova Skill');
+                    return true;
+                  });
                   return true;
                 });
                 return true;

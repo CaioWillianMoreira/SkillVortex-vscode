@@ -1,7 +1,7 @@
 {
   "name": "skillvortex-extension",
   "displayName": "SkillVortex Extension",
-  "description": "Cofre local e portatil de Markdown para projetos e agentes de IA.",
+  "description": "Biblioteca local e portatil de skills Markdown para projetos e agentes de IA.",
   "version": "0.1.2",
   "publisher": "skillvortex",
   "private": true,
@@ -34,11 +34,11 @@
       },
       {
         "command": "skillVortex.createVault",
-        "title": "SkillVortex: Criar cofre"
+        "title": "SkillVortex: Criar biblioteca"
       },
       {
         "command": "skillVortex.openVault",
-        "title": "SkillVortex: Abrir cofre"
+        "title": "SkillVortex: Abrir biblioteca"
       },
       {
         "command": "skillVortex.migrateDesktop",

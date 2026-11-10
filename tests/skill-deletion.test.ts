@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import { afterEach, beforeEach, expect, test } from '@jest/globals'
 import { createDocumentedExamples } from '../src/documented-examples'
 import { saveProjectSkills } from '../src/project-skills'
-import { deleteSkillFiles, planSkillDeletion } from '../src/skill-deletion'
+import { deleteCollectionFiles, deleteSkillFiles, planSkillDeletion } from '../src/skill-deletion'
 import { createVault, readVault, saveVaultData, writeSkillFile } from '../src/vault'
-import type { VaultData } from '../src/model'
+import { skillCards, type VaultData } from '../src/model'
 
 let temporary: string
 let root: string
@@ -52,6 +52,57 @@ async function disabledSkill(): Promise<VaultData> {
 
 const persist = async (path: string, data: VaultData) =>
   saveProjectSkills(path, await readVault(path), data)
+
+test('deleting a card preserves shared skills and other cards without generating standalone cards', async () => {
+  const first = initial.catalog.skills[0]
+  const shared = { ...first, id: 'shared', name: 'Shared', filePath: 'skills/shared.md' }
+  initial.catalog.skills.push(shared)
+  await writeSkillFile(root, shared.filePath, '# Shared')
+  initial.catalog.collections = [
+    { id: 'first', name: 'First', skillIds: [first.id, shared.id] },
+    { id: 'second', name: 'Second', skillIds: [shared.id] },
+    { id: 'third', name: 'Third', skillIds: [] },
+    { id: 'fourth', name: 'Fourth', skillIds: [] }
+  ]
+  await saveVaultData(root, initial)
+  const plan = await planSkillDeletion(root, initial, first)
+  await deleteCollectionFiles(root, 'first', [plan], persist)
+  const saved = await readVault(root)
+  expect(skillCards(saved.catalog).map(card => card.id)).toEqual(['second', 'third', 'fourth'])
+  expect(saved.catalog.skills.map(skill => skill.id)).toEqual(['shared'])
+  expect(await fs.readFile(join(root, shared.filePath), 'utf8')).toBe('# Shared')
+  await expect(fs.stat(join(root, first.filePath))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await fs.readFile(origin, 'utf8')).toBe('# Original import')
+})
+
+test('a failed card deletion restores every exclusive Markdown and the card metadata', async () => {
+  const first = initial.catalog.skills[0]
+  const second = { ...first, id: 'second', name: 'Second', filePath: 'skills/second.md' }
+  initial.catalog.skills.push(second)
+  await writeSkillFile(root, second.filePath, '# Second')
+  initial.catalog.collections = [{ id: 'card', name: 'Card', skillIds: [first.id, second.id] }]
+  await saveVaultData(root, initial)
+  const content = await fs.readFile(join(root, first.filePath))
+  const plans = await Promise.all(initial.catalog.skills.map(skill => planSkillDeletion(root, initial, skill)))
+  await expect(deleteCollectionFiles(root, 'card', plans, async () => { throw new Error('Save failed') }))
+    .rejects.toThrow('Save failed')
+  expect(await readVault(root)).toEqual(initial)
+  expect(await fs.readFile(join(root, first.filePath))).toEqual(content)
+  expect(await fs.readFile(join(root, second.filePath), 'utf8')).toBe('# Second')
+  expect((await fs.readdir(join(root, 'skills'))).some(name => name.includes('skillvortex-delete'))).toBe(false)
+})
+
+test('changing membership after confirmation prevents deleting skills shared with another card', async () => {
+  const skill = initial.catalog.skills[0]
+  initial.catalog.collections = [{ id: 'card', name: 'Card', skillIds: [skill.id] }]
+  await saveVaultData(root, initial)
+  const plan = await planSkillDeletion(root, initial, skill)
+  initial.catalog.collections.push({ id: 'other', name: 'Other', skillIds: [skill.id] })
+  await saveVaultData(root, initial)
+  await expect(deleteCollectionFiles(root, 'card', [plan], persist)).rejects.toThrow('mudaram apos')
+  expect(await readVault(root)).toEqual(initial)
+  expect(await fs.readFile(join(root, skill.filePath), 'utf8')).toContain('Vitest')
+})
 
 async function addLegacyMarker(data: VaultData, folderIndex = 0): Promise<void> {
   const skill = data.catalog.skills[0]

@@ -7,8 +7,8 @@ import {
 import type { ButtonProps } from 'antd'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { Catalog, Projects, Skill, SkillCard } from '../src/model'
-import { skillCards, skillRegistrationSchema } from '../src/model'
+import type { Catalog, Projects, Skill, SkillCard, SkillAgent } from '../src/model'
+import { isAgentLinked, skillCards, skillRegistrationSchema } from '../src/model'
 import {
   categoryColor, isSkillCardColor, SKILL_CARD_COLOR_LABELS, SKILL_CARD_COLORS, skillCardTextColor
 } from '../src/skill-colors'
@@ -27,6 +27,7 @@ const actionIcons = {
   unlink: 'm9 15-2 2a4 4 0 0 1-6-6l4-4a4 4 0 0 1 5 0M15 9l2-2a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-5 0M3 3l18 18',
   delete: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7',
   folder: 'M3 7V4h6l2 3h10v13H3z',
+  library: 'M3 4h4v16H3zM10 4h4v16h-4zM16 5l3-1 4 15-3 1z',
   search: 'M21 21l-6-6M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0',
   back: 'm10 5-7 7 7 7M3 12h18',
   save: 'M4 3h13l4 4v14H3V3zM7 3v6h10V3M7 21v-8h10v8',
@@ -74,6 +75,7 @@ type AppState = {
   content: string
   saved?: boolean
   creating?: boolean
+  externalChanges?: Array<{ skillId: string; name: string; libraryChanged: boolean; publications: number }>
 }
 type Draft = Skill & { content: string; projectIds: string[] }
 
@@ -102,6 +104,7 @@ function App(): React.JSX.Element {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>()
+  const [agentFilter, setAgentFilter] = useState<string>()
   const [categoryName, setCategoryName] = useState('')
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false)
   const [collectionFilter, setCollectionFilter] = useState<string>()
@@ -131,9 +134,12 @@ function App(): React.JSX.Element {
         setError(event.data.message)
         setSaving(false)
       }
+      if (event.data.type === 'externalChanges') {
+        setState(current => ({ ...current, externalChanges: event.data.externalChanges }))
+      }
       if (event.data.saved) {
         setCollectionEditorOpen(false)
-        setNotice('Alteracoes salvas no cofre.')
+        setNotice('Alteracoes salvas na biblioteca.')
         setSaving(false)
       }
     }
@@ -145,6 +151,11 @@ function App(): React.JSX.Element {
 
   const activeProject = state.projects?.projects.find(project => project.id === state.projects?.activeProject)
   const allCards = useMemo(() => state.catalog ? skillCards(state.catalog) : [], [state.catalog])
+  const agentLabels = useMemo(() => [...new Set(allCards.flatMap(item => item.agents))]
+    .sort((a, b) => a.localeCompare(b)), [allCards])
+  useEffect(() => {
+    if (agentFilter && !agentLabels.includes(agentFilter)) setAgentFilter(undefined)
+  }, [agentLabels, agentFilter])
   useEffect(() => {
     if (categoryFilter && state.catalog && !state.catalog.categories.includes(categoryFilter)) {
       setCategoryFilter(undefined)
@@ -182,8 +193,9 @@ function App(): React.JSX.Element {
     return matchesText &&
       (statusFilter === 'all' || item.status === statusFilter) &&
       (!categoryFilter || item.category === categoryFilter) &&
+      (!agentFilter || item.agents.includes(agentFilter)) &&
       (!collectionFilter || item.id === collectionFilter)
-  }), [allCards, state.catalog, search, statusFilter, categoryFilter, collectionFilter])
+  }), [allCards, state.catalog, search, statusFilter, categoryFilter, agentFilter, collectionFilter])
   const cardCount = cards.length
   const editCollection = (existing?: SkillCard) => {
     setCollectionId(existing?.id)
@@ -326,21 +338,21 @@ function App(): React.JSX.Element {
               <Typography.Text className="welcome-eyebrow">BIBLIOTECA LOCAL DE MARKDOWN</Typography.Text>
               <Typography.Title level={1}>Suas skills de IA, organizadas.</Typography.Title>
               <Typography.Paragraph type="secondary">
-                Crie um cofre para catalogar, editar e acompanhar a governanca das suas instrucoes Markdown.
+                Crie uma biblioteca de skills para catalogar, editar e acompanhar a governanca das suas instrucoes Markdown.
                 Seus arquivos permanecem locais; nada e enviado automaticamente aos agentes.
               </Typography.Paragraph>
               <Space wrap className="welcome-actions">
                 <ActionButton action="add" type="primary" size="large" onClick={() => api.postMessage({ type: 'createVault' })}>
-                  Criar cofre
+                  Criar biblioteca
                 </ActionButton>
-                <ActionButton action="folder" size="large" onClick={() => api.postMessage({ type: 'openVault' })}>Abrir cofre</ActionButton>
+                <ActionButton action="library" size="large" onClick={() => api.postMessage({ type: 'openVault' })}>Abrir biblioteca</ActionButton>
                 <ActionButton action="import" size="large" onClick={() => api.postMessage({ type: 'migrateDesktop' })}>Importar do desktop</ActionButton>
               </Space>
             </Card>
             <section className="feature-grid" aria-label="Funcionalidades">
               <Card><Typography.Title level={5}>Biblioteca e projetos</Typography.Title><Typography.Text type="secondary">Busque, filtre e vincule skills Markdown a projetos locais.</Typography.Text></Card>
               <Card><Typography.Title level={5}>Editor e visualizacao</Typography.Title><Typography.Text type="secondary">Edite com Monaco e confira a previa Markdown com suporte GFM.</Typography.Text></Card>
-              <Card><Typography.Title level={5}>Governanca e backup</Typography.Title><Typography.Text type="secondary">Organize estados de revisao e restaure backups do cofre.</Typography.Text></Card>
+              <Card><Typography.Title level={5}>Governanca e backup</Typography.Title><Typography.Text type="secondary">Organize estados de revisao e restaure backups da biblioteca.</Typography.Text></Card>
             </section>
             <section className="screen-previews">
               <div className="screen-previews-heading">
@@ -367,20 +379,28 @@ function App(): React.JSX.Element {
 
         {error && <Alert className="feedback" type="error" showIcon message={error} closable onClose={() => setError('')} />}
         {notice && <Alert className="feedback" type="success" showIcon message={notice} closable onClose={() => setNotice('')} />}
+        {Boolean(state.externalChanges?.length) && <Alert className="feedback" type="warning" showIcon
+          message={`Alteracoes externas detectadas em ${state.externalChanges?.length} skill(s)`}
+          description="Compare as versoes antes de importar ou restaurar. Nenhum arquivo sera substituido automaticamente."
+          action={<Button disabled={dirty || saving} title={dirty ? 'Preserve seu rascunho antes de revisar as versoes.' : 'Comparar, importar ou restaurar com backup'}
+            onClick={() => api.postMessage({ type: 'reviewExternalChanges' })}>Revisar alteracoes</Button>} />}
 
         {state.root && state.catalog && state.projects && !state.editingSkillId && (
           <>
             <div className="vault-path">
-              <Typography.Text type="secondary" title={state.root}>{state.root}</Typography.Text>
+              <Typography.Text type="secondary" title={`Pasta da biblioteca: ${state.root}`}>Pasta da biblioteca: {state.root}</Typography.Text>
+              <ActionButton action="refresh" className="sync-library-button" size="small"
+                title="Verificar arquivos e escolher qual versao sincronizar entre projeto e biblioteca, com backup."
+                onClick={() => api.postMessage({ type: 'reviewExternalChanges' })}>Sincronizar</ActionButton>
               <Dropdown trigger={['click']} menu={{ items: [
                 { key: 'refresh', label: 'Atualizar', icon: <ActionIcon action="refresh" />, onClick: () => api.postMessage({ type: 'refresh' }) },
                 { key: 'backup', label: <span className="vault-menu-backup">Criar backup</span>, icon: <ActionIcon action="backup" />, onClick: () => api.postMessage({ type: 'createBackup' }) },
                 { key: 'restore', label: <span className="vault-menu-restore">Restaurar backup</span>, icon: <ActionIcon action="restore" />, onClick: () => api.postMessage({ type: 'restoreBackup' }) },
                 { type: 'divider' },
-                { key: 'open', label: 'Abrir outro cofre', icon: <ActionIcon action="folder" />, onClick: () => api.postMessage({ type: 'openVault' }) },
+                { key: 'open', label: 'Abrir outra biblioteca', icon: <ActionIcon action="library" />, onClick: () => api.postMessage({ type: 'openVault' }) },
                 { key: 'desktop', label: 'Importar desktop', icon: <ActionIcon action="import" />, onClick: () => api.postMessage({ type: 'migrateDesktop' }) }
               ] }}>
-                <ActionButton action="more" size="small">Cofre</ActionButton>
+                <ActionButton action="library" size="small" title="Gerenciar a biblioteca de skills">Biblioteca</ActionButton>
               </Dropdown>
             </div>
             <section className="library-heading">
@@ -390,7 +410,7 @@ function App(): React.JSX.Element {
                   <HelpTip label="Sobre o gerenciador">
                     Gerencie as skills disponiveis para os agentes do projeto.
                     {activeProject ? ` Projeto ativo: ${activeProject.name}.` : ' Ative Usar no Projeto para associar uma pasta.'}
-                    Novas ativacoes usam .agents/skills, compartilhado pelos agentes compativeis.
+                    O switch controla somente os agentes exibidos no card, com o mesmo Markdown da biblioteca.
                     Publicacoes antigas permanecem no local original ate desativar e reativar.
                     {activeProject?.sourcePath && ` Pasta: ${activeProject.sourcePath}`}
                   </HelpTip>
@@ -398,7 +418,7 @@ function App(): React.JSX.Element {
               </div>
               <Space wrap>
                 <Tag>{cardCount} {cardCount === 1 ? 'card' : 'cards'}</Tag>
-                {allCards.length === 0 && <ActionButton action="examples" type="primary" title="Criar quatro cards de exemplo no cofre" onClick={() => modal.confirm({
+                {allCards.length === 0 && <ActionButton action="examples" type="primary" title="Criar quatro cards de exemplo na biblioteca" onClick={() => modal.confirm({
                   title: 'Carregar exemplos do dashboard?',
                   content: 'Cria quatro cards com 1, 4, 2 e 0 skills, usando somente as categorias cadastradas.',
                   okText: 'Carregar exemplos',
@@ -414,6 +434,15 @@ function App(): React.JSX.Element {
 
             <section className="filters">
               <Space wrap>
+                <Select allowClear showSearch className="filter-select"
+                  aria-label="Visualizar por agente" placeholder="Todos os agentes"
+                  value={agentFilter} options={agentLabels.map(value => ({ value, label: value }))}
+                  onChange={setAgentFilter} />
+                <HelpTip label="Visualizacao por agente">
+                  Filtra pelas labels declaradas no card. O switch controla somente os agentes exibidos.
+                  O Markdown original continua unico na biblioteca.
+                  Cards sem labels aparecem em Todos os agentes.
+                </HelpTip>
                 <Select aria-label="Filtrar por status" className="filter-select" value={statusFilter}
                   options={[{ value: 'all', label: 'Todos os status' },
                     ...statusNames.map(value => ({ value, label: labels[value] }))]} onChange={setStatusFilter} />
@@ -461,7 +490,9 @@ function App(): React.JSX.Element {
             </Modal>
             <Modal title={collectionId ? 'Editar card' : 'Novo card'} open={collectionEditorOpen} width={680}
               okText="Salvar" cancelText="Cancelar"
-              okButtonProps={{ disabled: !collectionName.trim() || !collectionCategory || !collectionDescription.trim() || !collectionTags.length, className: 'action-button action-save', icon: <ActionIcon action="save" /> }}
+              okButtonProps={{ disabled: !collectionName.trim() || !collectionCategory || !collectionDescription.trim() ||
+                !collectionTags.length || !collectionAgents.some(agent => agent === 'GitHub Copilot' || agent === 'Antigravity'),
+                className: 'action-button action-save', icon: <ActionIcon action="save" /> }}
               onCancel={() => setCollectionEditorOpen(false)} onOk={() => {
                 api.postMessage({ type: 'saveCollection', id: collectionId, name: collectionName, skillIds: collectionSkillIds,
                   category: collectionCategory, description: collectionDescription, tags: collectionTags,
@@ -493,7 +524,7 @@ function App(): React.JSX.Element {
                     onChange={values => setCollectionTags(values.map(value => value.trim()).filter(Boolean))} />
                 </div>
                 <div className="card-form-field">
-                  <label htmlFor="card-agents">Agentes compativeis (opcional)</label>
+                  <label htmlFor="card-agents">Agentes do card</label>
                   <Select id="card-agents" mode="tags" aria-label="Agentes do card" className="full-width" value={collectionAgents}
                     placeholder="Selecione os agentes"
                     options={['GitHub Copilot', 'Antigravity'].map(value => ({ value, label: value }))} onChange={setCollectionAgents} />
@@ -516,13 +547,13 @@ function App(): React.JSX.Element {
                 </div>
               </div>
             </Modal>
-            <Modal title="Escolha a skill para executar" open={Boolean(runningCard)}
+            <Modal title="Escolha a skill para usar no chat" open={Boolean(runningCard)}
               footer={null} onCancel={() => setRunningCard(null)}>
               <Space direction="vertical">
                 {state.catalog.skills.filter(item => runningCard?.skillIds.includes(item.id)).map(item =>
                   <ActionButton key={item.id} action="run"
-                    disabled={!activeProject?.skillIds.includes(item.id) || item.status === 'blocked'}
-                    onClick={() => { api.postMessage({ type: 'runSkill', id: item.id }); setRunningCard(null) }}>
+                    disabled={!activeProject || !isAgentLinked(activeProject, item.id, 'GitHub Copilot') || item.status === 'blocked'}
+                    onClick={() => { api.postMessage({ type: 'runSkill', id: item.id, agent: 'GitHub Copilot' }); setRunningCard(null) }}>
                     {item.name}
                   </ActionButton>)}
               </Space>
@@ -530,8 +561,15 @@ function App(): React.JSX.Element {
             <div className="skills-grid">
               {cards.map(item => {
                 const members = state.catalog!.skills.filter(skill => item.skillIds.includes(skill.id))
-                const linkedCount = members.filter(skill => activeProject?.skillIds.includes(skill.id)).length
-                const linked = members.length > 0 && linkedCount === members.length
+                const visibleAgents = agentFilter ? item.agents.filter(agent => agent === agentFilter) : item.agents
+                const targets = visibleAgents.filter((agent): agent is SkillAgent =>
+                  agent === 'GitHub Copilot' || agent === 'Antigravity')
+                const linkedCount = members.filter(skill => targets.some(agent =>
+                  activeProject && isAgentLinked(activeProject, skill.id, agent))).length
+                const linked = members.length > 0 && targets.length > 0 && members.every(skill =>
+                  targets.every(agent => activeProject && isAgentLinked(activeProject, skill.id, agent)))
+                const copilotLinked = targets.includes('GitHub Copilot') && members.length > 0 &&
+                  members.every(skill => activeProject && isAgentLinked(activeProject, skill.id, 'GitHub Copilot'))
                 const linkedAnywhere = Boolean(state.projects?.projects.some(project => item.skillIds.some(id => project.skillIds.includes(id))))
                 const sharedActive = linkedAnywhere
                 const lockedTitle = linkedAnywhere ? 'Desative as skills em todos os projetos antes de editar ou excluir.' : undefined
@@ -568,8 +606,8 @@ function App(): React.JSX.Element {
                           {!members.length && <Typography.Text type="secondary">Adicione uma skill ou selecione skills em Editar.</Typography.Text>}
                         </Space>
                         <Space wrap size={[4, 4]}>
-                          <Tag>Agent Skills</Tag>
-                          <HelpTip label="Compatibilidade da skill">Skill compartilhada entre agentes compativeis com Agent Skills.</HelpTip>
+                          {visibleAgents.map(agent => <Tag key={agent} className="agent-label">{agent}</Tag>)}
+                          <HelpTip label="Compatibilidade da skill">O switch controla os agentes exibidos: Copilot usa .github/skills; Antigravity usa .agents/skills. O Markdown original e unico.</HelpTip>
                         </Space>
                       </div>
                       <div className="skill-card-footer">
@@ -579,28 +617,29 @@ function App(): React.JSX.Element {
                             aria-label={`Usar ${item.name} no projeto`}
                             title={item.status === 'blocked'
                               ? 'Edite o status da skill para permitir seu uso no projeto.'
-                              : linked
-                                ? 'Desativar e preservar o SKILL.md no cofre.'
-                                : 'Publicar em .agents/skills/<nome>/SKILL.md para agentes compativeis.'}
+                              : !targets.length ? 'Selecione GitHub Copilot ou Antigravity ao editar o card.'
+                                : `${linked ? 'Desativar' : 'Ativar'} somente: ${targets.join(', ')}. O conteudo Markdown e o mesmo.`}
                             checked={linked}
-                            disabled={(!linkedCount && (item.status === 'blocked' || members.some(member => member.status === 'blocked'))) || !members.length}
+                            disabled={(!linkedCount && (item.status === 'blocked' || members.some(member => member.status === 'blocked'))) || !members.length || !targets.length}
                             onChange={() => api.postMessage(item.standaloneSkillId
-                              ? { type: 'toggleProjectSkill', id: item.standaloneSkillId }
-                              : { type: 'toggleCollection', id: item.id, enabled: !linked })}
+                              ? { type: 'toggleProjectSkill', id: item.standaloneSkillId, agents: targets }
+                              : { type: 'toggleCollection', id: item.id, enabled: !linked, agents: targets })}
                           />
                           <Typography.Text type="secondary">Usar no Projeto</Typography.Text>
                         </Space>
                         <div className="skill-card-actions">
                           <ActionButton action="run"
-                            aria-label="Executar"
+                            aria-label="Usar no chat"
                             size="small"
-                            disabled={!linked || item.status === 'blocked'}
-                            title={linked
-                              ? 'Abrir o chat do Copilot com esta skill; revise o pedido e envie.'
-                              : 'Ative a skill no projeto para executa-la.'}
+                            disabled={!copilotLinked || item.status === 'blocked'}
+                            title={copilotLinked
+                              ? members.length === 1
+                                ? 'Abre o Copilot com esta skill selecionada. Descreva a tarefa e envie.'
+                                : 'Escolha uma skill deste conjunto para usar no chat do Copilot.'
+                              : 'Disponivel para GitHub Copilot. Exiba e ative esse agente para usar no chat.'}
                             onClick={() => members.length === 1
-                              ? api.postMessage({ type: 'runSkill', id: members[0].id }) : setRunningCard(item)}
-                          >Executar</ActionButton>
+                              ? api.postMessage({ type: 'runSkill', id: members[0].id, agent: 'GitHub Copilot' }) : setRunningCard(item)}
+                          >Usar no chat</ActionButton>
                           <ActionButton action="edit" aria-label="Editar" size="small" disabled={sharedActive}
                             title={sharedActive ? 'Desative em todos os projetos antes de editar a skill.' : 'Editar a skill compartilhada entre os agentes.'}
                             onClick={() => item.standaloneSkillId
@@ -616,13 +655,7 @@ function App(): React.JSX.Element {
                             title={lockedTitle ?? 'Excluir card'} onClick={() => {
                               if (item.standaloneSkillId) {
                                 api.postMessage({ type: 'deleteSkill', id: item.standaloneSkillId })
-                              } else modal.confirm({
-                                title: 'Excluir card?',
-                                content: 'Remove somente o conjunto. As skills serao preservadas e exibidas individualmente se nao estiverem em outros cards.',
-                                okText: 'Excluir card', cancelText: 'Cancelar',
-                                okButtonProps: { className: 'action-button action-delete', icon: <ActionIcon action="delete" /> },
-                                onOk: () => api.postMessage({ type: 'deleteCollection', id: item.id })
-                              })
+                              } else api.postMessage({ type: 'deleteCollection', id: item.id })
                             }}>Excluir</ActionButton>
                         </div>
                       </div>
@@ -633,10 +666,24 @@ function App(): React.JSX.Element {
             </div>
             {!cards.length && (
               <Empty className="empty-library" description={
-                allCards.length
-                  ? 'Nenhuma skill corresponde aos filtros'
-                  : 'Seu cofre ainda nao tem cards. Use Carregar exemplos para criar quatro conjuntos, Novo card para um conjunto vazio ou Importar .md para adicionar skills.'
-              } />
+                allCards.length ? 'Nenhum card corresponde aos filtros.' : 'Sua biblioteca esta vazia. Crie um card, carregue os exemplos ou importe um Markdown.'
+              }>
+                {!allCards.length && <Space wrap>
+                  <ActionButton action="add" type="primary" onClick={() => editCollection()}>Criar primeiro card</ActionButton>
+                  <ActionButton action="examples" onClick={() => modal.confirm({
+                    title: 'Carregar exemplos?', content: 'Cria quatro cards e sete skills de exemplo.',
+                    okText: 'Carregar exemplos', cancelText: 'Cancelar',
+                    okButtonProps: { className: 'action-button action-examples', icon: <ActionIcon action="examples" /> },
+                    cancelButtonProps: { className: 'action-button action-back', icon: <ActionIcon action="back" /> },
+                    onOk: () => api.postMessage({ type: 'createDocumentedExamples' })
+                  })}>Carregar exemplos</ActionButton>
+                  <ActionButton action="import" onClick={() => api.postMessage({ type: 'importMarkdown' })}>Importar .md</ActionButton>
+                </Space>}
+                {allCards.length > 0 && <ActionButton action="filter" onClick={() => {
+                  setSearch(''); setStatusFilter('all'); setCategoryFilter(undefined)
+                  setAgentFilter(undefined); setCollectionFilter(undefined)
+                }}>Limpar filtros</ActionButton>}
+              </Empty>
             )}
           </>
         )}
@@ -693,7 +740,7 @@ function App(): React.JSX.Element {
                   />
                 </Col>
                 <Col xs={24} md={12} xl={16}>
-                  <label htmlFor="skill-agents">Agentes compativeis (opcional)</label>
+                  <label htmlFor="skill-agents">Agentes do card</label>
                   <Select
                     id="skill-agents"
                     className="full-width"
@@ -785,7 +832,7 @@ function App(): React.JSX.Element {
                             {draft.status === 'pending' && 'A skill aguarda revisao, mas pode ser vinculada a projetos.'}
                             {draft.status === 'blocked' && 'Skills bloqueadas nao podem ser vinculadas. Ao salvar o bloqueio, os vinculos existentes serao removidos.'}
                           </Typography.Paragraph>
-                          <Alert type="warning" showIcon message="Desativar remove o SKILL.md da descoberta automatica do Copilot e preserva o arquivo no cofre. Nao remove instrucoes ja carregadas numa conversa nem impede leitura explicita do arquivo." />
+                          <Alert type="warning" showIcon message="Desativar remove o SKILL.md da descoberta automatica do Copilot e preserva o arquivo na biblioteca. Nao remove instrucoes ja carregadas numa conversa nem impede leitura explicita do arquivo." />
                         </div>
                       }
                     ]}

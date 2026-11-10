@@ -174,9 +174,10 @@ export function setProjectBindings(project: Project, bindings: ReturnType<typeof
 export function isAgentLinked(project: Project, skillId: string, agent: SkillAgent): boolean {
   return projectBindings(project).some(item => item.skillId === skillId && item.agent === agent)
 }
-export function setSharedSkillPublication(project: Project, skillId: string, enabled: boolean): void {
+export function setSharedSkillPublication(project: Project, skillId: string, enabled: boolean,
+  agents: readonly SkillAgent[] = ['Antigravity', 'GitHub Copilot']): void {
   const bindings = projectBindings(project).filter(item => item.skillId !== skillId)
-  if (enabled) bindings.push({ skillId, agent: 'Antigravity' })
+  if (enabled) for (const agent of new Set(agents)) bindings.push({ skillId, agent })
   setProjectBindings(project, bindings)
   project.sharedPublication = true
 }

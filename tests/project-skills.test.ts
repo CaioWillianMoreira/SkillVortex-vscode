@@ -79,6 +79,40 @@ test('invalid YAML reports an error and leaves shared publication inactive', asy
     .rejects.toMatchObject({ code: 'ENOENT' })
 })
 
+test('dual publication updates and disables both folders from one library skill', async () => {
+  const skill = original.catalog.skills[0]
+  const enabled = structuredClone(original)
+  setSharedSkillPublication(enabled.projects.projects[0], skill.id, true)
+  await saveProjectSkills(root, original, enabled)
+  const files = ['.github', '.agents'].map(folder =>
+    join(projectPath, folder, 'skills/testes-unitarios-com-vitest/SKILL.md'))
+  expect(await fs.readFile(files[0])).toEqual(await fs.readFile(files[1]))
+  const updated = structuredClone(enabled)
+  await writeSkillFile(root, skill.filePath, '# Updated procedure')
+  await saveProjectSkills(root, enabled, updated)
+  for (const file of files) expect(await fs.readFile(file, 'utf8')).toContain('# Updated procedure')
+  const disabled = structuredClone(updated)
+  setSharedSkillPublication(disabled.projects.projects[0], skill.id, false)
+  await saveProjectSkills(root, updated, disabled)
+  for (const file of files) await expect(fs.stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(disabled.projects.projects[0].skillIds).toEqual([])
+})
+
+test('a conflict in the Copilot destination rolls back the other publication', async () => {
+  const skill = original.catalog.skills[0]
+  const copilot = join(projectPath, '.github/skills/testes-unitarios-com-vitest/SKILL.md')
+  const foreign = '---\nname: testes-unitarios-com-vitest\ndescription: Other\n---\n# Preserve this'
+  await fs.mkdir(join(copilot, '..'), { recursive: true })
+  await fs.writeFile(copilot, foreign)
+  const enabled = structuredClone(original)
+  setSharedSkillPublication(enabled.projects.projects[0], skill.id, true)
+  await expect(saveProjectSkills(root, original, enabled)).rejects.toThrow('Ja existe outro SKILL.md')
+  expect(await fs.readFile(copilot, 'utf8')).toBe(foreign)
+  await expect(fs.stat(join(projectPath, '.agents/skills/testes-unitarios-com-vitest/SKILL.md')))
+    .rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await readVault(root)).toEqual(original)
+})
+
 test('enabling shared publication keeps unrelated legacy bindings valid', async () => {
   const first = original.catalog.skills[0]
   const second = { ...first, id: 'second', name: 'Second rule', filePath: 'skills/second.md' }
@@ -114,7 +148,7 @@ test('reactivation converts a legacy plain Markdown archive while preserving its
   const published = await fs.readFile(join(projectPath, '.agents/skills/testes-unitarios-com-vitest/SKILL.md'), 'utf8')
   expect(skillMarkdownMetadata(published)).toEqual({ name: 'testes-unitarios-com-vitest', description: skill.description })
   expect(published.endsWith(body)).toBe(true)
-  await expect(fs.stat(origin)).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await fs.readFile(origin, 'utf8')).toBe(published)
 })
 
 test('backups retain collections and shared publication metadata', async () => {

@@ -25,11 +25,11 @@ function isWithin(parent: string, child: string): boolean {
 async function backupDirectory(root: string, create = false): Promise<string> {
   const canonicalRoot = await fs.realpath(root)
   const metadata = await fs.realpath(join(canonicalRoot, '.skillvortex'))
-  if (!isWithin(canonicalRoot, metadata)) throw new Error('Diretorio de metadados fora do cofre.')
+  if (!isWithin(canonicalRoot, metadata)) throw new Error('Diretorio de metadados fora da biblioteca.')
   const directory = join(metadata, 'backups')
   if (create) await fs.mkdir(directory, { recursive: true })
   const canonicalDirectory = await fs.realpath(directory)
-  if (!isWithin(canonicalRoot, canonicalDirectory)) throw new Error('Diretorio de backups fora do cofre.')
+  if (!isWithin(canonicalRoot, canonicalDirectory)) throw new Error('Diretorio de backups fora da biblioteca.')
   return canonicalDirectory
 }
 
@@ -110,7 +110,7 @@ async function readBackup(root: string, id: string): Promise<{ data: VaultData; 
   const canonicalSnapshot = await fs.realpath(snapshot)
   const canonicalBackups = await fs.realpath(backups)
   if (!isWithin(canonicalBackups, canonicalSnapshot)) {
-    throw new Error('Backup fora do cofre.')
+    throw new Error('Backup fora da biblioteca.')
   }
   const data = await readVault(canonicalSnapshot)
   const contents = new Map<string, string>()
@@ -180,7 +180,7 @@ export async function restoreVaultBackup(
       } catch (verificationError) {
         throw new AggregateError(
           [error, verificationError],
-          `Nao foi possivel confirmar a restauracao. Preserve o cofre e o ponto de recuperacao ${recoveryPoint.id}.`
+          `Nao foi possivel confirmar a restauracao. Preserve a biblioteca e o ponto de recuperacao ${recoveryPoint.id}.`
         )
       }
     }

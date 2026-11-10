@@ -17,7 +17,7 @@ export async function readContained(root: string, file: string): Promise<string>
   const [canonicalRoot, canonicalFile] = await Promise.all([fs.realpath(root), fs.realpath(file)])
   const path = relative(canonicalRoot, canonicalFile)
   if (!path || isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`)) {
-    throw new Error('Arquivo fora do cofre.')
+    throw new Error('Arquivo fora da biblioteca.')
   }
   const stat = await fs.stat(canonicalFile)
   if (!stat.isFile() || stat.size > 16 * 1024 * 1024) throw new Error('Arquivo invalido ou maior que 16 MB.')
@@ -34,7 +34,7 @@ export async function writeSkillFile(root: string, filePath: string, content: st
   const directory = await fs.realpath(dirname(destination))
   const relativeDirectory = relative(canonicalRoot, directory)
   if (!relativeDirectory || relativeDirectory.startsWith(`..${sep}`) || isAbsolute(relativeDirectory)) {
-    throw new Error('Diretorio da skill fora do cofre.')
+    throw new Error('Diretorio da skill fora da biblioteca.')
   }
   try {
     await readContained(canonicalRoot, destination)
@@ -95,7 +95,7 @@ export async function saveVaultData(root: string, data: VaultData): Promise<void
       }
     }
     if (!rollbackComplete) {
-      throw new AggregateError([error, ...rollbackErrors], 'Falha ao salvar e restaurar os metadados do cofre.')
+      throw new AggregateError([error, ...rollbackErrors], 'Falha ao salvar e restaurar os metadados da biblioteca.')
     }
     throw error
   } finally {
@@ -116,7 +116,7 @@ export async function createVault(
     await fs.mkdir(destination)
   } catch (error) {
     if (hasErrorCode(error, 'EEXIST')) {
-      throw new Error('Escolha um nome de cofre que ainda nao exista. Nada foi sobrescrito.')
+      throw new Error('Escolha um nome de biblioteca que ainda nao exista. Nada foi sobrescrito.')
     }
     throw error
   }

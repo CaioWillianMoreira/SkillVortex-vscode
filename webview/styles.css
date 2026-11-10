@@ -166,6 +166,18 @@ main {
   --action-color: #389e0d;
 }
 
+.action-library {
+  --action-color: #b37feb;
+}
+
+.sync-library-button {
+  flex-shrink: 0;
+}
+
+.skill-card-actions .action-add {
+  --action-color: #fadb14;
+}
+
 .skill-card-actions .action-edit,
 .dashboard-back-button,
 .import-markdown-button {
@@ -366,6 +378,7 @@ main {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
   gap: 20px;
+  grid-auto-rows: 1fr;
 }
 
 .skill-grid-item {
@@ -375,6 +388,7 @@ main {
 
 .skill-card.ant-card {
   display: flex;
+  min-height: 440px;
   height: 100%;
   overflow: hidden;
   flex-direction: column;
@@ -406,7 +420,6 @@ main {
 
 .skill-card .ant-card-body {
   display: flex;
-  height: 100%;
   flex: 1;
   flex-direction: column;
   padding: 20px;
@@ -417,7 +430,7 @@ main {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  min-height: 38px;
+  min-height: 48px;
 }
 
 .skill-card-heading h5.ant-typography {
@@ -433,20 +446,20 @@ main {
 }
 
 .skill-tags {
-  min-height: 28px;
-  margin-top: 8px;
+  min-height: 32px;
+  margin-top: 12px;
 }
 
 .skill-description.ant-typography {
-  min-height: 52px;
-  margin: 14px 0 20px;
+  min-height: 72px;
+  margin: 12px 0 16px;
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
 
 .skill-file {
   display: flex;
-  min-height: 50px;
+  min-height: 112px;
   flex-direction: column;
   justify-content: center;
   gap: 8px;
@@ -484,7 +497,7 @@ main {
   flex-direction: column;
   gap: 12px;
   margin: 16px 0 0;
-  padding-top: 14px;
+  padding-top: 16px;
   border-top: 1px solid #2b2b2b;
 }
 

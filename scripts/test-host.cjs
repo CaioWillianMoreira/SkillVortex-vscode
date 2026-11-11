@@ -13,7 +13,8 @@ const executable = process.env.VSCODE_EXECUTABLE_PATH ||
 runTests({
   vscodeExecutablePath: executable,
   extensionDevelopmentPath: resolve(__dirname, '..'),
-  extensionTestsPath: resolve(__dirname, '../tests/host/suite.cjs'),
+  extensionTestsPath: resolve(__dirname, process.env.SKILLVORTEX_TEST_BUILDER_ONLY === '1'
+    ? '../tests/host/product-builder.cjs' : '../tests/host/suite.cjs'),
   launchArgs: [
     '--user-data-dir', join(temporary, 'profile'),
     '--extensions-dir', join(temporary, 'extensions'),

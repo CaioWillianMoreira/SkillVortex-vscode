@@ -10,6 +10,10 @@ import { createDocumentedExamples } from '../src/documented-examples'
 import { SKILL_CARD_COLORS } from '../src/skill-colors'
 import { isAgentLinked, isCollectionLinked, selectedSkillIds, skillCards } from '../src/model'
 import { skillMarkdownMetadata } from '../src/project-skills'
+import { saveMindFolder, saveMindNote } from '../src/mindcards'
+import * as localModel from '../src/local-model'
+import * as w3cReferences from '../src/w3c-references'
+import { randomUUID } from 'node:crypto'
 
 jest.mock('../src/database', () => ({
   initializeSql: jest.fn(async () => ({})),
@@ -143,6 +147,46 @@ function pendingDraft(): { skill: import('../src/model').Skill; content: string 
   }
   return { skill: state.catalog.skills.find(item => item.id === state.editingSkillId)!, content: state.content }
 }
+
+test('Product Builder consults W3C only when explicitly enabled and surfaces fetch failures', async () => {
+  const folderId = randomUUID()
+  await saveMindFolder(root, { id: folderId, name: 'Web', color: '#1677ff' }, null)
+  const document = await saveMindNote(root, { title: 'Teclado', folderId, tags: [], links: [], content: 'Preservar foco.' })
+  jest.spyOn(localModel, 'ensureLocalModel').mockResolvedValue(undefined)
+  const references = [{ title: 'Keyboard', url: 'https://www.w3.org/WAI/WCAG22/Understanding/keyboard.html', html: '<main>Reference</main>' }]
+  const consult = jest.spyOn(w3cReferences, 'fetchW3cReferences').mockResolvedValue(references)
+  const request = { type: 'prepareBuilder', requestId: randomUUID(), objective: 'Teclado',
+    notes: [{ id: document.note.id, revision: document.note.revision }] }
+  await mock.testing.dispatch(request)
+  expect(consult).not.toHaveBeenCalled()
+  expect(mock.testing.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'builderSources', references: [] }))
+  await mock.testing.dispatch({ ...request, useW3c: true })
+  expect(consult).toHaveBeenCalledTimes(1)
+  expect(mock.testing.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'builderSources', references }))
+  consult.mockRejectedValueOnce(new Error('W3C indisponivel'))
+  await mock.testing.dispatch({ ...request, useW3c: true })
+  expect(mock.testing.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'builderError', message: 'W3C indisponivel' }))
+})
+
+test('Product Builder opens an unsaved blocked draft and persists it only after explicit save', async () => {
+  const title = 'Desconto no checkout'
+  const content = '# Desconto\n\nLimitar desconto a 10%. Nao acumular com cupons.'
+  await mock.testing.dispatch({ type: 'openBuilderSkill', title, content })
+  const stateCall = [...mock.testing.postMessage.mock.calls].reverse().find(([message]) =>
+    (message as { type: string }).type === 'state')!
+  const state = stateCall[0] as { catalog: import('../src/model').Catalog; editingSkillId: string; content: string }
+  const draft = state.catalog.skills.find(skill => skill.id === state.editingSkillId)!
+  expect(draft.status).toBe('blocked')
+  expect(state.content).toBe(content)
+  expect((await readVault(root)).catalog.skills.some(skill => skill.id === draft.id)).toBe(false)
+  await expect(fs.stat(join(root, draft.filePath))).rejects.toMatchObject({ code: 'ENOENT' })
+  await mock.testing.dispatch({ type: 'saveSkill', ...draft, content, projectIds: [], cardColor: null })
+  const saved = await readVault(root)
+  expect(saved.catalog.skills.find(skill => skill.id === draft.id)?.status).toBe('blocked')
+  expect(await fs.readFile(join(root, draft.filePath), 'utf8')).toContain('Limitar desconto a 10%')
+  expect(saved.projects.projects.flatMap(project => project.skillIds)).toEqual([])
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
 
 async function selectionCard() {
   const data = await readVault(root)
@@ -1239,7 +1283,7 @@ test('loading examples is allowed only once in an empty library', async () => {
   const saved = await readVault(root)
   expect(saved.catalog.skills).toHaveLength(7)
   expect(skillCards(saved.catalog)).toHaveLength(4)
-  expect(skillCards(saved.catalog).map(card => card.skillIds.length)).toEqual([1, 4, 2, 0])
+  expect(skillCards(saved.catalog).map(card => card.skillIds.length)).toEqual([2, 3, 1, 1])
   await mock.testing.dispatch({ type: 'createDocumentedExamples' })
   expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('nenhum card'))
   expect(await readVault(root)).toEqual(saved)

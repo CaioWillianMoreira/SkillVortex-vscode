@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
   Alert, Button, Card, Checkbox, Col, ConfigProvider, Dropdown, Empty, Input, Modal, Row,
@@ -19,6 +19,7 @@ declare function acquireVsCodeApi(): { postMessage(message: unknown): void }
 const api = acquireVsCodeApi()
 const MonacoMarkdownEditor = lazy(() => import('./MonacoMarkdownEditor'))
 const VisualMarkdownEditor = lazy(() => import('./VisualMarkdownEditor'))
+const ProductBuilder = lazy(() => import('./ProductBuilder'))
 const labels = { allowed: 'Liberada', blocked: 'Bloqueada' }
 const colors = { allowed: 'green', blocked: 'red' }
 const statusNames = ['allowed', 'blocked'] as const
@@ -62,7 +63,14 @@ const cardColorOptions = [
 ]
 
 function App(): React.JSX.Element {
-  const [area, setArea] = useState<'home' | 'skills' | 'mindcards'>('home')
+  const [area, setArea] = useState<'home' | 'skills' | 'mindcards' | 'builder'>('home')
+  const [builderDirty, setBuilderDirty] = useState(false)
+  const [builderBusy, setBuilderBusy] = useState(false)
+  const openBuilderSkill = useCallback(() => {
+    setBuilderDirty(false)
+    setBuilderBusy(false)
+    setArea('skills')
+  }, [])
   const [mindDirty, setMindDirty] = useState(false)
   const [mindBusy, setMindBusy] = useState(false)
   useEffect(() => {
@@ -255,14 +263,15 @@ function App(): React.JSX.Element {
   })
 
   const navigate = async (next: typeof area) => {
-    if (next === area || saving || mindBusy) return
-    if ((area === 'skills' && (dirty || collectionEditorOpen)) || (area === 'mindcards' && mindDirty)) {
+    if (next === area || saving || mindBusy || builderBusy) return
+    if ((area === 'skills' && (dirty || collectionEditorOpen)) || (area === 'mindcards' && mindDirty) || (area === 'builder' && builderDirty)) {
       if (!await modal.confirm({ title: 'Descartar alteracoes nao salvas?', content: 'Salve antes de trocar de area para manter seu rascunho.',
         okText: 'Descartar e trocar', cancelText: 'Continuar editando' })) return
       if (area === 'skills') api.postMessage({ type: 'backToDashboard' })
       setCollectionEditorOpen(false)
     }
     setMindDirty(false)
+    setBuilderDirty(false)
     setArea(next)
   }
 
@@ -280,9 +289,10 @@ function App(): React.JSX.Element {
       {modalContext}
       <main>
         <nav className="workspace-navigation" aria-label="Areas de trabalho">
-          <ActionButton action="home" aria-label="Escolher tela inicial" onClick={() => void navigate('home')} disabled={saving || mindBusy}>Inicio</ActionButton>
-          <ActionButton action="library" aria-pressed={area === 'skills'} onClick={() => void navigate('skills')} disabled={saving || mindBusy}>SkillVortex</ActionButton>
-          <ActionButton action="mindcards" aria-pressed={area === 'mindcards'} onClick={() => void navigate('mindcards')} disabled={saving || mindBusy}>MindCards</ActionButton>
+          <ActionButton action="home" aria-label="Escolher tela inicial" onClick={() => void navigate('home')} disabled={saving || mindBusy || builderBusy}>Inicio</ActionButton>
+          <ActionButton action="library" aria-pressed={area === 'skills'} onClick={() => void navigate('skills')} disabled={saving || mindBusy || builderBusy}>SkillVortex</ActionButton>
+          <ActionButton action="mindcards" aria-pressed={area === 'mindcards'} onClick={() => void navigate('mindcards')} disabled={saving || mindBusy || builderBusy}>MindCards</ActionButton>
+          <ActionButton action="build" aria-pressed={area === 'builder'} onClick={() => void navigate('builder')} disabled={saving || mindBusy || builderBusy}>Product Builder</ActionButton>
         </nav>
         {area === 'home' && <section className="area-chooser">
           <Typography.Text className="welcome-eyebrow">SEU ESPACO DE TRABALHO</Typography.Text>
@@ -301,9 +311,19 @@ function App(): React.JSX.Element {
               <Typography.Paragraph type="secondary">Conecte ideias e regras de negocio em notas locais, com pastas coloridas.</Typography.Paragraph>
               <ActionButton action="mindcards" type="primary" onClick={() => void navigate('mindcards')}>Abrir MindCards</ActionButton>
             </Card>
+            <Card className="area-choice">
+              <ActionIcon action="build" />
+              <Typography.Title level={2}>Product Builder</Typography.Title>
+              <Typography.Paragraph type="secondary">Monte uma skill preservando os cards originais, com sugestoes separadas da IA local.</Typography.Paragraph>
+              <ActionButton action="build" type="primary" onClick={() => void navigate('builder')}>Abrir Product Builder</ActionButton>
+            </Card>
           </div>
         </section>}
         {area === 'mindcards' && <MindCards key={state.root} root={state.root} api={api} onDirtyChange={setMindDirty} onBusyChange={setMindBusy} />}
+        {area === 'builder' && <Suspense fallback={<div role="status">Carregando Product Builder...</div>}>
+          <ProductBuilder key={state.root} root={state.root} api={api} onDirtyChange={setBuilderDirty}
+            onBusyChange={setBuilderBusy} onOpenSkill={openBuilderSkill} />
+        </Suspense>}
         {area === 'skills' && <>
         <header className="topbar">
           <Typography.Title className="brand" level={3}>Skill<span>Vortex</span></Typography.Title>
@@ -450,7 +470,7 @@ function App(): React.JSX.Element {
                   }}>{showArchived ? 'Voltar para cards' : 'Arquivados'}</ActionButton>
                 {allCards.length === 0 && <ActionButton action="examples" type="primary" title="Criar quatro cards de exemplo na biblioteca" onClick={() => modal.confirm({
                   title: 'Carregar exemplos do dashboard?',
-                  content: 'Cria quatro cards com 1, 4, 2 e 0 skills, usando somente as categorias cadastradas.',
+                  content: 'Cria Acessibilidade (2 skills), HTML e CSS (3), SEO (1) e Testes (1), com fontes oficiais e usando as categorias cadastradas.',
                   okText: 'Carregar exemplos',
                   cancelText: 'Cancelar',
                   okButtonProps: { className: 'action-button action-examples', icon: <ActionIcon action="examples" /> },
@@ -746,7 +766,7 @@ function App(): React.JSX.Element {
                 {!allCards.length && <Space wrap>
                   <ActionButton action="add" type="primary" onClick={() => editCollection()}>Criar primeiro card</ActionButton>
                   <ActionButton action="examples" onClick={() => modal.confirm({
-                    title: 'Carregar exemplos?', content: 'Cria quatro cards e sete skills de exemplo.',
+                    title: 'Carregar exemplos?', content: 'Cria Acessibilidade (2 skills), HTML e CSS (3), SEO (1) e Testes (1), com fontes oficiais.',
                     okText: 'Carregar exemplos', cancelText: 'Cancelar',
                     okButtonProps: { className: 'action-button action-examples', icon: <ActionIcon action="examples" /> },
                     cancelButtonProps: { className: 'action-button action-back', icon: <ActionIcon action="back" /> },

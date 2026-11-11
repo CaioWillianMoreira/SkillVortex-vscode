@@ -8,7 +8,7 @@ const vscode = require('vscode')
 module.exports = async function testMindCards(extension) {
   const load = name => require(join(extension.extensionPath, `dist/${name}.js`))
   const { createVault, readVault } = load('vault')
-  const { createMindCardsExamples, restoreMindCardsSnapshot, readMindCards, readMindNote, saveMindFolder, saveMindNote, setMindNoteArchived } = load('mindcards')
+  const { createMindCardsExamples, restoreMindCardsSnapshot, readMindCards, readMindNote, saveMindFolder, saveMindNote, setMindNoteArchived, deleteMindNote } = load('mindcards')
   const temporary = await mkdtemp(join(tmpdir(), 'mindcards-host-'))
   const root = join(temporary, 'vault')
   let panel, listener, timer
@@ -51,6 +51,11 @@ module.exports = async function testMindCards(extension) {
           } else if (message.type === 'archiveMindNote') {
             await setMindNoteArchived(root, message.id, message.revision, message.archived)
             await webview.postMessage({ type: 'mindCards', root, state: await readMindCards(root) })
+          } else if (message.type === 'deleteMindNote') {
+            assert.equal(message.id, base.note.id)
+            await deleteMindNote(root, message.id, message.revision)
+            await assert.rejects(readFile(join(root, base.note.filePath)), { code: 'ENOENT' })
+            await webview.postMessage({ type: 'mindCards', root, state: await readMindCards(root), deleted: true })
           } else if (message.type === 'saveMindFolder') {
             await saveMindFolder(root, message.folder, message.revision)
             await webview.postMessage({ type: 'mindCards', root, state: await readMindCards(root) })
@@ -150,7 +155,7 @@ module.exports = async function testMindCards(extension) {
             }
             await wait('examples action hidden', () => !Array.from(document.querySelectorAll('.mind-main button'))
               .some(item => item.textContent.trim() === 'Carregar exemplos'));
-            for (const name of ['Frontend', 'Backend', 'Qualidade', 'Squad']) {
+            for (const name of ['Acessibilidade', 'HTML e CSS', 'SEO', 'Testes']) {
               if (!document.querySelector('.mind-sidebar').textContent.includes(name)) throw new Error('Missing example folder ' + name);
             }
             const folderButtons = Array.from(document.querySelectorAll('.mind-folder-button'));
@@ -167,6 +172,19 @@ module.exports = async function testMindCards(extension) {
             }
             bridge.postMessage({ type: 'mindcards-test-reset-examples' });
             await wait('reset example test data', () => document.querySelectorAll('.mind-note-card').length === 1);
+            document.querySelector('[aria-label="Excluir nota Regra base"]').click();
+            const deleteModal = () => Array.from(document.querySelectorAll('.ant-modal-wrap:not([style*="display: none"])'))
+              .find(item => item.textContent.includes('Regra base') && item.querySelector('.ant-btn-dangerous'));
+            await wait('delete confirmation identifies note', deleteModal);
+            Array.from(deleteModal().querySelectorAll('button')).find(item => item.textContent.trim() === 'Cancelar').click();
+            await wait('delete cancelled', () => !deleteModal());
+            if (document.querySelectorAll('.mind-note-card').length !== 1) throw new Error('Cancel deleted a card');
+            document.querySelector('[aria-label="Excluir nota Regra base"]').click();
+            await wait('confirm card deletion', deleteModal);
+            deleteModal().querySelector('.ant-btn-dangerous').click();
+            await wait('card deleted from list', () => document.querySelectorAll('.mind-note-card').length === 0);
+            bridge.postMessage({ type: 'mindcards-test-reset-examples' });
+            await wait('reset after deletion', () => document.querySelectorAll('.mind-note-card').length === 1);
             document.querySelector('.mind-note-card .card-top-row [aria-label="Arquivar"]').click();
             await wait('archived note hidden', () => document.querySelectorAll('.mind-note-card').length === 0);
             button('Arquivados').click();

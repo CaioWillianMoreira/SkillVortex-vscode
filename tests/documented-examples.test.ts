@@ -4,13 +4,14 @@ import { createCardExamples, createDocumentedExamples, reconcileDocumentedExampl
 import { skillMarkdownMetadata } from '../src/project-skills'
 import { SKILL_CARD_COLORS } from '../src/skill-colors'
 
-test('creates exactly four fully populated cards with 1, 4, 2 and 0 independent skills', () => {
-  const categories = ['Geral', 'Arquitetura', 'Git', 'DevOps', 'SEO']
+test('creates four sourced cards with 2, 3, 1 and 1 independent skills', () => {
+  const categories = ['Geral', 'Acessibilidade', 'SEO', 'Testes']
   const examples = createCardExamples(categories)
   const catalog = catalogSchema.parse({ version: 1, categories, collections: examples.cards,
     skills: examples.skills.map(item => item.skill) })
   expect(skillCards(catalog)).toHaveLength(4)
-  expect(skillCards(catalog).map(card => card.skillIds.length)).toEqual([1, 4, 2, 0])
+  expect(skillCards(catalog).map(card => card.name)).toEqual(['Acessibilidade', 'HTML e CSS', 'SEO', 'Testes'])
+  expect(skillCards(catalog).map(card => card.skillIds.length)).toEqual([2, 3, 1, 1])
   expect(examples.skills).toHaveLength(7)
   expect(new Set(examples.skills.map(item => item.skill.filePath)).size).toBe(7)
   expect(new Set(examples.skills.map(item => item.skill.category))).toEqual(new Set(categories))
@@ -26,6 +27,9 @@ test('creates exactly four fully populated cards with 1, 4, 2 and 0 independent 
   for (const { skill, content } of examples.skills) {
     expect(skillMarkdownMetadata(content)).toEqual({ name: skillSlug(skill.name), description: skill.description })
     expect(content).toContain('## Procedimento')
+    expect(content).toContain('## Validacao')
+    expect(content).toContain('## Fontes')
+    expect(content).toMatch(/https:\/\/(?:www\.w3\.org|developer\.mozilla\.org|developers\.google\.com|playwright\.dev)\//)
     expect(categories).toContain(skill.category)
   }
 })

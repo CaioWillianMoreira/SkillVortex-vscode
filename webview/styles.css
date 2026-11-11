@@ -2,6 +2,12 @@
   color-scheme: dark;
 }
 
+.product-builder { display: flex; flex-direction: column; gap: 20px; max-width: 1100px; margin: 0 auto; }
+.builder-fields { display: flex; flex-direction: column; gap: 16px; }
+.builder-fields label { display: flex; flex-direction: column; gap: 8px; }
+.builder-note-list { display: flex; flex-direction: column; gap: 12px; max-height: 360px; overflow: auto; margin: 16px 0; }
+.product-builder textarea { margin-bottom: 12px; }
+
 .workspace-navigation {
   display: flex;
   flex-wrap: wrap;
@@ -157,6 +163,8 @@ body[data-workspace="mindcards"] .visual-markdown-editor .tiptap input[type="che
 .mind-note-folder { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
 .card-top-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
 .card-archive-button.ant-btn { flex: 0 0 auto; width: 28px; height: 28px; }
+.mind-card-delete-button.ant-btn { flex: 0 0 auto; width: 28px; height: 28px; }
+.mind-note-card .card-top-row > .ant-space { flex-shrink: 0; }
 .skill-card-heading h5.ant-typography { flex: 1; min-width: 0; }
 .mind-note-title.ant-btn { color: #eee; padding: 0; height: auto; font-size: 18px; white-space: normal; text-align: left; }
 .mind-note-tags { min-height: 24px; }

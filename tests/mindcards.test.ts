@@ -32,10 +32,10 @@ test('existing vaults open without creating MindCards data or altering skills', 
   expect(await readVault(root)).toEqual(before)
 })
 
-test('examples create exactly four technology and squad cards with valid connections without modifying skills', async () => {
+test('examples create four sourced web quality cards with valid connections without modifying skills', async () => {
   const before = await readVault(root)
   const state = await createMindCardsExamples(root)
-  expect(state.folders.map(item => item.name)).toEqual(['Frontend', 'Backend', 'Qualidade', 'Squad'])
+  expect(state.folders.map(item => item.name)).toEqual(['Acessibilidade', 'HTML e CSS', 'SEO', 'Testes'])
   expect(new Set(state.folders.map(item => item.color)).size).toBe(4)
   expect(state.notes).toHaveLength(4)
   for (const folder of state.folders) {
@@ -46,6 +46,10 @@ test('examples create exactly four technology and squad cards with valid connect
     expect(note.links.every(id => id !== note.id && state.notes.some(item => item.id === id))).toBe(true)
     const document = await readMindNote(root, note.id)
     expect(document.content).toContain('## Contexto')
+    expect(document.content).toContain('## Regras')
+    expect(document.content).toContain('## Criterios de aceite')
+    expect(document.content).toContain('## Fontes')
+    expect(document.content).toMatch(/https:\/\/(?:www\.w3\.org|developer\.mozilla\.org|developers\.google\.com|playwright\.dev)\//)
     expect(document.content.length).toBeGreaterThan(300)
   }
   const note = state.notes[0]
@@ -115,17 +119,26 @@ test('notes with equal titles in different folders use distinct readable filenam
   expect(two.note.filePath).toBe('mindcards/cancelar-agendamento-2.md')
 })
 
-test('links persist, expose backlinks and protect referenced notes against deletion', async () => {
+test('deleting a referenced note automatically unlinks active and archived notes without changing their text', async () => {
   await initialize()
   const one = await saveMindNote(root, input())
   const two = await saveMindNote(root, { ...input('Limite de cancelamento'), links: [one.note.id] })
+  const other = await saveMindNote(root, input('Outra regra'))
+  const archived = await saveMindNote(root, { ...input('Nota arquivada'), links: [one.note.id, other.note.id], archived: true })
   const state = await readMindCards(root)
-  expect(state.notes.filter(note => note.links.includes(one.note.id)).map(note => note.id)).toEqual([two.note.id])
-  await expect(deleteMindNote(root, one.note.id, one.note.revision)).rejects.toThrow('Remova primeiro')
-  const updated = await saveMindNote(root, input('Limite de cancelamento'), two.note.id, two.note.revision)
-  expect(updated.note.links).toEqual([])
+  expect(state.notes.filter(note => note.links.includes(one.note.id)).map(note => note.id).sort()).toEqual([two.note.id, archived.note.id].sort())
   await deleteMindNote(root, one.note.id, one.note.revision)
-  expect((await readMindCards(root)).notes).toHaveLength(1)
+  expect((await readMindCards(root)).notes).toHaveLength(3)
+  await expect(fs.stat(join(root, one.note.filePath))).rejects.toMatchObject({ code: 'ENOENT' })
+  const updated = await readMindNote(root, two.note.id)
+  expect(updated.note.links).toEqual([])
+  expect(updated.content).toBe(two.content)
+  expect(updated.note.revision).not.toBe(two.note.revision)
+  const updatedArchived = await readMindNote(root, archived.note.id)
+  expect(updatedArchived.note.links).toEqual([other.note.id])
+  expect(updatedArchived.note.archived).toBe(true)
+  expect(updatedArchived.content).toBe(archived.content)
+  expect(await readMindNote(root, other.note.id)).toEqual(other)
 })
 
 test('stale notes cannot overwrite or delete externally edited Markdown', async () => {

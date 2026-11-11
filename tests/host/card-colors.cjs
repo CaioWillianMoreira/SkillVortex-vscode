@@ -256,6 +256,13 @@ module.exports = async function testCardColors(extension) {
           const { createCardExamples } = require(join(extension.extensionPath, 'dist/documented-examples.js'))
           const categories = ['Geral', 'Arquitetura', 'Git', 'DevOps', 'SEO']
           const examples = createCardExamples(categories)
+          assert.deepEqual(examples.cards.map(card => card.skillIds.length), [2, 3, 1, 1])
+          // Keep the 0-to-4-member fixture for scroll and empty-card layout coverage.
+          const ids = examples.skills.map(item => item.skill.id)
+          examples.cards.forEach((card, index) => {
+            card.skillIds = [ids.slice(0, 1), ids.slice(1, 5), ids.slice(5, 7), []][index]
+          })
+          examples.cards[3].name = 'Meu proximo conjunto'
           collections = examples.cards
           stage = 'example-empty-add'
           const exampleState = state()

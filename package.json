@@ -58,6 +58,7 @@
     "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license --out builds/"
   },
   "dependencies": {
+    "@huggingface/transformers": "3.8.1",
     "@monaco-editor/react": "^4.7.0",
     "@tiptap/core": "^3.33.0",
     "@tiptap/extension-image": "^3.33.0",

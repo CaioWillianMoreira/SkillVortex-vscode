@@ -2,6 +2,7 @@ import { Button } from 'antd'
 import type { ButtonProps } from 'antd'
 
 const icons = {
+  build: 'M4 4h6v6H4zM14 4h6v6h-6zM9 14h6v6H9zM7 10v2h10v-2M12 12v2',
   archive: 'M3 12h5l2 3h4l2-3h5M5 5h14l2 7v7H3v-7zM12 3v7m-3-3 3 3 3-3',
   read: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
   run: 'M8 5v14l11-7z',

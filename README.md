@@ -10,6 +10,8 @@ Extensão para criar, editar e organizar instruções Markdown em uma biblioteca
 selecionando quais skills publicar em cada projeto e agente.
 Inclui **MindCards**, um módulo independente para anotações e regras de negócio
 conectadas, armazenadas no mesmo cofre.
+O **Product Builder** transforma um objetivo e notas selecionadas em um rascunho
+de skill, usando IA local opcional.
 
 **🔌 VS Code · ⚛️ React · 🔷 TypeScript · 🎨 Ant Design · 📝 Monaco + Tiptap · 🗃️ SQLite/WASM**
 
@@ -25,7 +27,8 @@ conectadas, armazenadas no mesmo cofre.
 > GitHub Copilot usa `.github/skills/`; Antigravity usa `.agents/skills/`.
 > **Usar no chat** prepara o comando da skill no chat do Copilot; você ainda
 > revisa a solicitação e envia. A extensão não executa demandas nem gera skills
-> com IA automaticamente.
+> com IA automaticamente: a geração no Product Builder só ocorre sob comando,
+> com revisão e salvamento explícitos.
 
 ## 🧭 Navegação
 
@@ -35,6 +38,7 @@ conectadas, armazenadas no mesmo cofre.
 - [🚀 Primeiros passos](#-primeiros-passos)
 - [📚 Guia de uso](#-guia-de-uso)
 - [🗂️ MindCards: notas e regras de negócio](#mindcards)
+- [Product Builder: gerar uma skill localmente](#product-builder)
 - [📝 Editor de Texto e Markdown](#-editor-de-texto-e-markdown)
 - [🔌 Projetos, agentes e publicação](#-projetos-agentes-e-publicação)
 - [🔄 Alterações externas, comparação e merge](#-alterações-externas-comparação-e-merge)
@@ -64,7 +68,8 @@ conectadas, armazenadas no mesmo cofre.
 | 💾 | Backup e recuperação | Cópias locais da biblioteca e proteção antes de substituir versões |
 | 🧳 | Migração do desktop | Importe um banco SQLite para uma nova biblioteca, sem alterar a origem |
 | 🗂️ | MindCards | Notas visuais em `.md`, pastas coloridas, etiquetas, vínculos e referências de entrada |
-| 🧭 | Escolha de área | Tela inicial para SkillVortex ou MindCards, com troca disponível no menu superior |
+| 🏗️ | Product Builder | Objetivo e notas selecionadas viram um rascunho editável com Transformers.js local |
+| 🧭 | Escolha de área | SkillVortex, MindCards e Product Builder, com troca disponível no menu superior |
 
 ## 🖼️ Conheça as telas
 
@@ -133,7 +138,7 @@ como se contivesse as alterações atuais.
 ## 🚀 Primeiros passos
 
 Ao abrir a Webview, escolha a área desejada. **Início** retorna ao seletor;
-os botões **SkillVortex** e **MindCards** permitem trocar de área sem fechar a aba.
+os botões **SkillVortex**, **MindCards** e **Product Builder** permitem trocar de área sem fechar a aba.
 Alterações não salvas exigem confirmação antes da troca.
 O fluxo abaixo corresponde à área de skills.
 
@@ -158,8 +163,11 @@ e **Importar .md**.
 ![Biblioteca vazia com ações para criar, carregar exemplos e importar Markdown](docs/images/empty-library.png)
 
 **Carregar exemplos** exige confirmação e está disponível somente quando não há
-cards, nem mesmo vazios. Cria quatro conjuntos com **1, 4, 2 e 0 skills**:
+cards, nem mesmo vazios. Cria **Acessibilidade (2 skills)**, **HTML e CSS (3)**,
+**SEO (1)** e **Testes (1)**:
 sete Markdown com cabeçalho `name`/`description`, usando categorias já existentes.
+Cada skill inclui quando usar, procedimento, validação e links para referências
+oficiais do W3C/WCAG, MDN, Google Search Central ou Playwright.
 Não procura arquivos no projeto, não exige projeto ativo e não publica nada
 automaticamente. Os exemplos podem ser editados.
 
@@ -295,10 +303,12 @@ e voltar, roxo para biblioteca/pastas, amarelo para exemplos e vermelho para exc
 personalizadas das pastas e os avisos semânticos continuam independentes.
 
 Com o MindCards vazio, **Carregar exemplos** oferece, após confirmação,
-exatamente quatro cards: **Frontend (React/TypeScript)**, **Backend (API/Node.js)**,
-**Qualidade (testes/CI)** e **Squad (acordos e regras de negócio)**.
+exatamente quatro cards: **Acessibilidade**, **HTML e CSS**, **SEO** e **Testes**.
 Cada card é uma nota editável em sua própria pasta colorida, com etiquetas e
-conexões para as outras três notas. Os conteúdos são pontos de partida,
+conexões para as outras três notas. Incluem contexto, regras propostas, critérios
+de aceite e links para fontes oficiais (W3C/WCAG, MDN, Google Search Central e Playwright).
+São exemplos de políticas de qualidade e acordos técnicos, não regras específicas
+do domínio do seu negócio. Os conteúdos são pontos de partida,
 não regras aprovadas ou configurações aplicadas aos projetos. Nada é carregado
 automaticamente e a ação fica indisponível quando já existem pastas ou notas.
 
@@ -316,6 +326,9 @@ A lista permite filtrar por pasta, pesquisar títulos/etiquetas/nomes de pastas 
 etiqueta. As notas aparecem com a cor da pasta, data de atualização e quantidade
 de conexões. O ícone de edição da pasta permite renomear, alterar a cor ou
 excluir uma pasta vazia. Para mover uma nota, altere sua pasta no editor e salve.
+Para excluir uma nota sem abrir o editor, use a lixeira no canto superior do card
+e confirme a exclusão. A ação também está disponível nos arquivados. Vínculos
+para a nota excluída são removidos automaticamente, preservando o texto das outras notas.
 Na lateral, os botões de pasta têm dimensões uniformes e nomes em uma linha;
 a coluna usa largura padrão de 320 px no desktop. Nomes que excedam o espaço
 continuam disponíveis pela dica ao passar o cursor.
@@ -352,7 +365,7 @@ o rascunho atual.
 
 Use uma ideia ou regra por nota e conecte contextos relacionados, no estilo
 Zettelkasten. O formato do corpo é livre; não há template de regra obrigatório,
-aprovação de regras ou geração com IA.
+aprovação de regras ou geração com IA dentro do editor de notas.
 
 ### Conexões e referências
 
@@ -366,8 +379,8 @@ primeira nota aberta, mesmo após visitar várias notas, e restaura seu modo de
 leitura ou edição. O botão aparece no topo e na seção de conexões. Alterações
 não salvas exigem confirmação antes de sair; **Voltar** continua levando à lista.
 
-Uma nota referenciada não pode ser excluída até que seus vínculos de entrada
-sejam removidos. Vínculos quebrados por edição externa aparecem como aviso.
+Excluir uma nota remove automaticamente os vínculos de entrada, inclusive em
+notas arquivadas, sem apagar seu texto. Vínculos quebrados por edição externa aparecem como aviso.
 Títulos repetidos na mesma pasta e nomes de pasta duplicados são recusados.
 
 ### Arquivos, mudanças externas e backup
@@ -388,6 +401,77 @@ Novos backups incluem os arquivos do MindCards, cores e conexões. Restaurar
 substitui o estado do módulo pelo snapshot, com ponto de recuperação do estado
 anterior. Backups antigos sem suporte a MindCards preservam o módulo atual.
 Os dois módulos ainda podem ser transportados juntos copiando o cofre completo.
+
+<a id="product-builder"></a>
+
+## Product Builder: gerar uma skill localmente
+
+1. Abra uma biblioteca e salve as regras de negócio no MindCards.
+2. Entre em **Product Builder** pelo início ou menu superior.
+3. Preencha o título e o objetivo, e selecione de 1 a 8 notas ativas.
+   Notas conectadas só entram se também forem selecionadas.
+4. Clique em **Gerar skill** e confirme o download do modelo.
+5. Revise e edite o rascunho. **Revisar no SkillVortex** abre o editor existente
+   com status **Bloqueada**; nada é gravado até clicar em **Salvar**.
+   Salvar não publica nem ativa a skill.
+
+A skill é montada pelo código como texto Markdown (`.md`), não JSON, com título,
+objetivo, quando usar, textos integrais dos cards e roteiro fixo de passos e validação.
+Nenhum resumo ou reinterpretação da IA substitui as fontes originais.
+O status original de exemplos, dúvidas e regras propostas deve ser revisado pelo usuário.
+
+A IA recebe o objetivo e as notas somente para sugerir passos e verificações em
+uma área separada, **Sugestões da IA — não verificadas**. Esse texto não entra
+automaticamente na skill salva. Copie manualmente apenas sugestões conferidas
+contra as fontes; não há garantia de coerência das sugestões. Respostas fora
+do formato Markdown são recusadas explicitamente. Se a inferência falhar ou for
+cancelada depois da montagem, o rascunho com as fontes permanece disponível.
+
+### Consulta opcional ao W3C
+
+Marque **Consultar referências oficiais do W3C** antes de gerar. Após confirmação,
+a extensão escolhe até dois documentos de um catálogo fixo por palavras-chave
+do objetivo e dos cards: teclado, rótulos de formulários, estrutura de página
+e reflow. Não é uma busca livre na web nem um buscador semântico. Temas sem
+correspondência exibem aviso e não fazem requisições ao W3C. Para SEO, a referência
+é estrutura acessível de páginas, não recomendações de ranqueamento do Google.
+
+A seleção acontece localmente. Somente URLs HTTPS fixas em `www.w3.org` são
+consultadas; nem objetivo nem conteúdo dos cards são enviados. O W3C recebe
+os dados normais da conexão, como IP. Redirecionamentos são recusados; cada consulta
+tem limite de 15 segundos e 2 MB. Falhas são informadas, sem fingir consulta bem-sucedida.
+
+A interface extrai somente texto do conteúdo principal, sem executar scripts ou
+exibir o HTML remoto. A IA recebe até 1.200 caracteres por documento, sinalizados
+como trechos incompletos e dados externos, não comandos. Os links consultados ficam
+em **Referências adicionais consultadas no W3C** no Markdown, separados das regras.
+Isso não certifica acessibilidade nem garante coerência das sugestões.
+
+O primeiro uso baixa aproximadamente **500 MB** do modelo
+[Qwen2.5 0.5B Instruct ONNX](https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct)
+do Hugging Face. O cache fica no armazenamento global da extensão, fora da
+biblioteca e dos backups; os usos seguintes reutilizam os arquivos locais.
+As requisições de download não incluem o objetivo nem as notas. A inferência
+usa **Transformers.js**, CPU e WASM na sua máquina, sem chave de API.
+O modelo não está incluído no VSIX; o runtime WASM está.
+
+O objetivo aceita até 2.000 caracteres; o contexto completo, até 12.000 caracteres
+e 3.072 tokens de entrada para a IA. As sugestões têm limite de 256 tokens de saída
+e podem terminar incompletas. Esse limite não trunca o texto original incluído
+na skill. O modelo pequeno pode inventar ou alterar informações nas sugestões:
+**revise sempre**, especialmente condições e exceções.
+Não há OCR, análise de prints ou seleção semântica automática.
+
+A geração pode levar minutos e consumir bastante memória. O progresso mostra
+o carregamento e a quantidade de caracteres gerados; **Cancelar geração** interrompe
+o download ou encerra o worker, sem salvar uma skill. A etapa de inferência tem
+limite de oito minutos. Ao sair da tela, o rascunho não salvo é descartado após
+confirmação. Erros aparecem na interface; erros do download também são registrados
+em **Saída > SkillVortex**.
+
+Transformers.js usa licença Apache-2.0 e ONNX Runtime, MIT; suas licenças acompanham
+o runtime empacotado. O modelo é baixado separadamente; consulte sua página para
+licença e condições de uso.
 
 ## 📝 Editor de Texto e Markdown
 
@@ -646,6 +730,8 @@ restaurar um backup completo não reaplica automaticamente esses snapshots exter
 - “Cofre” significa pasta organizada, não armazenamento criptografado.
 - A extensão não solicita tokens de IA nem envia a biblioteca automaticamente
   a um serviço. O uso de um agente/chat obedece às políticas daquele serviço.
+- O Product Builder baixa o modelo público após consentimento e gera localmente;
+  o cache do modelo não acompanha o backup da biblioteca.
 - Não armazene credenciais nos Markdown ou nos metadados.
 
 ## 📥 Migração do desktop
@@ -718,6 +804,20 @@ Não importam a biblioteca pessoal nem instalam a extensão no perfil pessoal.
 No macOS, utilizam o VS Code instalado quando disponível; em outros ambientes,
 o runner pode baixar um host. `VSCODE_EXECUTABLE_PATH` seleciona um executável.
 
+O teste padrão do Product Builder simula a inferência e cobre seleção, erro,
+cancelamento, revisão e abertura do rascunho. Para testar o modelo real:
+
+```bash
+npm run build
+SKILLVORTEX_TEST_BUILDER_ONLY=1 SKILLVORTEX_TEST_LOCAL_AI=1 node scripts/test-host.cjs
+```
+
+Esse teste baixa o modelo para uma pasta temporária e usa somente notas fictícias.
+Defina `SKILLVORTEX_TEST_MODEL_CACHE` para reutilizar uma pasta de cache entre execuções.
+Para testar a consulta real ao W3C com inferência simulada, execute
+`SKILLVORTEX_TEST_BUILDER_ONLY=1 SKILLVORTEX_TEST_W3C=1 node scripts/test-host.cjs`
+após compilar. O teste usa somente dados fictícios.
+
 Seletores nativos e confirmações são simulados em testes dos handlers.
 Essa cobertura não garante todas as combinações de sistema, permissões,
 falhas de disco ou comportamento de agentes externos.
@@ -728,6 +828,7 @@ falhas de disco ou comportamento de agentes externos.
 Webview React + Ant Design
   ├── dashboard, formulários e controles de publicação
   ├── seletor de áreas e MindCards independente (notas e conexões)
+  ├── Product Builder + worker Transformers.js/WASM local
   └── Monaco ↔ Markdown ↔ Tiptap + barra compartilhada
                  │ mensagens validadas
 Extension Host (VS Code)
@@ -747,6 +848,7 @@ Extension Host (VS Code)
 | Exclusão de arquivos gerenciados | [src/skill-deletion.ts](./src/skill-deletion.ts) |
 | Migração e índice | [src/database.ts](./src/database.ts) |
 | Módulo MindCards | [src/mindcards-model.ts](./src/mindcards-model.ts), [src/mindcards.ts](./src/mindcards.ts), [webview/MindCards.tsx](./webview/MindCards.tsx) |
+| Product Builder | [src/product-builder.ts](./src/product-builder.ts), [src/local-model.ts](./src/local-model.ts), [webview/ProductBuilder.tsx](./webview/ProductBuilder.tsx), [worker](./webview/product-builder.worker.ts) |
 | Interface e estilos | [webview/main.tsx](./webview/main.tsx), [webview/styles.css](./webview/styles.css) |
 | Editores e barra | [MonacoMarkdownEditor](./webview/MonacoMarkdownEditor.tsx), [VisualMarkdownEditor](./webview/VisualMarkdownEditor.tsx), [EditorToolbar](./webview/EditorToolbar.tsx) |
 
@@ -777,8 +879,9 @@ ou dependência do `node:sqlite` do Electron.
 
 - Requer ambiente **local e confiável**; remoto, VS Code Web e workspaces virtuais
   não são suportados.
-- Não há geração de cards/skills com IA, avaliação automática de qualidade
-  nem garantia de que um agente seguirá todas as instruções.
+- A geração local de skills é um rascunho experimental, sem avaliação automática
+  de qualidade nem garantia de que preserve todas as regras ou de que um agente
+  seguirá todas as instruções.
 - Não há serviço de nuvem, colaboração simultânea ou gestão centralizada de squad.
 - A importação não traz pacotes completos de skills com scripts e assets.
 - Publicações externas não são adotadas automaticamente; divergências exigem revisão.

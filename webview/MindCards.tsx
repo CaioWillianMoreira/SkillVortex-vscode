@@ -91,6 +91,14 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
     setNotice('')
     api.postMessage(message)
   }
+  const deleteNote = async (note: { id: string; revision?: string; title: string }) => {
+    if (busy) return
+    if (await modal.confirm({
+      title: 'Excluir nota?',
+      content: `"${note.title}" e seu arquivo .md serao removidos. Os vinculos para ela serao removidos automaticamente, sem alterar o texto das outras notas.`,
+      okText: 'Excluir', cancelText: 'Cancelar', okButtonProps: { danger: true }
+    })) send({ type: 'deleteMindNote', id: note.id, revision: note.revision })
+  }
   const discard = async () => {
     if (busy) return false
     if (!dirty) return true
@@ -233,7 +241,7 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
               <ActionButton action="examples" disabled={busy} onClick={async () => {
                 if (await modal.confirm({
                   title: 'Carregar quatro cards de exemplo?',
-                  content: 'Cria Frontend, Backend, Qualidade e Squad, cada um com uma pasta colorida e uma nota conectada. Os exemplos sao editaveis e nao sao regras aprovadas.',
+                  content: 'Cria Acessibilidade, HTML e CSS, SEO e Testes, cada um com uma pasta colorida e uma nota conectada, com fontes de referencia. Os exemplos sao editaveis e precisam ser revisados antes de adotar.',
                   okText: 'Carregar exemplos', cancelText: 'Cancelar'
                 })) send({ type: 'createMindCardsExamples' })
               }}>Carregar exemplos</ActionButton>
@@ -246,9 +254,14 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
                 return <Card className="mind-note-card" key={note.id} style={{ borderTopColor: parent.color }}>
                   <div className="card-top-row">
                     <div className="mind-note-folder" style={{ color: parent.color }}><ActionIcon action="folder" />{parent.name}</div>
-                    <ActionButton className="card-archive-button" action={showArchived ? 'restore' : 'archive'} size="small"
-                      aria-label={showArchived ? 'Restaurar' : 'Arquivar'} title={showArchived ? 'Restaurar' : 'Arquivar'} disabled={busy}
-                      onClick={() => send({ type: 'archiveMindNote', id: note.id, revision: note.revision, archived: !showArchived })} />
+                    <Space size={4}>
+                      <ActionButton className="card-archive-button" action={showArchived ? 'restore' : 'archive'} size="small"
+                        aria-label={showArchived ? 'Restaurar' : 'Arquivar'} title={showArchived ? 'Restaurar' : 'Arquivar'} disabled={busy}
+                        onClick={() => send({ type: 'archiveMindNote', id: note.id, revision: note.revision, archived: !showArchived })} />
+                      <ActionButton className="mind-card-delete-button" action="delete" danger size="small"
+                        aria-label={`Excluir nota ${note.title}`} title="Excluir nota" disabled={busy}
+                        onClick={() => void deleteNote(note)} />
+                    </Space>
                   </div>
                   <Typography.Title level={4}><Button type="link" className="mind-note-title" onClick={() => void openNote(note.id)}>{note.title}</Button></Typography.Title>
                   <div className="mind-note-tags">{note.tags.map(tag => <Tag key={tag}>{tag}</Tag>)}</div>
@@ -267,12 +280,8 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
                 <ActionButton action="back" disabled={busy} onClick={async () => { if (await discard()) setDraft(null) }}>Voltar</ActionButton>
                 <ActionButton action={reading ? 'edit' : 'read'} aria-pressed={reading} disabled={busy}
                   onClick={() => setReading(current => !current)}>{reading ? 'Voltar a editar' : 'Leitura'}</ActionButton>
-                {!reading && draft.id && <ActionButton action="delete" danger disabled={busy} onClick={async () => {
-                  if (await modal.confirm({ title: 'Excluir nota?', content: 'O arquivo .md sera removido. Notas referenciadas precisam ser desvinculadas antes.',
-                    okText: 'Excluir', cancelText: 'Cancelar', okButtonProps: { danger: true } })) {
-                    send({ type: 'deleteMindNote', id: draft.id, revision: draft.revision })
-                  }
-                }}>Excluir</ActionButton>}
+                {!reading && draft.id && <ActionButton action="delete" danger disabled={busy}
+                  onClick={() => void deleteNote({ ...draft, id: draft.id! })}>Excluir</ActionButton>}
                 {!reading && <ActionButton action="save" type="primary" disabled={!dirty || busy} loading={busy} onClick={save}>Salvar nota</ActionButton>}
               </Space>
             </div>

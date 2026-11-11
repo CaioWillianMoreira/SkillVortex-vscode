@@ -88,24 +88,24 @@ export async function createMindCardsExamples(root: string): Promise<MindCardsSt
   if (state.folders.length || state.notes.length) throw new Error('Carregue exemplos somente com o MindCards vazio.')
   const examples = [
     {
-      name: 'Frontend', title: 'Frontend - React e TypeScript', color: '#1677ff',
-      tags: ['frontend', 'react', 'typescript'],
-      content: '# Frontend - React e TypeScript\n\n## Contexto\n\nExemplo de acordo tecnico para o squad. Revise antes de adotar.\n\n## Componentes e estado\n\n- Organizar componentes por funcionalidade e manter responsabilidades claras.\n- Tipar propriedades e respostas da API; validar dados externos em tempo de execucao.\n- Reutilizar os componentes e tokens visuais do projeto.\n\n## Estados da interface\n\n- Prever carregamento, vazio, sucesso e erro.\n- Garantir navegacao por teclado e rotulos acessiveis.\n- Conferir o contrato da API com o Backend e os criterios acordados com o Squad.\n'
+      name: 'Acessibilidade', title: 'Acessibilidade - Criterios para interfaces inclusivas', color: '#1677ff',
+      tags: ['acessibilidade', 'wcag', 'frontend'],
+      content: '# Acessibilidade\n\n## Contexto\n\nExemplo de politica de qualidade para interfaces web, baseado na WCAG 2.2. Adapte ao produto antes de aprovar; este checklist nao comprova conformidade completa.\n\n## Regras\n\n- Permitir executar as acoes por teclado, sem prender o foco, com ordem coerente e indicador de foco visivel.\n- Dar nome acessivel aos controles e associar rotulos aos campos. Identificar erros em texto; nao depender somente de cor.\n- Fornecer alternativa textual para imagens informativas; imagens puramente decorativas usam alt vazio.\n- Manter contraste minimo de 4,5:1 para texto comum e 3:1 para texto grande (pelo menos 18 pt ou 14 pt em negrito). A WCAG preve excecoes, como logotipos, decoracao e controles inativos.\n- Usar elementos HTML nativos adequados antes de adicionar ARIA e preservar nome, funcao e estado dos controles.\n\n## Criterios de aceite\n\n- Concluir o fluxo principal somente com teclado e conferir foco ao abrir e fechar dialogos.\n- Verificar rotulos, erros e imagens com leitor de tela; medir contraste, inclusive nos estados interativos.\n- Combinar verificacao automatizada com revisao manual, sem tratar ausencia de alertas como garantia de acessibilidade.\n\n## Fontes\n\n- [W3C - WCAG 2.2 Quick Reference](https://www.w3.org/WAI/WCAG22/quickref/)\n- [W3C - Contraste minimo, criterio 1.4.3](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)\n'
     },
     {
-      name: 'Backend', title: 'Backend - Contratos de API e Node.js', color: '#52c41a',
-      tags: ['backend', 'api', 'nodejs'],
-      content: '# Backend - Contratos de API e Node.js\n\n## Contexto\n\nExemplo de decisoes de API, nao uma regra obrigatoria para todos os projetos.\n\n## Contrato\n\n- Documentar entradas, respostas, erros e autorizacao antes de integrar a interface.\n- Validar dados na entrada e aplicar permissoes no servidor.\n- Manter regras de negocio independentes da camada HTTP.\n\n## Consistencia\n\n- Definir transacoes quando uma operacao altera varios registros relacionados.\n- Avaliar idempotencia para requisicoes que podem ser repetidas.\n- Alinhar mudancas de contrato com Frontend e cobrir falhas com Qualidade.\n'
+      name: 'HTML e CSS', title: 'HTML e CSS - Estrutura semantica e layout responsivo', color: '#52c41a',
+      tags: ['html', 'css', 'responsividade'],
+      content: '# Boas praticas de HTML e CSS\n\n## Contexto\n\nExemplo de acordo tecnico para paginas web, sintetizado a partir da MDN. Sao criterios de qualidade propostos, nao regras de negocio aprovadas automaticamente.\n\n## Regras\n\n- Escolher elementos pelo significado: main para conteudo principal, nav para navegacao e headings para organizar secoes. Nao escolher tags apenas pela aparencia.\n- Usar button para acoes e a com href para navegacao; evitar div clicavel como substituto de controles nativos.\n- Separar estrutura HTML de apresentacao CSS; reutilizar estilos e convencoes existentes no projeto.\n- Construir layouts fluidos com Flexbox ou Grid e adaptar pontos de quebra ao conteudo, nao apenas a modelos de aparelhos.\n- Impedir que imagens e outros meios ultrapassem seu container; manter proporcao e testar textos longos.\n- Evitar larguras fixas que provoquem rolagem horizontal desnecessaria em telas estreitas.\n\n## Criterios de aceite\n\n- Conferir a hierarquia de titulos e a navegacao por teclado.\n- Testar celular, desktop, zoom e conteudo longo sem sobreposicao ou perda de informacao.\n- Validar HTML e revisar CSS nos navegadores suportados pelo produto.\n\n## Fontes\n\n- [MDN - Estrutura de documentos](https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/Structuring_content/Structuring_documents)\n- [MDN - Design responsivo](https://developer.mozilla.org/en-US/docs/Learn_web_development/Core/CSS_layout/Responsive_Design)\n'
     },
     {
-      name: 'Qualidade', title: 'Qualidade - Testes e integracao continua', color: '#9b59b6',
-      tags: ['qualidade', 'testes', 'ci'],
-      content: '# Qualidade - Testes e integracao continua\n\n## Contexto\n\nExemplo de checklist de entrega; adapte aos riscos e ferramentas do projeto.\n\n## Cenarios\n\n- Relacionar cada criterio de aceite a um teste ou verificacao explicita.\n- Cobrir fluxo principal, limites, permissao negada e falhas relevantes.\n- Em correcoes, adicionar uma regressao que reproduza o defeito.\n\n## Pipeline\n\n- Executar verificacao de tipos, lint, testes e build quando disponiveis.\n- Registrar o que foi validado e as limitacoes, sem declarar sucesso sem evidencia.\n- Revisar contratos do Backend e estados da interface com o Frontend.\n'
+      name: 'SEO', title: 'SEO - Criterios para paginas publicas', color: '#9b59b6',
+      tags: ['seo', 'conteudo', 'indexacao'],
+      content: '# Regras de SEO\n\n## Contexto\n\nExemplo de politica para paginas publicas que devem ser encontradas em buscadores, baseado no Google Search Central. Aplicar apenas ao conteudo destinado a indexacao; SEO nao garante posicao nem inclusao no indice.\n\n## Regras\n\n- Publicar conteudo util, original e voltado ao usuario, com titulos descritivos e organizacao compreensivel.\n- Definir title especifico para cada pagina e meta description relevante; o Google pode escolher outro titulo ou trecho nos resultados.\n- Usar URLs descritivas e links rastreaveis com a e href, com texto que explique o destino.\n- Permitir acesso do buscador ao conteudo publico e aos recursos necessarios a renderizacao, como CSS e JavaScript.\n- Revisar duplicacoes e indicar URL canonica quando aplicavel. Considerar sitemap para facilitar a descoberta de URLs importantes.\n- Definir quais paginas podem ser indexadas. Nao usar robots.txt como protecao de dados privados nem como garantia de desindexacao; conteudo privado exige controle de acesso.\n\n## Criterios de aceite\n\n- Revisar title, descricao, links, resposta HTTP e visibilidade do conteudo publico.\n- Conferir a pagina renderizada e a elegibilidade de indexacao com a inspecao de URL do Search Console.\n- Monitorar resultados apos publicacao, sem prometer ganhos imediatos ou primeira posicao.\n\n## Fontes\n\n- [Google Search Central - Guia de SEO para iniciantes](https://developers.google.com/search/docs/fundamentals/seo-starter-guide)\n'
     },
     {
-      name: 'Squad', title: 'Squad - Acordos e regras de negocio', color: '#fa8c16',
-      tags: ['squad', 'produto', 'regras-de-negocio'],
-      content: '# Squad - Acordos e regras de negocio\n\n## Contexto\n\nExemplo de nota compartilhavel entre produto, desenvolvimento e qualidade.\n\n## Refinamento\n\n- Registrar objetivo, escopo, criterios de aceite e dependencias da historia do PO.\n- Separar regra aprovada, sugestao tecnica e duvida pendente.\n- Identificar quem pode esclarecer ou aprovar mudancas de negocio.\n\n## Exemplo de regra em discussao\n\nCancelamento permitido ate duas horas antes do agendamento.\n\n**Duvidas:** o limite exato esta incluido? Qual fuso horario vale? Existem excecoes?\n\nNao tratar este exemplo como regra aprovada. Confirmar decisoes com o PO e atualizar Frontend, Backend e testes de Qualidade.\n'
+      name: 'Testes', title: 'Testes - Cenarios confiaveis e regressao', color: '#fa8c16',
+      tags: ['testes', 'qualidade', 'playwright'],
+      content: '# Boas praticas de testes\n\n## Contexto\n\nExemplo de acordo de qualidade, baseado nas recomendacoes do Playwright para testes de interface. Ajuste ferramentas e cobertura aos riscos do produto; percentual de cobertura isolado nao comprova qualidade.\n\n## Regras\n\n- Verificar comportamentos observaveis pelo usuario, nao detalhes internos da implementacao.\n- Manter cada teste independente, com dados e estado controlados; nao depender da ordem de execucao.\n- Priorizar localizadores por papel acessivel, nome e rotulo; evitar seletores CSS ou XPath frageis.\n- Usar espera automatica e assercoes que aguardam a condicao, em vez de pausas fixas arbitrarias.\n- Simular servicos externos que nao estao sob controle da equipe e validar integracoes proprias em ambiente apropriado.\n- Relacionar criterios de aceite a cenarios: sucesso, limites, erros e permissoes. Em correcoes, adicionar teste de regressao para o defeito.\n\n## Criterios de aceite\n\n- Executar o teste isoladamente e junto da suite sem depender de dados de producao.\n- Cobrir o fluxo principal e pelo menos as falhas relevantes ao risco da mudanca.\n- Registrar comando, resultado e limitacoes; investigar intermitencias em vez de esconder falhas com repeticoes indiscriminadas.\n\n## Fontes\n\n- [Playwright - Best Practices](https://playwright.dev/docs/best-practices)\n'
     }
   ] as const
   const folders = examples.map(item => ({ id: randomUUID(), name: item.name, color: item.color }))
@@ -198,14 +198,24 @@ export async function saveMindNote(
 }
 
 export async function deleteMindNote(root: string, id: string, revision: string): Promise<void> {
-  const note = await readMindNote(root, id)
-  if (note.note.revision !== revision) throw conflict()
-  const state = await readMindCards(root)
-  if (state.notes.some(item => item.links.includes(id))) {
-    throw new Error('Remova primeiro os vinculos das notas que fazem referencia a esta nota.')
+  const files = await mindCardsSnapshot(root)
+  if (!files) throw conflict()
+  const state = validateSnapshot(files)
+  const note = state.notes.find(item => item.id === id)
+  if (!note || note.revision !== revision) throw conflict()
+  const updated = new Map(files)
+  updated.delete(note.filePath.slice('mindcards/'.length))
+  for (const reference of state.notes.filter(item => item.links.includes(id))) {
+    const name = reference.filePath.slice('mindcards/'.length)
+    const { metadata, body } = splitMarkdown(files.get(name)!)
+    const yaml = parseDocument(metadata!.replace(/^\uFEFF?---\r?\n/, '').replace(/\r?\n---(?:\r?\n)?$/, ''))
+    yaml.set('links', reference.links.filter(link => link !== id))
+    yaml.set('updatedAt', new Date().toISOString())
+    updated.set(name, `---\n${yaml.toString()}---\n${body}`)
   }
-
-  await fs.unlink(join(root, note.note.filePath))
+  const current = await mindCardsSnapshot(root)
+  if (!current || current.size !== files.size || [...files].some(([name, raw]) => current.get(name) !== raw)) throw conflict()
+  await restoreMindCardsSnapshot(root, updated)
 }
 
 export async function setMindNoteArchived(root: string, id: string, revision: string, archived: boolean): Promise<void> {

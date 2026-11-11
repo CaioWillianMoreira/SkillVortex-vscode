@@ -21,8 +21,15 @@ import type { SkillCardColor } from './skill-colors'
 import { detectExternalChanges, inspectSkillVersions, resolveExternalChange } from './external-changes'
 import { mindFolderSchema, mindNoteInputSchema, type MindNoteDocument } from './mindcards-model'
 import { createMindCardsExamples, deleteMindFolder, deleteMindNote, readMindCards, readMindNote, saveMindFolder, saveMindNote, setMindNoteArchived } from './mindcards'
+import { builderRequestSchema } from './product-builder-model'
+import { readBuilderSources } from './product-builder'
+import { ensureLocalModel, LOCAL_MODEL_REVISION } from './local-model'
+import { fetchW3cReferences } from './w3c-references'
 
 const messageSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('cancelBuilder') }),
+  z.object({ type: z.literal('prepareBuilder'), requestId: z.string().uuid(), ...builderRequestSchema.shape }),
+  z.object({ type: z.literal('openBuilderSkill'), title: z.string().trim().min(1).max(100), content: z.string().trim().min(1).max(100000) }),
   z.object({ type: z.literal('archiveMindNote'), id: z.string().uuid(), revision: z.string(), archived: z.boolean() }),
   z.object({ type: z.literal('archiveCard'), kind: z.enum(['skill', 'collection']), id: z.string(), archived: z.boolean() }),
   z.object({ type: z.literal('loadMindCards') }),
@@ -480,7 +487,7 @@ export function activate(context: vscode.ExtensionContext): void {
       throw error
     }
     await refresh()
-    void vscode.window.showInformationMessage('SkillVortex: 4 cards criados, com 1, 4, 2 e 0 skills.')
+    void vscode.window.showInformationMessage('SkillVortex: 4 cards criados: Acessibilidade (2), HTML e CSS (3), SEO (1) e Testes (1).')
   }
   async function importMarkdown(): Promise<void> {
     const selected = await vscode.window.showOpenDialog({
@@ -731,14 +738,20 @@ export function activate(context: vscode.ExtensionContext): void {
     if (panel) { panel.reveal(); await refresh(); return }
     panel = vscode.window.createWebviewPanel('skillVortex', 'SkillVortex', vscode.ViewColumn.One, {
       enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'dist/webview')]
+      localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'dist/webview'), vscode.Uri.joinPath(context.globalStorageUri, 'builder-models')]
     })
     const current = panel
     const nonce = randomBytes(24).toString('base64')
     const script = current.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist/webview/app.js'))
     const css = current.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist/webview/app.css'))
-    current.webview.html = `<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${current.webview.cspSource} 'unsafe-inline'; script-src ${current.webview.cspSource} 'nonce-${nonce}'; worker-src ${current.webview.cspSource} blob:; font-src ${current.webview.cspSource} data:; img-src ${current.webview.cspSource} data:;"><link rel="stylesheet" href="${css}"><title>SkillVortex</title></head><body><div id="runtime-fallback" role="status"><strong>Carregando SkillVortex...</strong><span>Se a tela nao abrir, verifique a extensao SkillVortex no painel Saida.</span><button id="reload-webview" type="button">Tentar novamente</button></div><div id="root"></div><script nonce="${nonce}">const fallback=document.getElementById('runtime-fallback');const showError=message=>{fallback.classList.add('has-error');fallback.querySelector('strong').textContent='Nao foi possivel carregar as telas do SkillVortex';fallback.querySelector('span').textContent=message||'Abra Exibir > Saida e selecione SkillVortex para consultar o erro.'};window.addEventListener('error',event=>showError(event.message));window.addEventListener('unhandledrejection',event=>showError(event.reason?.message||String(event.reason)));window.addEventListener('securitypolicyviolation',event=>showError('A politica de seguranca bloqueou um recurso: '+event.violatedDirective));document.getElementById('reload-webview').addEventListener('click',()=>location.reload());</script><script type="module" nonce="${nonce}" src="${script}"></script></body></html>`
+    const policy = `default-src 'none'; style-src ${current.webview.cspSource} 'unsafe-inline'; script-src ${current.webview.cspSource} blob: 'nonce-${nonce}' 'wasm-unsafe-eval'; worker-src ${current.webview.cspSource} blob:; connect-src ${current.webview.cspSource} blob:; font-src ${current.webview.cspSource} data:; img-src ${current.webview.cspSource} data:;`
+    current.webview.html = `<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${policy}"><link rel="stylesheet" href="${css}"><title>SkillVortex</title></head><body><div id="runtime-fallback" role="status"><strong>Carregando SkillVortex...</strong><span>Se a tela nao abrir, verifique a extensao SkillVortex no painel Saida.</span><button id="reload-webview" type="button">Tentar novamente</button></div><div id="root"></div><script nonce="${nonce}">const fallback=document.getElementById('runtime-fallback');const showError=message=>{fallback.classList.add('has-error');fallback.querySelector('strong').textContent='Nao foi possivel carregar as telas do SkillVortex';fallback.querySelector('span').textContent=message||'Abra Exibir > Saida e selecione SkillVortex para consultar o erro.'};window.addEventListener('error',event=>showError(event.message));window.addEventListener('unhandledrejection',event=>showError(event.reason?.message||String(event.reason)));window.addEventListener('securitypolicyviolation',event=>showError('A politica de seguranca bloqueou um recurso: '+event.violatedDirective));document.getElementById('reload-webview').addEventListener('click',()=>location.reload());</script><script type="module" nonce="${nonce}" src="${script}"></script></body></html>`
+    let builderDownload: AbortController | undefined
+    context.subscriptions.push(current.webview.onDidReceiveMessage((raw: unknown) => {
+      if (z.object({ type: z.literal('cancelBuilder') }).safeParse(raw).success) builderDownload?.abort()
+    }))
     context.subscriptions.push(current.onDidDispose(() => {
+      builderDownload?.abort()
       if (panel === current) {
         panel = undefined
         pendingSkill = undefined
@@ -747,6 +760,49 @@ export function activate(context: vscode.ExtensionContext): void {
     }))
     context.subscriptions.push(current.webview.onDidReceiveMessage((raw: unknown) => run(async () => {
       const message = messageSchema.parse(raw)
+      if (message.type === 'cancelBuilder') return
+      if (message.type === 'prepareBuilder') {
+        const { root } = await currentVault()
+        builderDownload = new AbortController()
+        try {
+          const sources = await readBuilderSources(root, message)
+          if (message.useW3c) await current.webview.postMessage({
+            type: 'builderProgress', root, requestId: message.requestId, message: 'Consultando documentos oficiais do W3C...'
+          })
+          const references = message.useW3c ? await fetchW3cReferences(message.objective, sources, builderDownload.signal) : []
+          const modelRoot = vscode.Uri.joinPath(context.globalStorageUri, 'builder-models', LOCAL_MODEL_REVISION)
+          await ensureLocalModel(join(modelRoot.fsPath, 'qwen'), builderDownload.signal, progress => {
+            void current.webview.postMessage({ type: 'builderProgress', root, requestId: message.requestId, message: progress })
+          })
+          const runtimePath = current.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'dist/webview/onnx')).toString() + '/'
+          const modelPath = current.webview.asWebviewUri(modelRoot).toString() + '/'
+          await current.webview.postMessage({ type: 'builderSources', root, requestId: message.requestId, sources, references,
+            referenceNotice: message.useW3c && !references.length ? 'Nenhum documento do catalogo W3C corresponde ao tema. Nenhuma consulta W3C foi feita.' : '',
+            runtimePath, modelPath })
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error)
+          output.appendLine(`Product Builder: ${detail}`)
+          await current.webview.postMessage({ type: 'builderError', root, requestId: message.requestId, message: detail })
+        } finally { builderDownload = undefined }
+        return
+      }
+      if (message.type === 'openBuilderSkill') {
+        const { root, data } = await currentVault()
+        assertUniqueTitle(data.catalog, message.title)
+        const category = data.catalog.categories[0] ?? 'Geral'
+        const id = randomBytes(16).toString('hex')
+        const filePath = await availableSkillFilePath(root, message.title, data.catalog.skills.map(skill => skill.filePath))
+        pendingSkill = {
+          root,
+          skill: { id, name: message.title, category, description: 'Rascunho gerado localmente no Product Builder. Revise as regras antes de usar.',
+            filePath, agents: ['GitHub Copilot', 'Antigravity'], status: 'blocked', tags: ['product-builder'] },
+          content: message.content
+        }
+        editingSkillId = id
+        await refresh()
+        await current.webview.postMessage({ type: 'builderSkillOpened', root })
+        return
+      }
       if (['loadMindCards', 'createMindCardsExamples', 'openMindNote', 'saveMindFolder', 'deleteMindFolder', 'saveMindNote', 'deleteMindNote', 'archiveMindNote'].includes(message.type)) {
         const { root } = await currentVault()
         if (message.type === 'openMindNote') {

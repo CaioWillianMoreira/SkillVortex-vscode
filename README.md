@@ -361,6 +361,11 @@ biblioteca. Em **Conexões**, abra tanto as notas relacionadas quanto as que
 fazem referência à nota atual. Os vínculos usam IDs internos estáveis e continuam
 válidos após mudar título ou pasta. Não é necessário digitar sintaxe `[[wiki]]`.
 
+Ao navegar pelas conexões, **Voltar a nota original** retorna diretamente à
+primeira nota aberta, mesmo após visitar várias notas, e restaura seu modo de
+leitura ou edição. O botão aparece no topo e na seção de conexões. Alterações
+não salvas exigem confirmação antes de sair; **Voltar** continua levando à lista.
+
 Uma nota referenciada não pode ser excluída até que seus vínculos de entrada
 sejam removidos. Vínculos quebrados por edição externa aparecem como aviso.
 Títulos repetidos na mesma pasta e nomes de pasta duplicados são recusados.

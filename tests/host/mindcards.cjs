@@ -267,6 +267,21 @@ module.exports = async function testMindCards(extension) {
             button('Voltar a editar').click();
             await wait('base note edit restored', () => document.querySelector('.tiptap')?.getAttribute('contenteditable') === 'true');
             await wait('backlink', () => Array.from(document.querySelectorAll('.mind-connections button')).some(item => item.textContent === 'Limite de desconto'));
+            button('Voltar a nota original').click();
+            await wait('return to original note', () => document.querySelector('input[aria-label="Titulo da nota"]').value === 'Limite de desconto');
+            if (button('Voltar a nota original')) throw new Error('Return action must clear after returning to original note');
+            button('Leitura').click();
+            await wait('original note reading mode', () => document.querySelector('.tiptap')?.getAttribute('contenteditable') === 'false');
+            document.querySelector('.mind-connections button').click();
+            await wait('navigate to base again', () => document.querySelector('input[aria-label="Titulo da nota"]').value === 'Regra base');
+            Array.from(document.querySelectorAll('.mind-connections button')).find(item => item.textContent === 'Limite de desconto').click();
+            await wait('navigate via backlink', () => document.querySelector('input[aria-label="Titulo da nota"]').value === 'Limite de desconto');
+            Array.from(document.querySelectorAll('.mind-connections button')).find(item => item.textContent === 'Regra base').click();
+            await wait('third linked navigation', () => document.querySelector('input[aria-label="Titulo da nota"]').value === 'Regra base');
+            button('Voltar a nota original').click();
+            await wait('return directly to original with reading mode', () =>
+              document.querySelector('input[aria-label="Titulo da nota"]').value === 'Limite de desconto' &&
+              document.querySelector('.tiptap')?.getAttribute('contenteditable') === 'false');
             button('Voltar').click();
             document.querySelector('.workspace-navigation button[aria-pressed][class*="action-library"]').click();
             await wait('skills dashboard preserved', () => document.querySelector('input[aria-label="Buscar skills"]'));

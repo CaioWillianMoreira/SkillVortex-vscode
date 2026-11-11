@@ -22,6 +22,8 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
   const [showArchived, setShowArchived] = useState(false)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [reading, setReading] = useState(false)
+  const [originalNote, setOriginalNote] = useState<{ id: string; reading: boolean } | null>(null)
+  const navigation = useRef<{ original: typeof originalNote; reading: boolean } | null>(null)
   const [folder, setFolder] = useState<MindFolder | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -34,6 +36,9 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
   useEffect(() => { onDirtyChange(dirty) }, [dirty, onDirtyChange])
   useEffect(() => { onBusyChange(busy) }, [busy, onBusyChange])
   useEffect(() => {
+    if (!draft) setOriginalNote(null)
+  }, [draft])
+  useEffect(() => {
     const accept = ({ note, content }: MindNoteDocument) => {
       const next: Draft = { id: note.id, revision: note.revision, title: note.title, folderId: note.folderId,
         tags: note.tags, links: note.links, archived: note.archived, content }
@@ -44,6 +49,7 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
     const receive = (event: MessageEvent) => {
       const message = event.data
       if (message.type === 'error') {
+        navigation.current = null
         setError(message.message)
         pending.current = false
         setBusy(false)
@@ -61,6 +67,11 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
       }
       if (message.type === 'mindNote') {
         accept(message.document)
+        if (navigation.current) {
+          setOriginalNote(navigation.current.original)
+          setReading(navigation.current.reading)
+          navigation.current = null
+        }
         setBusy(false)
         pending.current = false
         setError('')
@@ -89,14 +100,25 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
     }))
   }
   const openNote = async (id: string) => {
+    if (id === draft?.id) return
     if (!await discard()) return
+    navigation.current = {
+      original: originalNote ?? (draft?.id ? { id: draft.id, reading } : null),
+      reading: false
+    }
     send({ type: 'openMindNote', id })
+  }
+  const returnToOriginal = async () => {
+    if (!originalNote || !await discard()) return
+    navigation.current = { original: null, reading: originalNote.reading }
+    send({ type: 'openMindNote', id: originalNote.id })
   }
   const createNote = async (folderId?: string) => {
     if (!await discard()) return
     const destination = folderId ?? folderFilter ?? state.folders[0]?.id
     if (!destination) { setError('Crie uma pasta antes de adicionar uma nota.'); return }
     baseline.current = ''
+    setOriginalNote(null)
     setReading(false)
     setDraft({ title: '', folderId: destination, tags: [], links: [], content: '' })
     setError('')
@@ -240,6 +262,8 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
               <div><Typography.Title level={3}>{reading ? draft.title || 'Leitura da nota' : draft.id ? 'Editando nota' : 'Nova nota'}</Typography.Title>
                 <Typography.Text type="secondary">{dirty ? 'Nao salvo' : 'Todas as alteracoes salvas'}</Typography.Text></div>
               <Space wrap>
+                {originalNote && <ActionButton action="back" disabled={busy}
+                  onClick={() => void returnToOriginal()}>Voltar a nota original</ActionButton>}
                 <ActionButton action="back" disabled={busy} onClick={async () => { if (await discard()) setDraft(null) }}>Voltar</ActionButton>
                 <ActionButton action={reading ? 'edit' : 'read'} aria-pressed={reading} disabled={busy}
                   onClick={() => setReading(current => !current)}>{reading ? 'Voltar a editar' : 'Leitura'}</ActionButton>
@@ -278,6 +302,8 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
             </Card>
             <Card className="mind-connections">
               <Typography.Title level={5}><ActionIcon action="link" /> Conexoes</Typography.Title>
+              {originalNote && <ActionButton action="back" disabled={busy}
+                onClick={() => void returnToOriginal()}>Voltar a nota original</ActionButton>}
               <div><Typography.Text type="secondary">Notas relacionadas</Typography.Text>
                 <Space wrap>{noteLinks.map(note => <Button key={note.id} type="link" onClick={() => void openNote(note.id)}>{note.title}</Button>)}
                   {!noteLinks.length && <span>Nenhuma conexao selecionada.</span>}</Space></div>

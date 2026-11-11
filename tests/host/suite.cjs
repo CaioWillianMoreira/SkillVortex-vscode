@@ -39,6 +39,7 @@ exports.run = async function run() {
   await require('./visual-editor.cjs')(extension)
   await require('./card-colors.cjs')(extension)
   await require('./text-color.cjs')(extension)
+  await require('./archives.cjs')(extension)
   await require('./project-switch.cjs').testProjectSwitch(extension)
   await require('./markdown-lifecycle.cjs').testMarkdownLifecycle(extension)
 

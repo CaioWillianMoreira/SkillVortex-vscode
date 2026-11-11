@@ -9,7 +9,7 @@ import {
   agentSkillKey, deploymentAgent, deploymentRoot, hasErrorCode, isAgentLinked, projectBindings,
   collectionSchema, removeSkillFromCollections, setProjectBindings, setSharedSkillPublication, skillCards,
   assertUniqueTitle, titleKey, skillAgentSchema, skillRegistrationSchema, skillSchema, uniqueSkillFilePath,
-  isCollectionLinked, selectedSkillIds, setCollectionLinked
+  isCollectionLinked, selectedSkillIds, setCollectionLinked, isSkillArchived, setCardArchived
 } from './model'
 import type { SkillAgent } from './model'
 import { projectMarkdownAgent, readProjectMarkdown, scanProjectMarkdown } from './project-scan'
@@ -20,9 +20,11 @@ import { assertSkillInactive, deleteCollectionFiles, deleteSkillFiles, planSkill
 import type { SkillCardColor } from './skill-colors'
 import { detectExternalChanges, inspectSkillVersions, resolveExternalChange } from './external-changes'
 import { mindFolderSchema, mindNoteInputSchema, type MindNoteDocument } from './mindcards-model'
-import { createMindCardsExamples, deleteMindFolder, deleteMindNote, readMindCards, readMindNote, saveMindFolder, saveMindNote } from './mindcards'
+import { createMindCardsExamples, deleteMindFolder, deleteMindNote, readMindCards, readMindNote, saveMindFolder, saveMindNote, setMindNoteArchived } from './mindcards'
 
 const messageSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('archiveMindNote'), id: z.string().uuid(), revision: z.string(), archived: z.boolean() }),
+  z.object({ type: z.literal('archiveCard'), kind: z.enum(['skill', 'collection']), id: z.string(), archived: z.boolean() }),
   z.object({ type: z.literal('loadMindCards') }),
   z.object({ type: z.literal('createMindCardsExamples') }),
   z.object({ type: z.literal('openMindNote'), id: z.string().uuid() }),
@@ -745,13 +747,14 @@ export function activate(context: vscode.ExtensionContext): void {
     }))
     context.subscriptions.push(current.webview.onDidReceiveMessage((raw: unknown) => run(async () => {
       const message = messageSchema.parse(raw)
-      if (['loadMindCards', 'createMindCardsExamples', 'openMindNote', 'saveMindFolder', 'deleteMindFolder', 'saveMindNote', 'deleteMindNote'].includes(message.type)) {
+      if (['loadMindCards', 'createMindCardsExamples', 'openMindNote', 'saveMindFolder', 'deleteMindFolder', 'saveMindNote', 'deleteMindNote', 'archiveMindNote'].includes(message.type)) {
         const { root } = await currentVault()
         if (message.type === 'openMindNote') {
           await current.webview.postMessage({ type: 'mindNote', root, document: await readMindNote(root, message.id) })
           return
         }
         let document: MindNoteDocument | undefined
+        if (message.type === 'archiveMindNote') await setMindNoteArchived(root, message.id, message.revision, message.archived)
         if (message.type === 'createMindCardsExamples') await createMindCardsExamples(root)
         if (message.type === 'saveMindFolder') await saveMindFolder(root, message.folder, message.revision)
         if (message.type === 'deleteMindFolder') await deleteMindFolder(root, message.id, message.revision)
@@ -762,6 +765,13 @@ export function activate(context: vscode.ExtensionContext): void {
           saved: message.type === 'saveMindNote', deleted: message.type === 'deleteMindNote',
           notice: message.type === 'loadMindCards' ? undefined : 'Alteracoes salvas no MindCards.'
         })
+        return
+      }
+      if (message.type === 'archiveCard') {
+        const { root, data } = await currentVault()
+        setCardArchived(data, message.kind, message.id, message.archived)
+        await saveVaultData(root, data)
+        await refresh()
         return
       }
       if (message.type === 'ready' || message.type === 'refresh') await refresh()
@@ -894,6 +904,9 @@ export function activate(context: vscode.ExtensionContext): void {
           throw new Error('Skill nao encontrada neste card.')
         }
         const targets = [...new Set(message.agents)]
+        if (collection.archived || isSkillArchived(data.catalog, member.id)) {
+          throw new Error('Restaure o card arquivado antes de alterar sua selecao.')
+        }
         const labels = collection.agents ?? data.catalog.skills.find(item => collection.skillIds.includes(item.id))?.agents ?? []
         if (targets.some(agent => !labels.includes(agent))) throw new Error('Selecione somente os agentes exibidos no card.')
         if (message.enabled && (collection.status === 'blocked' || member.status === 'blocked')) {
@@ -952,6 +965,9 @@ export function activate(context: vscode.ExtensionContext): void {
         const disabling = message.type === 'toggleCollection' ? !message.enabled
           : targets ? Boolean(currentProject && targets.every(target => isAgentLinked(currentProject, skill.id, target)))
             : Boolean(project?.skillIds.includes(skill.id))
+        if (!disabling && (collection?.archived || ids.some(id => isSkillArchived(data.catalog, id)))) {
+          throw new Error('Restaure o card arquivado antes de ativa-lo.')
+        }
         if (message.type === 'toggleCollection' && disabling && !project) {
           throw new Error('Selecione um projeto antes de desativar a colecao.')
         }
@@ -1086,6 +1102,9 @@ export function activate(context: vscode.ExtensionContext): void {
         })
         data.catalog.skills[index] = updated
         const linked = new Set(message.projectIds)
+        if (linked.size && isSkillArchived(data.catalog, updated.id)) {
+          throw new Error('Restaure o card arquivado antes de vincular a skill.')
+        }
         const cards = skillCards(data.catalog).filter(card => card.skillIds.includes(updated.id))
         const agents = [...new Set(cards.flatMap(card => card.agents))]
           .filter((agent): agent is SkillAgent => agent === 'GitHub Copilot' || agent === 'Antigravity')

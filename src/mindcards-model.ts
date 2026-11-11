@@ -9,6 +9,7 @@ export const mindFolderSchema = z.object({
 export const mindNoteInputSchema = z.object({
   title: z.string().trim().min(1, 'Informe o titulo da nota.').max(120),
   folderId: z.string().uuid(),
+  archived: z.boolean().optional(),
   tags: z.array(z.string().trim().min(1).max(60)).max(50),
   links: z.array(z.string().uuid()).max(200),
   content: z.string().max(2 * 1024 * 1024)

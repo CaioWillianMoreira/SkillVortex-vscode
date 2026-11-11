@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, test } from '@jest/globals'
 import { createVault, readVault } from '../src/vault'
 import {
   createMindCardsExamples, deleteMindFolder, deleteMindNote, mindCardsSnapshot, readMindCards, readMindNote,
-  restoreMindCardsSnapshot, saveMindFolder, saveMindNote
+  restoreMindCardsSnapshot, saveMindFolder, saveMindNote, setMindNoteArchived
 } from '../src/mindcards'
 import { createVaultBackup, restoreVaultBackup } from '../src/backup'
 import type { MindFolder } from '../src/mindcards-model'
@@ -85,6 +85,24 @@ test('folder names and same-folder note titles are unique after normalization', 
   await expect(saveMindFolder(root, { ...folder, id: randomUUID(), name: ' AGENDAMENTOS ' }, state.revision)).rejects.toThrow('Ja existe')
   await saveMindNote(root, input())
   await expect(saveMindNote(root, input(' cancelar AGENDAMENTO '))).rejects.toThrow('Ja existe')
+})
+
+test('archiving and restoring notes preserves content, links and backups and rejects stale revisions', async () => {
+  await initialize()
+  const note = await saveMindNote(root, input())
+  const related = await saveMindNote(root, { ...input('Referencia'), links: [note.note.id] })
+  await setMindNoteArchived(root, note.note.id, note.note.revision, true)
+  const archived = await readMindNote(root, note.note.id)
+  expect(archived.note.archived).toBe(true)
+  expect(archived.content).toBe(note.content)
+  expect(archived.note.filePath).toBe(note.note.filePath)
+  expect((await readMindNote(root, related.note.id)).note.links).toEqual([note.note.id])
+  await expect(setMindNoteArchived(root, note.note.id, note.note.revision, false)).rejects.toThrow('alterado fora')
+  const backup = await createVaultBackup(root)
+  await setMindNoteArchived(root, note.note.id, archived.note.revision, false)
+  expect((await readMindNote(root, note.note.id)).note.archived).toBe(false)
+  await restoreVaultBackup(root, backup.id)
+  expect((await readMindNote(root, note.note.id)).note.archived).toBe(true)
 })
 
 test('notes with equal titles in different folders use distinct readable filenames', async () => {

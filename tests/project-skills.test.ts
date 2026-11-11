@@ -49,6 +49,18 @@ test('the released Vitest example is published as a discoverable Copilot skill',
   expect(await readVault(root)).toEqual(data)
 })
 
+test('archived standalone skills and collection members cannot be published', async () => {
+  const data = structuredClone(original)
+  const skill = data.catalog.skills[0]
+  data.projects.projects[0].skillIds = [skill.id]
+  skill.archived = true
+  await expect(saveProjectSkills(root, original, data)).rejects.toThrow('arquivado')
+  skill.archived = false
+  data.catalog.collections = [{ id: 'archived-card', name: 'Archived card', skillIds: [skill.id], archived: true }]
+  await expect(saveProjectSkills(root, original, data)).rejects.toThrow('arquivado')
+  expect((await readVault(root)).projects.projects[0].skillIds).toEqual([])
+})
+
 test('shared publication preserves optional YAML fields and avoids nested frontmatter', async () => {
   const skill = original.catalog.skills[0]
   const content = '---\nname: old-name\ndescription: |\n  Old multiline description.\nlicense: MIT\nmetadata:\n  author: example\n---\n\n# Procedure\n'

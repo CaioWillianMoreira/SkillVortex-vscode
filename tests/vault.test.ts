@@ -3,7 +3,7 @@ import { beforeEach, afterEach, test, expect } from '@jest/globals'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createVault, readVault, readContained, saveVaultData, writeSkillFile } from '../src/vault'
-import { emptyVault, validateVault, selectedSkillIds, setCollectionLinked, isCollectionLinked } from '../src/model'
+import { emptyVault, validateVault, selectedSkillIds, setCollectionLinked, isCollectionLinked, setCardArchived, isSkillArchived, skillCards } from '../src/model'
 import { initializeSql, migrateDesktop, rebuildIndex } from '../src/database'
 import { createVaultBackup, listVaultBackups, restoreVaultBackup } from '../src/backup'
 import { SKILL_CARD_COLORS } from '../src/skill-colors'
@@ -26,6 +26,51 @@ test('never overwrites an existing destination', async () => {
   await fs.writeFile(join(root, 'keep.txt'), 'original')
   await expect(createVault(root)).rejects.toThrow('Nada foi sobrescrito')
   expect(await fs.readFile(join(root, 'keep.txt'), 'utf8')).toBe('original')
+})
+
+test('cards archive and restore without losing members or Markdown and persist in backups', async () => {
+  const root = join(temporary, 'vault')
+  await createVault(root)
+  const data = await readVault(root)
+  data.catalog.skills.push({ id: 'one', name: 'One', category: 'Geral', description: 'QA',
+    filePath: 'skills/one.md', agents: ['GitHub Copilot'], tags: [], status: 'allowed' })
+  await writeSkillFile(root, 'skills/one.md', '# Original')
+  setCardArchived(data, 'skill', 'one', true)
+  expect(isSkillArchived(data.catalog, 'one')).toBe(true)
+  expect(skillCards(data.catalog)[0].archived).toBe(true)
+  await saveVaultData(root, data)
+  const backup = await createVaultBackup(root)
+  setCardArchived(data, 'skill', 'one', false)
+  await saveVaultData(root, data)
+  await restoreVaultBackup(root, backup.id)
+  expect((await readVault(root)).catalog.skills[0].archived).toBe(true)
+  expect(await readContained(root, join(root, 'skills/one.md'))).toBe('# Original')
+  data.catalog.collections = [{ id: 'card', name: 'Card', skillIds: ['one'], disabledSkillIds: ['one'] }]
+  setCardArchived(data, 'collection', 'card', true)
+  expect(isSkillArchived(data.catalog, 'one')).toBe(true)
+  setCardArchived(data, 'collection', 'card', false)
+  expect(isSkillArchived(data.catalog, 'one')).toBe(false)
+  expect(data.catalog.collections[0].disabledSkillIds).toEqual(['one'])
+  expect(() => setCardArchived(data, 'collection', 'missing', true)).toThrow('nao encontrado')
+})
+
+test('archiving rejects active cards in any project including empty selection and deployed members', () => {
+  const data = emptyVault()
+  data.catalog.skills.push({ id: 'one', name: 'One', category: 'Geral', description: 'QA',
+    filePath: 'skills/one.md', agents: [], tags: [], status: 'allowed' })
+  data.catalog.collections = [{ id: 'card', name: 'Card', skillIds: ['one'], disabledSkillIds: ['one'] }]
+  data.projects.projects = [{ id: 'other', name: 'Other', skillIds: ['one'] }]
+  expect(() => setCardArchived(data, 'skill', 'one', true)).toThrow('Desative')
+  expect(() => setCardArchived(data, 'collection', 'card', true)).toThrow('Desative')
+  data.projects.projects[0].skillIds = []
+  setCollectionLinked(data.projects.projects[0], 'card', 'GitHub Copilot', true)
+  expect(() => setCardArchived(data, 'collection', 'card', true)).toThrow('Desative')
+  data.projects.projects[0].collectionBindings = []
+  data.projects.projects[0].agentBindings = [{ skillId: 'one', agent: 'Antigravity' }]
+  expect(() => setCardArchived(data, 'skill', 'one', true)).toThrow('Desative')
+  data.projects.projects[0].agentBindings = []
+  data.projects.projects[0].deployedSkills = [{ skillId: 'one', directory: 'one', hash: 'a'.repeat(64), sourceHash: 'a'.repeat(64) }]
+  expect(() => setCardArchived(data, 'skill', 'one', true)).toThrow('Desative')
 })
 
 test('backup restores checkbox choices and a card active with no selected skills', async () => {

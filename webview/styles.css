@@ -84,7 +84,7 @@ body[data-workspace="mindcards"] .workspace-navigation [aria-pressed="true"] {
   border-color: #69b1ff;
 }
 
-body[data-workspace="mindcards"] .brand span { color: inherit; }
+body[data-workspace="mindcards"] .brand span { color: #1677ff; }
 body[data-workspace="mindcards"] .mind-folder-button[aria-pressed="true"] {
   background: #173d66;
   border-color: #69b1ff;
@@ -155,6 +155,9 @@ body[data-workspace="mindcards"] .visual-markdown-editor .tiptap input[type="che
 .mind-note-card .ant-card-body { display: flex; flex-direction: column; gap: 14px; height: 100%; }
 .mind-note-card h4 { margin: 0; }
 .mind-note-folder { display: flex; align-items: center; gap: 8px; overflow-wrap: anywhere; }
+.card-top-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.card-archive-button.ant-btn { flex: 0 0 auto; width: 28px; height: 28px; }
+.skill-card-heading h5.ant-typography { flex: 1; min-width: 0; }
 .mind-note-title.ant-btn { color: #eee; padding: 0; height: auto; font-size: 18px; white-space: normal; text-align: left; }
 .mind-note-tags { min-height: 24px; }
 .mind-note-card .action-edit { margin-top: auto; align-self: flex-start; }

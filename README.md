@@ -312,7 +312,7 @@ automaticamente e a ação fica indisponível quando já existem pastas ou notas
 6. Preencha título, pasta, etiquetas opcionais e texto; clique em **Salvar nota**
    ou use `Ctrl+S` / `Cmd+S`.
 
-A lista permite filtrar por pasta, pesquisar títulos/etiquetas e filtrar uma
+A lista permite filtrar por pasta, pesquisar títulos/etiquetas/nomes de pastas e filtrar uma
 etiqueta. As notas aparecem com a cor da pasta, data de atualização e quantidade
 de conexões. O ícone de edição da pasta permite renomear, alterar a cor ou
 excluir uma pasta vazia. Para mover uma nota, altere sua pasta no editor e salve.
@@ -326,6 +326,22 @@ A nota usa o editor visual do SkillVortex e a mesma barra de formatação, sem
 painel de sintaxe Markdown. Títulos, listas, tarefas, links e tabelas continuam
 disponíveis. O conteúdo é gravado em `.md`; os metadados ficam em um cabeçalho
 YAML gerenciado pelo módulo e não aparecem na área de texto.
+
+### Arquivar e restaurar cards
+
+Nos dois modulos, o icone de caixa **Arquivar**, no canto superior do card,
+retira o card da lista principal sem excluir seus
+arquivos. Abra **Arquivados** para consultar esses cards e clique em **Restaurar**
+para devolve-los a lista principal. A pesquisa e os filtros continuam disponiveis
+nessa tela.
+
+No MindCards, notas arquivadas preservam texto, pasta, etiquetas, links e
+referencias de entrada. No SkillVortex, o card precisa estar desativado em todos
+os projetos antes de ser arquivado. Membros e selecoes do conjunto sao
+preservados; restaure o card antes de ativa-lo novamente. Arquivar ou restaurar
+nao ativa skills automaticamente. O estado de arquivamento acompanha os backups.
+
+### Leitura de notas
 
 Use **Leitura** no editor da nota para visualizar todo o conteúdo em largura
 ampliada, sem campos de cadastro, lateral ou barra de ferramentas. O texto fica

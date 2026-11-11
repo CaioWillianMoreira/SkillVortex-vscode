@@ -54,6 +54,7 @@ export const skillSchema = z.object({
   status: statusSchema,
   tags: z.array(z.string()),
   cardColor: z.enum(SKILL_CARD_COLORS).optional(),
+  archived: z.boolean().optional(),
   originPath: z.string().optional(),
   publishedFolders: z.array(z.object({
     projectId: z.string().min(1),
@@ -82,6 +83,7 @@ export const skillRegistrationSchema = skillSchema.pick({
 export const collectionSchema = z.object({
   id: z.string().min(1).max(200),
   name: z.string().trim().min(1).max(60),
+  archived: z.boolean().optional(),
   skillIds: z.array(z.string()).max(10000).refine(unique),
   disabledSkillIds: z.array(z.string()).max(10000).refine(unique).optional(),
   category: skillSchema.shape.category.optional(),
@@ -169,7 +171,7 @@ export function assertUniqueTitle(catalog: Catalog, name: string, except?: { kin
 }
 export type SkillCard = {
   id: string; name: string; category: string; description: string;
-  agents: string[]; tags: string[]; status: Skill['status']; cardColor?: Skill['cardColor'];
+  agents: string[]; tags: string[]; status: Skill['status']; cardColor?: Skill['cardColor']; archived?: boolean;
   skillIds: string[]; disabledSkillIds?: string[]; standaloneSkillId?: string
 }
 export function skillCards(catalog: Catalog): SkillCard[] {
@@ -229,6 +231,26 @@ export function removeSkillFromCollections(catalog: Catalog, skillId: string): v
   }
 }
 export interface VaultData { catalog: Catalog; projects: Projects }
+
+export function isSkillArchived(catalog: Catalog, id: string): boolean {
+  return Boolean(catalog.skills.find(skill => skill.id === id)?.archived ||
+    catalog.collections?.some(card => card.archived && card.skillIds.includes(id)))
+}
+
+export function setCardArchived(data: VaultData, kind: 'skill' | 'collection', id: string, archived: boolean): void {
+  const item = kind === 'skill' ? data.catalog.skills.find(skill => skill.id === id)
+    : data.catalog.collections?.find(card => card.id === id)
+  if (!item) throw new Error('Card nao encontrado.')
+  const ids = kind === 'skill' ? [id] : data.catalog.collections?.find(card => card.id === id)?.skillIds ?? []
+  if (archived && data.projects.projects.some(project =>
+    ids.some(skillId => project.skillIds.includes(skillId) ||
+      project.agentBindings?.some(binding => binding.skillId === skillId) ||
+      project.deployedSkills?.some(deployed => deployed.skillId === skillId)) ||
+    (kind === 'collection' && project.collectionBindings?.some(binding => binding.collectionId === id)))) {
+    throw new Error('Desative o card em todos os projetos antes de arquivar.')
+  }
+  item.archived = archived
+}
 
 export function validateVault(catalog: unknown, projects: unknown): VaultData {
   const legacyCatalog = typeof catalog === 'object' && catalog !== null && 'skills' in catalog &&

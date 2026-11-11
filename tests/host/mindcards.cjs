@@ -8,7 +8,7 @@ const vscode = require('vscode')
 module.exports = async function testMindCards(extension) {
   const load = name => require(join(extension.extensionPath, `dist/${name}.js`))
   const { createVault, readVault } = load('vault')
-  const { createMindCardsExamples, restoreMindCardsSnapshot, readMindCards, readMindNote, saveMindFolder, saveMindNote } = load('mindcards')
+  const { createMindCardsExamples, restoreMindCardsSnapshot, readMindCards, readMindNote, saveMindFolder, saveMindNote, setMindNoteArchived } = load('mindcards')
   const temporary = await mkdtemp(join(tmpdir(), 'mindcards-host-'))
   const root = join(temporary, 'vault')
   let panel, listener, timer
@@ -47,6 +47,9 @@ module.exports = async function testMindCards(extension) {
                 Array.from({ length: 60 }, (_, index) => `Paragrafo de leitura ${index + 1}.`).join('\n\n') +
                 '\n\nUltima linha da nota completa.'
             })
+            await webview.postMessage({ type: 'mindCards', root, state: await readMindCards(root) })
+          } else if (message.type === 'archiveMindNote') {
+            await setMindNoteArchived(root, message.id, message.revision, message.archived)
             await webview.postMessage({ type: 'mindCards', root, state: await readMindCards(root) })
           } else if (message.type === 'saveMindFolder') {
             await saveMindFolder(root, message.folder, message.revision)
@@ -164,6 +167,29 @@ module.exports = async function testMindCards(extension) {
             }
             bridge.postMessage({ type: 'mindcards-test-reset-examples' });
             await wait('reset example test data', () => document.querySelectorAll('.mind-note-card').length === 1);
+            document.querySelector('.mind-note-card .card-top-row [aria-label="Arquivar"]').click();
+            await wait('archived note hidden', () => document.querySelectorAll('.mind-note-card').length === 0);
+            button('Arquivados').click();
+            await wait('archived note screen', () => document.querySelector('.card-top-row [aria-label="Restaurar"]') && document.querySelector('.mind-note-title')?.textContent === 'Regra base');
+            button('Abrir nota').click();
+            await wait('archived note remains readable', () => document.querySelector('.tiptap')?.textContent.includes('Ultima linha da nota completa.'));
+            button('Voltar').click();
+            await wait('archived cards again', () => document.querySelector('.card-top-row [aria-label="Restaurar"]'));
+            document.querySelector('.card-top-row [aria-label="Restaurar"]').click();
+            await wait('restored note leaves archive', () => document.querySelectorAll('.mind-note-card').length === 0);
+            button('Voltar para notas').click();
+            await wait('restored active note', () => document.querySelectorAll('.mind-note-card').length === 1);
+            for (const query of ['gErAl', 'Regra base', 'base']) {
+              setInput('Buscar notas', query);
+              await wait('search matches ' + query, () => document.querySelectorAll('.mind-note-card').length === 1);
+              if (!document.querySelector('.mind-note-title').textContent.includes('Regra base')) {
+                throw new Error('Search must match note title, tags and folder name');
+              }
+            }
+            setInput('Buscar notas', 'pasta inexistente');
+            await wait('unmatched folder search', () => document.querySelectorAll('.mind-note-card').length === 0);
+            setInput('Buscar notas', '');
+            await wait('cleared folder search', () => document.querySelectorAll('.mind-note-card').length === 1);
             document.querySelector('[aria-label="Nova pasta"]').click();
             await wait('folder form', () => document.querySelector('input[aria-label="Nome da pasta"]'));
             if (getComputedStyle(document.querySelector('.ant-modal-content')).backgroundColor !== 'rgb(31, 31, 31)') {

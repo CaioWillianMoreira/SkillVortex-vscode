@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { isMap, parseDocument } from 'yaml'
 import {
-  agentRoot, deploymentAgent, deploymentRoot, hasErrorCode, isAgentLinked,
+  agentRoot, deploymentAgent, deploymentRoot, hasErrorCode, isAgentLinked, isSkillArchived,
   projectBindings, skillSlug, type Skill, type SkillAgent, type VaultData
 } from './model'
 import { assertImportedOriginsPreserved, skillArchiveName } from './skill-deletion'
@@ -278,6 +278,7 @@ export async function saveProjectSkills(
         if (agentScope && agent !== agentScope) continue
         const skill = next.catalog.skills.find(item => item.id === skillId)
         if (!skill || skill.status === 'blocked') throw new Error('Skill ausente ou bloqueada.')
+        if (isSkillArchived(next.catalog, skillId)) throw new Error('Restaure o card arquivado antes de publicar suas skills.')
         const path = await projectRoot(project)
         const existing = oldProject && oldProject.sourcePath === project.sourcePath
           ? oldProject.deployedSkills?.find(item => item.skillId === skillId && deploymentAgent(item) === agent)

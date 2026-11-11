@@ -19,6 +19,7 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
   const [search, setSearch] = useState('')
   const [folderFilter, setFolderFilter] = useState<string>()
   const [tagFilter, setTagFilter] = useState<string>()
+  const [showArchived, setShowArchived] = useState(false)
   const [draft, setDraft] = useState<Draft | null>(null)
   const [reading, setReading] = useState(false)
   const [folder, setFolder] = useState<MindFolder | null>(null)
@@ -35,7 +36,7 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
   useEffect(() => {
     const accept = ({ note, content }: MindNoteDocument) => {
       const next: Draft = { id: note.id, revision: note.revision, title: note.title, folderId: note.folderId,
-        tags: note.tags, links: note.links, content }
+        tags: note.tags, links: note.links, archived: note.archived, content }
       baseline.current = JSON.stringify(next)
       setReading(false)
       setDraft(next)
@@ -121,10 +122,12 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
   const update = <K extends keyof Draft>(key: K, value: Draft[K]) =>
     setDraft(current => current ? { ...current, [key]: value } : current)
   const tags = [...new Set(state.notes.flatMap(note => note.tags))].sort()
+  const visibleNotes = state.notes.filter(note => Boolean(note.archived) === showArchived)
   const filtered = state.notes.filter(note =>
+    Boolean(note.archived) === showArchived &&
     (!folderFilter || note.folderId === folderFilter) &&
     (!tagFilter || note.tags.includes(tagFilter)) &&
-    `${note.title} ${note.tags.join(' ')}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
+    `${note.title} ${note.tags.join(' ')} ${state.folders.find(folder => folder.id === note.folderId)?.name ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
   const backlinks = draft?.id ? state.notes.filter(note => note.links.includes(draft.id!)) : []
   const noteLinks = draft ? draft.links.map(id => state.notes.find(note => note.id === id)).filter((note): note is MindNote => Boolean(note)) : []
   const reload = async () => {
@@ -142,6 +145,15 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
       </div>
       <div className="toolbar-spacer" />
       {root && <Space wrap>
+        <ActionButton action={showArchived ? 'back' : 'archive'} disabled={busy} aria-pressed={showArchived}
+          onClick={async () => {
+            if (!await discard()) return
+            setDraft(null)
+            setShowArchived(current => !current)
+            setFolderFilter(undefined)
+            setTagFilter(undefined)
+            setSearch('')
+          }}>{showArchived ? 'Voltar para notas' : 'Arquivados'}</ActionButton>
         <ActionButton action="refresh" disabled={busy} onClick={() => void reload()}>Atualizar</ActionButton>
         <ActionButton action="backup" disabled={busy || dirty} onClick={() => api.postMessage({ type: 'createBackup' })}>Criar backup</ActionButton>
         <ActionButton action="folder" disabled={busy || dirty} onClick={() => api.postMessage({ type: 'openVault' })}>Abrir biblioteca</ActionButton>
@@ -165,13 +177,13 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
               onClick={() => setFolder({ id: crypto.randomUUID(), name: '', color: SKILL_CARD_COLORS[3] })} />
           </div>
           <Button className="mind-folder-button" aria-pressed={!folderFilter} onClick={() => setFolderFilter(undefined)}>
-            <ActionIcon action="mindcards" /><span>Todas as notas</span><Tag>{state.notes.length}</Tag>
+            <ActionIcon action="mindcards" /><span>Todas as notas</span><Tag>{visibleNotes.length}</Tag>
           </Button>
           {state.folders.map(item => <div className="mind-folder-row" key={item.id}>
             <Button className="mind-folder-button" title={item.name} aria-pressed={folderFilter === item.id} onClick={() => setFolderFilter(item.id)}>
               <span style={{ color: item.color }}><ActionIcon action="folder" /></span>
               <span className="mind-folder-name">{item.name}</span>
-              <Tag>{state.notes.filter(note => note.folderId === item.id).length}</Tag>
+              <Tag>{visibleNotes.filter(note => note.folderId === item.id).length}</Tag>
             </Button>
             <Button type="text" size="small" aria-label={`Editar pasta ${item.name}`} title="Editar pasta" disabled={busy || dirty}
               icon={<ActionIcon action="edit" />} onClick={() => setFolder({ ...item })} />
@@ -183,12 +195,12 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
         <div className="mind-main">
           {!draft ? <>
             <div className="mind-dashboard-heading">
-              <div><Typography.Title level={2}>{state.folders.find(item => item.id === folderFilter)?.name ?? 'Suas notas'}</Typography.Title>
+              <div><Typography.Title level={2}>{showArchived ? 'Notas arquivadas' : state.folders.find(item => item.id === folderFilter)?.name ?? 'Suas notas'}</Typography.Title>
                 <Typography.Text type="secondary">{filtered.length} nota(s) · Regras, contexto e conexoes.</Typography.Text></div>
-              <ActionButton action="add" type="primary" disabled={busy || !state.folders.length} onClick={() => void createNote()}>Nova nota</ActionButton>
+              {!showArchived && <ActionButton action="add" type="primary" disabled={busy || !state.folders.length} onClick={() => void createNote()}>Nova nota</ActionButton>}
             </div>
             <div className="mind-filters">
-              <Input aria-label="Buscar notas" prefix={<ActionIcon action="search" />} placeholder="Buscar notas e etiquetas..."
+              <Input aria-label="Buscar notas" prefix={<ActionIcon action="search" />} placeholder="Buscar notas, etiquetas e pastas..."
                 value={search} onChange={event => setSearch(event.target.value)} />
               <Select aria-label="Filtrar notas por etiqueta" placeholder="Todas as etiquetas" allowClear value={tagFilter}
                 options={tags.map(tag => ({ value: tag, label: tag }))} onChange={setTagFilter} />
@@ -205,12 +217,17 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
               }}>Carregar exemplos</ActionButton>
               </Space>
             </Empty></Card> : !filtered.length ? <Card><Empty description="Nenhuma nota encontrada.">
-              <ActionButton action="add" onClick={() => void createNote()}>Criar nota</ActionButton>
+              {!showArchived && <ActionButton action="add" onClick={() => void createNote()}>Criar nota</ActionButton>}
             </Empty></Card> : <div className="mind-note-grid">
               {[...filtered].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(note => {
                 const parent = state.folders.find(item => item.id === note.folderId)!
                 return <Card className="mind-note-card" key={note.id} style={{ borderTopColor: parent.color }}>
-                  <div className="mind-note-folder" style={{ color: parent.color }}><ActionIcon action="folder" />{parent.name}</div>
+                  <div className="card-top-row">
+                    <div className="mind-note-folder" style={{ color: parent.color }}><ActionIcon action="folder" />{parent.name}</div>
+                    <ActionButton className="card-archive-button" action={showArchived ? 'restore' : 'archive'} size="small"
+                      aria-label={showArchived ? 'Restaurar' : 'Arquivar'} title={showArchived ? 'Restaurar' : 'Arquivar'} disabled={busy}
+                      onClick={() => send({ type: 'archiveMindNote', id: note.id, revision: note.revision, archived: !showArchived })} />
+                  </div>
                   <Typography.Title level={4}><Button type="link" className="mind-note-title" onClick={() => void openNote(note.id)}>{note.title}</Button></Typography.Title>
                   <div className="mind-note-tags">{note.tags.map(tag => <Tag key={tag}>{tag}</Tag>)}</div>
                   <Typography.Text type="secondary">{new Date(note.updatedAt).toLocaleDateString('pt-BR')} · {note.links.length} conexao(oes)</Typography.Text>

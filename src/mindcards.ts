@@ -204,7 +204,13 @@ export async function deleteMindNote(root: string, id: string, revision: string)
   if (state.notes.some(item => item.links.includes(id))) {
     throw new Error('Remova primeiro os vinculos das notas que fazem referencia a esta nota.')
   }
+
   await fs.unlink(join(root, note.note.filePath))
+}
+
+export async function setMindNoteArchived(root: string, id: string, revision: string, archived: boolean): Promise<void> {
+  const document = await readMindNote(root, id)
+  await saveMindNote(root, { ...document.note, content: document.content, archived }, id, revision)
 }
 
 // Swap the entire reserved area so a failed restore never leaves half of its notes published.

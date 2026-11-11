@@ -74,6 +74,7 @@ function App(): React.JSX.Element {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [search, setSearch] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
   const [statusFilter, setStatusFilter] = useState<Status | 'all'>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>()
   const [agentFilter, setAgentFilter] = useState<string>()
@@ -165,12 +166,12 @@ function App(): React.JSX.Element {
       item.name, item.description, item.category, ...item.tags, ...item.agents,
       ...(state.catalog?.skills.filter(skill => item.skillIds.includes(skill.id)).map(skill => skill.name) ?? [])
     ].join(' ').toLocaleLowerCase().includes(search.toLocaleLowerCase())
-    return matchesText &&
+    return Boolean(item.archived) === showArchived && matchesText &&
       (statusFilter === 'all' || item.status === statusFilter) &&
       (!categoryFilter || item.category === categoryFilter) &&
       (!agentFilter || item.agents.includes(agentFilter)) &&
       (!collectionFilter || item.id === collectionFilter)
-  }), [allCards, state.catalog, search, statusFilter, categoryFilter, agentFilter, collectionFilter])
+  }), [allCards, state.catalog, search, statusFilter, categoryFilter, agentFilter, collectionFilter, showArchived])
   const cardCount = cards.length
   const editCollection = (existing?: SkillCard) => {
     setCollectionId(existing?.id)
@@ -438,6 +439,15 @@ function App(): React.JSX.Element {
               </div>
               <Space wrap>
                 <Tag>{cardCount} {cardCount === 1 ? 'card' : 'cards'}</Tag>
+                <ActionButton action={showArchived ? 'back' : 'archive'} aria-pressed={showArchived}
+                  onClick={() => {
+                    setShowArchived(current => !current)
+                    setSearch('')
+                    setStatusFilter('all')
+                    setCategoryFilter(undefined)
+                    setAgentFilter(undefined)
+                    setCollectionFilter(undefined)
+                  }}>{showArchived ? 'Voltar para cards' : 'Arquivados'}</ActionButton>
                 {allCards.length === 0 && <ActionButton action="examples" type="primary" title="Criar quatro cards de exemplo na biblioteca" onClick={() => modal.confirm({
                   title: 'Carregar exemplos do dashboard?',
                   content: 'Cria quatro cards com 1, 4, 2 e 0 skills, usando somente as categorias cadastradas.',
@@ -601,6 +611,7 @@ function App(): React.JSX.Element {
                   </ActionButton>)}
               </Space>
             </Modal>
+            {showArchived && <Typography.Title level={3}>Cards arquivados</Typography.Title>}
             <div className="skills-grid">
               {cards.map(item => {
                 const members = state.catalog!.skills.filter(skill => item.skillIds.includes(skill.id))
@@ -630,6 +641,12 @@ function App(): React.JSX.Element {
                       <div className="skill-card-heading">
                         <Typography.Title level={5} title={item.name}>{item.name}</Typography.Title>
                         <Tag color={colors[item.status]}>{labels[item.status]}</Tag>
+                        <ActionButton className="card-archive-button" action={item.archived ? 'restore' : 'archive'} size="small"
+                          aria-label={item.archived ? 'Restaurar' : 'Arquivar'}
+                          disabled={!item.archived && linkedAnywhere}
+                          title={!item.archived && linkedAnywhere ? 'Desative em todos os projetos antes de arquivar.' : item.archived ? 'Restaurar' : 'Arquivar'}
+                          onClick={() => api.postMessage({ type: 'archiveCard', kind: item.standaloneSkillId ? 'skill' : 'collection',
+                            id: item.standaloneSkillId ?? item.id, archived: !item.archived })} />
                       </div>
                       <Tag color={cardColor} style={item.cardColor ? { color: skillCardTextColor(cardColor) } : undefined}>
                         {item.category}
@@ -648,7 +665,7 @@ function App(): React.JSX.Element {
                         <div className="card-skill-list" tabIndex={members.length >= 3 ? 0 : undefined}
                           role="group" aria-label={`Skills do card ${item.name}`}>
                           {members.map(member => <div key={member.id} className="card-skill-row">
-                            {!item.standaloneSkillId && <Checkbox
+                            {!item.archived && !item.standaloneSkillId && <Checkbox
                               aria-label={`Habilitar ${member.name} no card ${item.name}`}
                               checked={!item.disabledSkillIds?.includes(member.id)}
                               disabled={!targets.length || ((item.status === 'blocked' || member.status === 'blocked') &&
@@ -668,7 +685,7 @@ function App(): React.JSX.Element {
                         </Space>
                       </div>
                       <div className="skill-card-footer">
-                        <Space className="skill-card-project" size={4}>
+                        {!item.archived && <Space className="skill-card-project" size={4}>
                           <Switch
                             size="small"
                             aria-label={`Usar ${item.name} no projeto`}
@@ -684,12 +701,12 @@ function App(): React.JSX.Element {
                               : { type: 'toggleCollection', id: item.id, enabled: !linked, agents: targets })}
                           />
                           <Typography.Text type="secondary">Usar no Projeto</Typography.Text>
-                        </Space>
+                        </Space>}
                         <div className="skill-card-actions">
                           <ActionButton action="run"
                             aria-label="Usar no chat"
                             size="small"
-                            disabled={!copilotLinked || item.status === 'blocked'}
+                            disabled={item.archived || !copilotLinked || item.status === 'blocked'}
                             title={copilotLinked
                               ? members.length === 1
                                 ? 'Abre o Copilot com esta skill selecionada. Descreva a tarefa e envie.'

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Alert } from 'antd'
 import * as monaco from 'monaco-editor/editor/editor.api.js'
+import 'monaco-editor/editor/contrib/find/browser/findController.js'
 import editorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 import { formatMarkdown } from '../src/markdown-format'
 import { replaceMarkdownBody, splitMarkdown } from '../src/markdown-content'
@@ -72,6 +73,20 @@ export default function MonacoMarkdownEditor({
   const [error, setError] = useState('')
   const { metadata, body } = splitMarkdown(value)
   useEffect(() => () => subscriptions.current.forEach(subscription => subscription.dispose()), [])
+  useEffect(() => {
+    if (!active) return
+    const handler = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'f') return
+      const editor = instance.current
+      if (!editor) return
+      event.preventDefault()
+      event.stopPropagation()
+      editor.focus()
+      editor.trigger('keyboard', 'actions.find', null)
+    }
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+  }, [active])
   const model = instance.current?.getModel()
   const selection = instance.current?.getSelection()
   const selectionAt = useMemo(() => createMarkdownSelection(value), [value])

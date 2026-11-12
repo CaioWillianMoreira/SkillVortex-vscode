@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Alert } from 'antd'
+import { Alert, Button, Input, type InputRef } from 'antd'
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { Image } from '@tiptap/extension-image'
@@ -10,6 +10,8 @@ import { Markdown } from '@tiptap/markdown'
 import { replaceMarkdownBody, splitMarkdown } from '../src/markdown-content'
 import EditorToolbar, { type EditorCommand } from './EditorToolbar'
 import { containsHtmlToken, isTextColor, TextColor } from './TextColor'
+import { ActionIcon } from './Actions'
+import { EditorFind, editorFindKey, setEditorFind } from './EditorFind'
 
 interface Props {
   value: string
@@ -32,11 +34,14 @@ export default function VisualMarkdownEditor({
 }: Props): React.JSX.Element {
   const current = useRef(value)
   const change = useRef(onChange)
+  const findInput = useRef<InputRef>(null)
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
   change.current = onChange
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false }, underline: false }),
-      Image, TaskList, TaskItem.configure({ nested: true }), TableKit, TextColor, Markdown
+      Image, TaskList, TaskItem.configure({ nested: true }), TableKit, TextColor, Markdown, EditorFind
     ],
     content: preserveMetadata ? splitMarkdown(value).body : value,
     contentType: 'markdown',
@@ -69,7 +74,8 @@ export default function VisualMarkdownEditor({
       if (instance?.isActive('table')) disabled.push('table')
       const color: unknown = instance?.getAttributes('textColor').color
       return { active, disabled, textColor: isTextColor(color) ? color : null,
-        inTable: instance?.isActive('table'), linkHref: instance?.getAttributes('link').href as string | undefined }
+        inTable: instance?.isActive('table'), linkHref: instance?.getAttributes('link').href as string | undefined,
+        find: instance ? editorFindKey.getState(instance.state) : undefined }
     }
   })
   const containsHtml = useMemo(() => {
@@ -87,6 +93,43 @@ export default function VisualMarkdownEditor({
     }
   }, [editor, value, preserveMetadata])
   useEffect(() => { editor?.setEditable(!readOnly && !containsHtml, false) }, [editor, readOnly, containsHtml])
+  useEffect(() => {
+    if (findOpen) findInput.current?.focus({ cursor: 'all' })
+  }, [findOpen])
+  useEffect(() => {
+    if (!active || !editor || containsHtml) return
+    const handler = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey || event.key.toLowerCase() !== 'f') return
+      event.preventDefault()
+      event.stopPropagation()
+      const { from, to } = editor.state.selection
+      const selected = editor.state.doc.textBetween(from, to, ' ')
+      const query = selected || findQuery
+      setFindQuery(query)
+      setFindOpen(true)
+      setEditorFind(editor, query)
+      findInput.current?.focus({ cursor: 'all' })
+    }
+    window.addEventListener('keydown', handler, true)
+    return () => window.removeEventListener('keydown', handler, true)
+  }, [active, editor, containsHtml, findQuery])
+  useEffect(() => {
+    if ((!active || containsHtml) && findOpen) {
+      setFindOpen(false)
+      if (editor) setEditorFind(editor, '')
+    }
+  }, [active, containsHtml, findOpen, editor])
+
+  const closeFind = () => {
+    setFindOpen(false)
+    if (editor) {
+      setEditorFind(editor, '')
+      editor.view.focus()
+    }
+  }
+  const moveFind = (direction: 1 | -1) => {
+    if (editor) setEditorFind(editor, findQuery, (selection?.find?.index ?? 0) + direction)
+  }
 
   const run = (command: EditorCommand, href?: string) => {
     if (!editor || readOnly || containsHtml) return
@@ -124,6 +167,32 @@ export default function VisualMarkdownEditor({
   }
   return <div className="visual-markdown-editor" onFocusCapture={onFocus}>
     {active && toolbar && createPortal(<EditorToolbar {...selection} readOnly={readOnly || containsHtml || !editor} run={run} />, toolbar)}
+    {findOpen && <div className="editor-find-bar" role="search" aria-label="Busca no editor Texto"
+      onKeyDown={event => {
+        if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          closeFind()
+        } else if (event.key === 'Enter') {
+          event.preventDefault()
+          moveFind(event.shiftKey ? -1 : 1)
+        }
+      }}>
+      <Input ref={findInput} size="small" aria-label="Buscar no editor Texto" placeholder="Buscar palavras..."
+        prefix={<ActionIcon action="search" />} value={findQuery}
+        onChange={event => {
+          setFindQuery(event.target.value)
+          if (editor) setEditorFind(editor, event.target.value)
+        }} />
+      <span className="editor-find-count" role="status" aria-live="polite">
+        {selection?.find?.matches.length ? `${selection.find.index + 1} de ${selection.find.matches.length}` : 'Nenhum resultado'}
+      </span>
+      <Button size="small" aria-label="Ocorrencia anterior" disabled={!selection?.find?.matches.length}
+        onClick={() => moveFind(-1)}>Anterior</Button>
+      <Button size="small" aria-label="Proxima ocorrencia" disabled={!selection?.find?.matches.length}
+        onClick={() => moveFind(1)}>Proxima</Button>
+      <Button size="small" aria-label="Fechar busca" onClick={closeFind}>Fechar</Button>
+    </div>}
     {containsHtml ? <Alert type="warning" showIcon message={htmlWarning} />
       : editor ? <EditorContent editor={editor} /> : <div className="editor-loading">Carregando editor de texto...</div>}
     <div className="visual-editor-hint">{hint}</div>

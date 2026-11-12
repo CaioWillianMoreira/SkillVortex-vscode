@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import {
-  agentSkillKey, deploymentAgent, deploymentRoot, hasErrorCode, isAgentLinked, projectBindings,
+  agentSkillKey, deploymentAgent, deploymentPath, deploymentRoot, hasErrorCode, isAgentLinked, projectBindings,
   removeSkillFromCollections, setProjectBindings, type Skill, type SkillAgent, type VaultData
 } from './model'
 import { readContained, readVault } from './vault'
@@ -110,6 +110,7 @@ export async function planSkillDeletion(root: string, data: VaultData, skill: Sk
   const folders = new Set<string>()
   for (const folder of skill.publishedFolders ?? []) {
     if (agent && deploymentAgent(folder) !== agent) continue
+    if (folder.relativePath) continue
     if (!isAbsolute(folder.projectPath)) throw new Error(`Caminho de projeto invalido: ${folder.projectPath}`)
     const projectPath = await fs.realpath(folder.projectPath)
     if (!samePath(resolve(folder.projectPath), projectPath)) {
@@ -131,8 +132,8 @@ export async function planSkillDeletion(root: string, data: VaultData, skill: Sk
     for (const other of data.catalog.skills) {
       if (other.id === skill.id) continue
       if (other.publishedFolders?.some(item =>
-        samePath(resolve(item.projectPath), projectPath) && item.directory === folder.directory &&
-        deploymentRoot(item) === deploymentRoot(folder))) {
+        samePath(resolve(item.projectPath), projectPath) &&
+        inside(target, join(projectPath, deploymentPath(item))))) {
         throw new Error(`A pasta publicada tambem pertence a outra skill: ${target}`)
       }
     }
@@ -140,8 +141,7 @@ export async function planSkillDeletion(root: string, data: VaultData, skill: Sk
       if (!project.sourcePath || !project.deployedSkills?.length) continue
       const activeRoot = await fs.realpath(project.sourcePath)
       if (samePath(activeRoot, projectPath) && project.deployedSkills.some(item =>
-        item.skillId !== skill.id && item.directory === folder.directory &&
-        deploymentRoot(item) === deploymentRoot(folder))) {
+        item.skillId !== skill.id && inside(target, join(projectPath, deploymentPath(item))))) {
         throw new Error(`A pasta publicada esta em uso por outra skill: ${target}`)
       }
     }

@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs'
 import { isAbsolute, join, relative, sep } from 'node:path'
+import { homedir } from 'node:os'
 
 const ignoredDirectories = new Set([
   '.git', 'node_modules', 'vendor', 'dist', 'out', 'build', 'release',
@@ -14,8 +15,15 @@ const ignoredDirectories = new Set([
 export const agentDirectories = [
   { directory: '.github', agent: 'Copilot' },
   { directory: '.agents', agent: 'Antigravity' },
-  { directory: '.agent', agent: 'Antigravity' }
+  { directory: '.claude', agent: 'Claude' },
+  { directory: '.copilot', agent: 'Copilot' }
 ] as const
+
+export function skillDirectoriesForRoot(root: string, home: string) {
+  return agentDirectories.filter(item => root === home
+    ? item.directory === '.copilot' || item.directory === '.claude'
+    : item.directory !== '.copilot')
+}
 
 const ignoredMarkdownNames = new Set([
   'agents', 'authors', 'changes', 'claude', 'codeowners', 'config', 'configs', 'configuration',
@@ -67,6 +75,7 @@ export async function scanProjectMarkdown(rootPaths: string | readonly string[])
     })
   ))]
   const files: string[] = []
+  const home = await fs.realpath(homedir())
   const visitedFiles = new Set<string>()
   let entriesVisited = 0
 
@@ -97,7 +106,7 @@ export async function scanProjectMarkdown(rootPaths: string | readonly string[])
   for (const root of roots) {
     for (const entry of await fs.readdir(root, { withFileTypes: true })) {
       if (!entry.isDirectory() ||
-          !agentDirectories.some(item => item.directory === normalizedName(entry.name))) continue
+          !skillDirectoriesForRoot(root, home).some(item => item.directory === entry.name.toLowerCase())) continue
       const agentRoot = join(root, entry.name)
       for (const child of await fs.readdir(agentRoot, { withFileTypes: true })) {
         countEntry()
@@ -115,12 +124,14 @@ export async function readProjectMarkdown(rootPaths: string | readonly string[],
     throw new Error('O arquivo selecionado nao e Markdown dentro do projeto.')
   }
   const canonicalFile = await fs.realpath(filePath)
+  const home = await fs.realpath(homedir())
   const paths = typeof rootPaths === 'string' ? [rootPaths] : rootPaths
   let contained = false
   for (const rootPath of paths) {
     const root = await fs.realpath(rootPath)
     const path = relative(root, canonicalFile)
     if (path && !isAbsolute(path) && path !== '..' && !path.startsWith(`..${sep}`) &&
+        skillDirectoriesForRoot(root, home).some(item => item.directory === path.split(sep)[0].toLowerCase()) &&
         projectMarkdownAgent(path)) {
       contained = true
       break

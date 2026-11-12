@@ -3,6 +3,7 @@ const { join } = require('node:path')
 const vscode = require('vscode')
 
 module.exports = async function testCardColors(extension) {
+  const { withSkillMetadata } = require(join(extension.extensionPath, 'dist/skill-metadata.js'))
   const { SKILL_CARD_COLORS, SKILL_CARD_COLOR_LABELS, categoryColor, skillCardTextColor } =
     require(join(extension.extensionPath, 'dist/skill-colors.js'))
   const rgb = color => `rgb(${[1, 3, 5].map(index => parseInt(color.slice(index, index + 2), 16)).join(', ')})`
@@ -15,6 +16,7 @@ module.exports = async function testCardColors(extension) {
   const css = webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'dist/webview/app.css'))
   const nonce = 'cardColorsTestNonce'
   let skill
+  let content = '# Nova Skill\n\n'
   let colorIndex = 0
   let projectLinked = false
   let otherProjectLinked = false
@@ -34,7 +36,7 @@ module.exports = async function testCardColors(extension) {
         skillIds: otherProjectLinked ? [skill.id] : []
       }] : []
     },
-    editingSkillId, content: editingSkillId ? '# Nova Skill\n\n' : '', saved,
+    editingSkillId, content: editingSkillId ? content : '', saved,
     hasProjectMarkdown: true
   })
 
@@ -83,7 +85,8 @@ module.exports = async function testCardColors(extension) {
           assert.deepEqual(message, { type: 'createSkill' })
           skill = {
             id: 'color-test', name: 'Nova Skill', category: 'Geral', description: 'Descricao de teste',
-            filePath: 'skills/nova-skill.md', agents: ['GitHub Copilot'], status: 'allowed', tags: ['teste']
+            filePath: 'skills/nova-skill.md', agents: ['GitHub Copilot'], status: 'allowed', tags: ['teste'],
+            originPath: '/test-project/.agents/skills/imported/11-teste.md'
           }
           stage = 'select'
           assert.ok(await webview.postMessage(state(skill.id)))
@@ -95,12 +98,17 @@ module.exports = async function testCardColors(extension) {
           assert.equal(message.radioCount, 0)
           assert.equal(message.selectedIndex, 0)
           assert.equal(message.hasCreateColorSelector, false)
+          assert.equal(message.publicationPath, '.agents/skills/imported/11-teste.md')
+          assert.equal(message.pathReadOnly, false)
           assert.deepEqual(message.labels, [
             'Automatica (categoria)', ...SKILL_CARD_COLORS.map(color => SKILL_CARD_COLOR_LABELS[color])
           ])
           assert.deepEqual(message.swatches, SKILL_CARD_COLORS.map(rgb))
         } else if (message.type === 'saveSkill') {
           assert.equal(message.id, skill.id)
+          content = withSkillMetadata(message.content, message.executionName, message.description)
+          assert.equal(message.publicationPath, '.agents/skills/imported/12-teste.md')
+          skill = { ...skill, publicationPath: message.publicationPath }
           if (stage === 'select' || stage === 'select-next') {
             assert.equal(message.cardColor, SKILL_CARD_COLORS[colorIndex])
             skill = { ...skill, cardColor: message.cardColor }
@@ -694,6 +702,8 @@ module.exports = async function testCardColors(extension) {
               if (input.getAttribute('aria-expanded') !== 'true' || options.length !== 11) return false;
               bridge.postMessage({
                 type:'color-test-options',
+                publicationPath: document.getElementById('skill-publication-path').value,
+                pathReadOnly: document.getElementById('skill-publication-path').readOnly,
                 groupLabel: document.querySelector('label[for="skill-card-color"]')?.textContent.trim(),
                 role: input.getAttribute('role'),
                 radioCount: input.closest('.ant-col').querySelectorAll('input[type="radio"]').length,
@@ -705,6 +715,10 @@ module.exports = async function testCardColors(extension) {
                   return swatch ? getComputedStyle(swatch).backgroundColor : null;
                 })
               });
+              const pathInput = document.getElementById('skill-publication-path');
+              Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
+                .call(pathInput, '.agents/skills/imported/12-teste.md');
+              pathInput.dispatchEvent(new Event('input', { bubbles: true }));
               saveSelection(firstColorLabel);
               return true;
             });
@@ -716,6 +730,9 @@ module.exports = async function testCardColors(extension) {
             const back = button('Voltar ao Dashboard');
             const enabledSave = button('Salvar');
             if (!selected || selected.textContent.trim() !== event.data.expectedLabel || !back || enabledSave) return false;
+            if (document.getElementById('skill-publication-path').value !== '.agents/skills/imported/12-teste.md') {
+              throw new Error('Edited publication path must persist after saving');
+            }
             const saveButtons = Array.from(document.querySelectorAll('button')).filter(item => item.textContent.trim() === 'Salvar');
             if (saveButtons.length !== 1 || saveButtons[0].closest('.editor-top-actions') !== back.closest('.editor-top-actions')) {
               throw new Error('Editor must have one Save button next to Back');

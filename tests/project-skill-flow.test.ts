@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import os from 'node:os'
 import { afterEach, beforeEach, expect, jest, test } from '@jest/globals'
 import { Uri, type ExtensionContext } from 'vscode'
 import { activate } from '../src/extension'
@@ -9,7 +10,7 @@ import * as vault from '../src/vault'
 import * as markdownPicker from '../src/markdown-picker'
 import { createDocumentedExamples } from '../src/documented-examples'
 import { SKILL_CARD_COLORS } from '../src/skill-colors'
-import { isAgentLinked, isCollectionLinked, selectedSkillIds, skillCards } from '../src/model'
+import { deploymentPath, isAgentLinked, isCollectionLinked, selectedSkillIds, skillCards } from '../src/model'
 import { skillMarkdownMetadata } from '../src/project-skills'
 import { saveMindFolder, saveMindNote } from '../src/mindcards'
 import * as localModel from '../src/local-model'
@@ -108,6 +109,7 @@ let selectedVault: string | undefined
 beforeEach(async () => {
   jest.clearAllMocks()
   temporary = await fs.mkdtemp(join(tmpdir(), 'skillvortex-button-'))
+  jest.spyOn(os, 'homedir').mockReturnValue(temporary)
   root = join(temporary, 'vault')
   selectedVault = root
   projectPath = join(temporary, 'project')
@@ -1009,7 +1011,7 @@ test('divergent legacy archives block consolidation and remain preserved', async
   }
 })
 
-test('imports loose Markdown and publishes a standard folder without touching neighboring originals', async () => {
+test('imports loose Markdown and reuses its filename without creating a title folder', async () => {
   const data = await readVault(root)
   data.projects.projects.push({ id: 'project', name: 'Project', sourcePath: projectPath, skillIds: [] })
   data.projects.activeProject = 'project'
@@ -1023,15 +1025,62 @@ test('imports loose Markdown and publishes a standard folder without touching ne
   const imported = (await readVault(root)).catalog.skills.find(item => item.name === 'Loose rule')!
   expect(imported).toBeDefined()
   await mock.testing.dispatch({ type: 'toggleProjectSkill', id: imported.id })
-  const published = join(projectPath, '.agents/skills/loose-rule/SKILL.md')
-  expect(skillMarkdownMetadata(await fs.readFile(published, 'utf8'))).toEqual({
-    name: 'loose-rule', description: 'Use this procedure.'
-  })
+  expect(imported.publicationPath).toBe('.agents/skills/loose.md')
+  expect(await fs.readFile(source, 'utf8')).toBe('# Loose rule\n\nUse this procedure.')
+  expect((await readVault(root)).projects.projects[0].deployedSkills?.map(item => item.relativePath))
+    .toEqual(['.agents/skills/loose.md', '.github/skills/loose.md'])
+  await expect(fs.stat(join(projectPath, '.agents/skills/loose-rule'))).rejects.toMatchObject({ code: 'ENOENT' })
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: imported.id })
+  await expect(fs.stat(source)).rejects.toMatchObject({ code: 'ENOENT' })
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: imported.id })
+  expect(await fs.readFile(source, 'utf8')).toBe('# Loose rule\n\nUse this procedure.')
   await mock.testing.dispatch({ type: 'toggleProjectSkill', id: imported.id })
   await mock.testing.dispatch({ type: 'deleteSkill', id: imported.id })
-  expect(await fs.readFile(source, 'utf8')).toBe('# Loose rule\n\nUse this procedure.')
   expect(await fs.readFile(neighbor, 'utf8')).toBe('# Another rule')
   expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('manual import exposes an editable agent-relative destination and persists edits without moving the source', async () => {
+  const source = join(projectPath, '.claude/instructions/11-teste-de-carga.md')
+  const content = '# Carga\n\nExecutar teste de carga.'
+  await fs.mkdir(join(source, '..'), { recursive: true })
+  await fs.writeFile(source, content)
+  jest.spyOn(markdownPicker, 'chooseMarkdownFiles').mockResolvedValueOnce([source])
+  await mock.testing.dispatch({ type: 'importMarkdown' })
+  const draft = pendingDraft().skill
+  expect(draft.originPath).toBe(await fs.realpath(source))
+  expect(draft.publicationPath).toBe('.claude/instructions/11-teste-de-carga.md')
+  const publicationPath = '.claude/instructions/carga/12-carga.md'
+  await mock.testing.dispatch({
+    type: 'saveSkill', ...draft, publicationPath, tags: ['carga'], agents: ['GitHub Copilot'],
+    content, projectIds: []
+  })
+  const saved = (await readVault(root)).catalog.skills.find(item => item.id === draft.id)!
+  expect(saved.publicationPath).toBe(publicationPath)
+  expect(saved.originPath).toBe(draft.originPath)
+  expect(await fs.readFile(source, 'utf8')).toBe(content)
+  await mock.testing.dispatch({ type: 'backToDashboard' })
+  await mock.testing.dispatch({ type: 'openSkill', id: draft.id })
+  expect(pendingDraft().skill.publicationPath).toBe(publicationPath)
+  await mock.testing.dispatch({ type: 'backToDashboard' })
+  await mock.testing.dispatch({ type: 'toggleProjectSkill', id: draft.id })
+  expect(await fs.readFile(join(projectPath, publicationPath), 'utf8')).toBe(content)
+  expect(await fs.readFile(source, 'utf8')).toBe(content)
+  await mock.testing.dispatch({ type: 'runSkill', id: draft.id })
+  expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('caminho personalizado'))
+})
+
+test.each([
+  '/tmp/.agents/test.md', '.agents/../test.md', '.agents/a/../../test.md',
+  '.agents\\test.md', '.agents//test.md', '.git/test.md', '.agents/test.txt'
+])('rejects an unsafe publication destination without changing the library: %s', async publicationPath => {
+  const before = await readVault(root)
+  const skill = before.catalog.skills[0]
+  const content = await fs.readFile(join(root, skill.filePath), 'utf8')
+  await mock.testing.dispatch({ type: 'saveSkill', ...skill, publicationPath, content, projectIds: [] })
+  expect(mock.testing.errors).toHaveBeenCalledTimes(1)
+  expect(await readVault(root)).toEqual(before)
+  expect(await fs.readFile(join(root, skill.filePath), 'utf8')).toBe(content)
 })
 
 test('collections toggle atomically and delete exclusive skills without creating extra cards', async () => {
@@ -1382,7 +1431,7 @@ test('project search offers custom skill files and excludes documentation withou
   const candidates = [
     { path: '.github/skills/exemplo/1-skill-de-teste.md', content: '# Skill de teste\n\nTesta algo.' },
     { path: '.agents/skills/exemplo/ANALISE-SEO.md', content: '# Analise SEO\n\nAnalisa SEO.' },
-    { path: '.agent/skills/exemplo/OUTRA.MD', content: '# Outra skill\n\nOutra descricao.' }
+    { path: '.claude/skills/exemplo/OUTRA.MD', content: '# Outra skill\n\nOutra descricao.' }
   ]
   const ignored = [
     '.github/skills/exemplo/README.md', '.github/skills/exemplo/CONTRIBUTING.md',
@@ -1726,6 +1775,90 @@ test('run skill opens Copilot chat with the published slash command without send
   })
   expect(mock.testing.errors).not.toHaveBeenCalled()
 })
+
+test('play uses YAML name instead of the published directory and reads external name edits', async () => {
+    const data = await readVault(root)
+    const skill = data.catalog.skills[0]
+    const content = '---\nname: review\ndescription: Revisao.\n---\n\n# Review\n'
+    await writeSkillFile(root, skill.filePath, content)
+    await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
+    const deployed = (await readVault(root)).projects.projects[0].deployedSkills![0]
+    expect(deployed.directory).not.toBe('review')
+    await mock.testing.dispatch({ type: 'runSkill', id: skillId })
+    expect(mock.testing.executeCommand).toHaveBeenLastCalledWith('workbench.action.chat.open', {
+      query: '/review ', isPartialQuery: true
+    })
+    const path = join(projectPath, deploymentPath(deployed))
+    await fs.writeFile(path, content.replace('name: review', 'name: edited-review'))
+    await mock.testing.dispatch({ type: 'runSkill', id: skillId })
+    expect(mock.testing.executeCommand).toHaveBeenLastCalledWith('workbench.action.chat.open', {
+      query: '/edited-review ', isPartialQuery: true
+    })
+    expect(mock.testing.errors).not.toHaveBeenCalled()
+  })
+
+test('saving the execution fields adds YAML and publishes it without changing imported folder names', async () => {
+    const data = await readVault(root)
+    const skill = data.catalog.skills[0]
+    skill.publicationPath = '.github/skills/code-review/SKILL.md'
+    await saveVaultData(root, data)
+    const body = '# Original\n\nPreserve this body.\n'
+    await mock.testing.dispatch({
+      type: 'saveSkill', ...skill, executionName: 'review', description: 'Descricao editada.',
+      tags: ['review'], content: body, projectIds: []
+    })
+    const saved = (await readVault(root)).catalog.skills[0]
+    const content = await fs.readFile(join(root, saved.filePath), 'utf8')
+    expect(skillMarkdownMetadata(content)).toEqual({ name: 'review', description: 'Descricao editada.' })
+    expect(content.endsWith(body)).toBe(true)
+    await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId, agent: 'GitHub Copilot' })
+    expect(await fs.readFile(join(projectPath, skill.publicationPath), 'utf8')).toBe(content)
+    await mock.testing.dispatch({ type: 'runSkill', id: skillId, agent: 'GitHub Copilot' })
+    expect(mock.testing.executeCommand).toHaveBeenLastCalledWith('workbench.action.chat.open', {
+      query: '/review ', isPartialQuery: true
+    })
+    expect(mock.testing.errors).not.toHaveBeenCalled()
+  })
+test('saving imported metadata updates the library without modifying the original or its folder', async () => {
+  const data = await readVault(root)
+  const skill = data.catalog.skills[0]
+  const publicationPath = '.github/skills/code-review/SKILL.md'
+  const origin = join(projectPath, publicationPath)
+  const body = '\r\n# Original body\r\n'
+  const content = '---\r\nname: code-review # command\r\ndescription: Original.\r\nlicense: MIT\r\n---\r\n' + body
+  await fs.mkdir(join(origin, '..'), { recursive: true })
+  await fs.writeFile(origin, content)
+  skill.originPath = origin
+  skill.publicationPath = publicationPath
+  await writeSkillFile(root, skill.filePath, content)
+  await saveVaultData(root, data)
+  await mock.testing.dispatch({ type: 'openSkill', id: skill.id })
+  await mock.testing.dispatch({
+    type: 'saveSkill', ...skill, executionName: 'review', description: 'Edited.',
+    content, tags: ['review'], projectIds: []
+  })
+  const saved = (await readVault(root)).catalog.skills.find(item => item.id === skill.id)!
+  const updated = await fs.readFile(join(root, saved.filePath), 'utf8')
+  expect(skillMarkdownMetadata(updated)).toEqual({ name: 'review', description: 'Edited.' })
+  expect(updated).toContain('license: MIT')
+  expect(updated).toContain('# command')
+  expect(updated.endsWith(body)).toBe(true)
+  expect(saved.publicationPath).toBe(publicationPath)
+  expect(await fs.readFile(origin, 'utf8')).toBe(content)
+  expect(await fs.readdir(join(projectPath, '.github/skills'))).toEqual(['code-review'])
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test.each(['# Missing name\n', '---\nname: /invalid\n---\n# Invalid\n'])(
+  'play blocks missing or invalid execution names without submitting a fallback command', async content => {
+    await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })
+    const deployed = (await readVault(root)).projects.projects[0].deployedSkills![0]
+    await fs.writeFile(join(projectPath, deploymentPath(deployed)), content)
+    await mock.testing.dispatch({ type: 'runSkill', id: skillId })
+    expect(mock.testing.executeCommand).not.toHaveBeenCalled()
+    expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('name valido'))
+  }
+)
 
 test('active skills cannot be edited or deleted even when another project is selected', async () => {
   await mock.testing.dispatch({ type: 'toggleProjectSkill', id: skillId })

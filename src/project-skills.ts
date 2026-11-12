@@ -2,14 +2,15 @@ import { promises as fs } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, sep } from 'node:path'
-import { isMap, parseDocument } from 'yaml'
 import {
-  agentRoot, deploymentAgent, deploymentRoot, hasErrorCode, isAgentLinked, isSkillArchived,
-  projectBindings, skillSlug, type Skill, type SkillAgent, type VaultData
+  agentRoot, deploymentAgent, deploymentPath, deploymentRoot, hasErrorCode, isAgentLinked, isSkillArchived,
+  projectBindings, publicationPathForAgent, skillSlug, type Skill, type SkillAgent, type VaultData
 } from './model'
 import { assertImportedOriginsPreserved, skillArchiveName } from './skill-deletion'
 import { readContained, saveVaultData } from './vault'
 import { splitMarkdown } from './markdown-content'
+import { skillMarkdownMetadata, withSkillMetadata } from './skill-metadata'
+export { skillMarkdownMetadata } from './skill-metadata'
 
 type Project = VaultData['projects']['projects'][number]
 const hash = (content: string | Buffer) => createHash('sha256').update(content).digest('hex')
@@ -19,12 +20,13 @@ function inside(root: string, path: string): boolean {
   return !isAbsolute(value) && value !== '..' && !value.startsWith(`..${sep}`)
 }
 
-async function directory(root: string, parts: string[]): Promise<string> {
+async function directory(root: string, parts: string[], created?: (path: string) => void): Promise<string> {
   let path = root
   for (const part of parts) {
     path = join(path, part)
     try {
       await fs.mkdir(path)
+      created?.(path)
     } catch (error) {
       if (!hasErrorCode(error, 'EEXIST')) throw error
     }
@@ -87,8 +89,7 @@ function isDirectoryVariant(base: string, candidate: string): boolean {
 function rememberFolder(skill: Skill, folder: NonNullable<Skill['publishedFolders']>[number]): void {
   const folders = skill.publishedFolders ?? []
   const existing = folders.find(item => item.projectId === folder.projectId &&
-    item.projectPath === folder.projectPath && item.directory === folder.directory &&
-    deploymentRoot(item) === deploymentRoot(folder))
+    item.projectPath === folder.projectPath && deploymentPath(item) === deploymentPath(folder))
   if (existing) {
     existing.owned = existing.owned && folder.owned
     existing.marker = existing.owned ? folder.marker ?? existing.marker : undefined
@@ -101,39 +102,8 @@ function archivedSkillDirectory(content: Buffer): string | undefined {
   return name && /^[a-z0-9][a-z0-9-]{0,63}$/.test(name) ? name : undefined
 }
 
-export function skillMarkdownMetadata(content: string): { name?: string; description?: string } {
-  const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
-  if (!frontmatter) {
-    if (/^---\r?\n/.test(content)) throw new Error('Frontmatter YAML invalido: falta o delimitador de fechamento.')
-    return {}
-  }
-  const document = parseDocument(frontmatter[1])
-  if (document.errors.length || !isMap(document.contents)) {
-    throw new Error(`Frontmatter YAML invalido. ${document.errors.map(error => error.message).join(' ')}`)
-  }
-  const name = document.get('name')
-  const description = document.get('description')
-  if ((name !== undefined && (typeof name !== 'string' || !name.trim())) ||
-      (description !== undefined && (typeof description !== 'string' || !description.trim()))) {
-    throw new Error('Os campos name e description do frontmatter devem ser textos nao vazios.')
-  }
-  return { name: typeof name === 'string' ? name : undefined,
-    description: typeof description === 'string' ? description : undefined }
-}
-
 function updateFrontmatter(content: Buffer, skill: Skill, name: string): Buffer {
-  const text = content.toString('utf8')
-  const frontmatter = text.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)
-  if (!frontmatter) {
-    throw new Error(`Frontmatter da skill invalido; nao foi possivel renomear: ${skill.name}`)
-  }
-  const document = parseDocument(frontmatter[0].replace(/^---\r?\n/, '').replace(/\r?\n---(?:\r?\n|$)$/, ''))
-  if (document.errors.length || !isMap(document.contents)) {
-    throw new Error(`Frontmatter YAML invalido: ${skill.name}. ${document.errors.map(error => error.message).join(' ')}`)
-  }
-  document.set('name', name)
-  document.set('description', skill.description.trim())
-  return Buffer.from(`---\n${document.toString()}---\n${text.slice(frontmatter[0].length)}`)
+  return Buffer.from(withSkillMetadata(content.toString('utf8'), name, skill.description.trim()))
 }
 
 function markdownBody(content: Buffer): string {
@@ -142,15 +112,20 @@ function markdownBody(content: Buffer): string {
 
 export function skillPublicationMarkdown(skill: Skill, name: string, content: string): Buffer {
   if (!skill.description.trim()) throw new Error(`Informe a descricao da skill ${skill.name}.`)
-  skillMarkdownMetadata(content)
+  const metadata = skillMarkdownMetadata(content)
   const body = markdownBody(Buffer.from(content))
-  const frontmatter = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)
+  const frontmatter = splitMarkdown(content).metadata
   if (frontmatter) {
-    return updateFrontmatter(Buffer.from(content), skill, name)
+    return updateFrontmatter(Buffer.from(content), skill, metadata.name ?? name)
   }
   return Buffer.from(`---\nname: ${name}\ndescription: ${JSON.stringify(skill.description.trim())}\n---\n\n${body}`)
 }
 const markdown = skillPublicationMarkdown
+export function deployedSkillMarkdown(
+  skill: Skill, deployed: { directory: string; relativePath?: string }, content: string
+): Buffer {
+  return deployed.relativePath ? Buffer.from(content) : markdown(skill, deployed.directory, content)
+}
 
 // Journal filesystem changes so a metadata failure cannot leave the switch out of sync.
 export async function saveProjectSkills(
@@ -196,7 +171,7 @@ export async function saveProjectSkills(
             !skill.agents.includes(deploymentAgent(folder))) continue
         skill.publishedFolders = (skill.publishedFolders ?? []).filter(item =>
           item.projectId !== folder.projectId || item.projectPath !== folder.projectPath ||
-          item.directory !== folder.directory || deploymentRoot(item) !== deploymentRoot(folder))
+          deploymentPath(item) !== deploymentPath(folder))
         rememberFolder(skill, folder)
       }
     }
@@ -210,6 +185,24 @@ export async function saveProjectSkills(
             isAgentLinked(newProject, deployed.skillId, agent)) continue
         const path = await projectRoot(oldProject)
         const skill = next.catalog.skills.find(item => item.id === deployed.skillId)
+        if (deployed.relativePath) {
+          const parts = deploymentPath(deployed).split('/')
+          const folderPath = await directory(path, parts.slice(0, -1))
+          const source = join(folderPath, parts[parts.length - 1])
+          const content = await readFile(source)
+          if (content) {
+            const archived = await archivedPath(oldProject, deployed.skillId, agent)
+            const protectedSkills: Skill[] = []
+            for (const item of [...previous.catalog.skills, ...next.catalog.skills]) {
+              if (item.id !== deployed.skillId || !await isImportedOrigin(item, source)) protectedSkills.push(item)
+            }
+            await assertImportedOriginsPreserved(protectedSkills, [], [source])
+            await assertImportedOriginsPreserved([...previous.catalog.skills, ...next.catalog.skills], [], [archived])
+            await write(archived, content)
+            await remove(source, content)
+          }
+          continue
+        }
         const folderPath = await directory(path, [agentDirectory, 'skills', deployed.directory])
         const source = join(folderPath, 'SKILL.md')
         const content = await readFile(source)
@@ -283,11 +276,11 @@ export async function saveProjectSkills(
         const existing = oldProject && oldProject.sourcePath === project.sourcePath
           ? oldProject.deployedSkills?.find(item => item.skillId === skillId && deploymentAgent(item) === agent)
           : undefined
-        if (existing && isDirectoryVariant(skillDirectory(skill), existing.directory)) {
+        if (existing && !existing.relativePath && isDirectoryVariant(skillDirectory(skill), existing.directory)) {
           const unchanged = markdown(skill, existing.directory,
             await readContained(canonicalRoot, join(canonicalRoot, skill.filePath)))
           if (hash(unchanged) === existing.sourceHash) {
-            usedDirectories.add(`${deploymentRoot(existing)}:${existing.directory}`)
+            usedDirectories.add(deploymentPath(existing))
             deployedSkills.push(existing)
             continue
           }
@@ -307,14 +300,96 @@ export async function saveProjectSkills(
           }
           if (shared) sharedArchives.set(skillId, archives)
         }
-        const preserved = archives[0]?.content
+        let preserved = archives[0]?.content
         if (preserved && archives.some(item => !item.content.equals(preserved))) {
           throw new Error(`Existem copias desativadas diferentes para ${skill.name}. Revise os arquivos na biblioteca antes de consolidar a publicacao compartilhada.`)
         }
-        const baseName = (preserved ? archivedSkillDirectory(preserved) : undefined) ??
-          skillDirectory(skill)
+        if (preserved) {
+          const metadata = skillMarkdownMetadata(
+            await readContained(canonicalRoot, join(canonicalRoot, skill.filePath)))
+          const archivedMetadata = skillMarkdownMetadata(preserved.toString('utf8'))
+          if (metadata.name && (metadata.name !== archivedMetadata.name ||
+              (metadata.description && metadata.description !== archivedMetadata.description))) {
+            preserved = Buffer.from(withSkillMetadata(
+              preserved.toString('utf8'), metadata.name, metadata.description ?? skill.description))
+          }
+        }
+        const requestedPath = publicationPathForAgent(skill, agent)
+        const legacyOrigin = !skill.publicationPath && requestedPath &&
+          ['.github', '.agents', '.agent'].some(folder =>
+            requestedPath === `${folder}/skills/${skillDirectory(skill)}/SKILL.md`)
+        const relativePath = existing ? existing.relativePath : legacyOrigin ? undefined : requestedPath
+        if (relativePath) {
+          const directoryName = relativePath.match(/^\.([a-zA-Z0-9_-]+)\/skills\/([a-z0-9][a-z0-9-]{0,63})\/SKILL\.md$/)?.[2]
+          const location = { agent, directory: directoryName ?? skillDirectory(skill), relativePath }
+          const claimed = next.catalog.skills.some(other => other.id !== skillId &&
+            other.publishedFolders?.some(folder => folder.projectPath === path &&
+              deploymentPath(folder) === relativePath))
+          if (usedDirectories.has(relativePath) || claimed) {
+            throw new Error(`O caminho de publicacao ja pertence a outra skill: ${relativePath}`)
+          }
+          deploymentRoot(location)
+          usedDirectories.add(relativePath)
+          const parts = relativePath.split('/')
+          await assertImportedOriginsPreserved(
+            [...previous.catalog.skills, ...next.catalog.skills].filter(item => item.id !== skillId),
+            [], [join(path, ...parts)])
+          const folderPath = await directory(path, parts.slice(0, -1),
+            created => undo.push(() => fs.rmdir(created)))
+          const destination = join(folderPath, parts[parts.length - 1])
+          const sourceContent = await readContained(canonicalRoot, join(canonicalRoot, skill.filePath))
+          const content = Buffer.from(sourceContent)
+          let published = preserved ?? content
+          const peer = [...deployedSkills, ...(oldProject?.deployedSkills ?? [])].find(item => item.skillId === skillId &&
+            deploymentAgent(item) !== agent && isAgentLinked(project, skillId, deploymentAgent(item)))
+          if (peer?.relativePath && peer.sourceHash === hash(content)) {
+            const peerParts = deploymentPath(peer).split('/')
+            const peerFolder = await directory(path, peerParts.slice(0, -1))
+            const peerContent = await readFile(join(peerFolder, peerParts[peerParts.length - 1]))
+            if (!peerContent) throw new Error(`Publicacao do outro agente ausente: ${deploymentPath(peer)}`)
+            if (preserved && !preserved.equals(peerContent)) {
+              throw new Error(`As publicacoes de ${skill.name} divergem. Revise as copias dos agentes antes de ativar.`)
+            }
+            published = peerContent
+          }
+          let current = await readFile(destination)
+          if (existing) {
+            if (!current) throw new Error(`Skill ativada nao encontrada: ${destination}. Restaure o arquivo antes de continuar.`)
+            if (hash(content) !== existing.sourceHash) {
+              if (hash(current) !== existing.hash) {
+                throw new Error(`A skill foi editada no projeto: ${destination}. Sincronize antes de continuar.`)
+              }
+              await assertImportedOriginsPreserved([...previous.catalog.skills, ...next.catalog.skills], [], [destination])
+              await remove(destination, current)
+              await write(destination, content)
+              current = content
+            }
+          } else {
+            if (current && preserved && !current.equals(preserved)) {
+              throw new Error(`O Markdown do projeto difere da copia desativada: ${destination}. O original foi preservado.`)
+            }
+            if (current && !current.equals(published) && !await isImportedOrigin(skill, destination)) {
+              throw new Error(`Ja existe outro Markdown no destino: ${destination}. O arquivo existente foi preservado.`)
+            }
+            if (peer && current && !current.equals(published)) {
+              throw new Error(`As publicacoes de ${skill.name} divergem: ${destination}. Preserve e revise as duas copias.`)
+            }
+            if (!current) {
+              await write(destination, published)
+              current = published
+            }
+            if (preserved) for (const archive of archives) consumedArchives.set(archive.path, archive.content)
+          }
+          rememberFolder(skill, { projectId: project.id, projectPath: path, owned: false, ...location })
+          deployedSkills.push({ skillId, ...location, hash: hash(current), sourceHash: hash(content) })
+          continue
+        }
         const knownAgentFolder = skill.publishedFolders?.find(item => item.projectId === project.id &&
           item.projectPath === path && deploymentAgent(item) === agent)
+        const knownProjectFolder = skill.publishedFolders?.find(item => item.projectId === project.id &&
+          item.projectPath === path)
+        const baseName = (preserved ? knownAgentFolder?.directory ?? knownProjectFolder?.directory : undefined) ??
+          (preserved ? archivedSkillDirectory(archives[0].content) : undefined) ?? skillDirectory(skill)
         let canonicalOrigin = skill.originPath?.startsWith('~/')
           ? join(homedir(), skill.originPath.slice(2)) : skill.originPath
         if (canonicalOrigin && isAbsolute(canonicalOrigin)) {
@@ -336,13 +411,13 @@ export async function saveProjectSkills(
         let suffix = 2
         const claimedByAnotherSkill = (candidate: string) => next.catalog.skills.some(other =>
           other.id !== skillId && other.publishedFolders?.some(folder =>
-            folder.projectPath === path && folder.directory === candidate &&
-            deploymentRoot(folder) === agentDirectory))
-        while (usedDirectories.has(`${agentDirectory}:${name}`) || claimedByAnotherSkill(name)) {
+            folder.projectPath === path &&
+            deploymentPath(folder) === `${agentDirectory}/skills/${candidate}/SKILL.md`))
+        while (usedDirectories.has(`${agentDirectory}/skills/${name}/SKILL.md`) || claimedByAnotherSkill(name)) {
           const tail = `-${suffix++}`
           name = `${baseName.slice(0, 64 - tail.length).replace(/-+$/g, '')}${tail}`
         }
-        usedDirectories.add(`${agentDirectory}:${name}`)
+        usedDirectories.add(`${agentDirectory}/skills/${name}/SKILL.md`)
         const skillsRoot = await directory(path, [agentDirectory, 'skills'])
         const previousFolder = existing && skill.publishedFolders?.find(item =>
           item.projectId === project.id && item.projectPath === path && item.directory === existing.directory &&
@@ -364,6 +439,11 @@ export async function saveProjectSkills(
           await assertImportedOriginsPreserved(
             [...previous.catalog.skills, ...next.catalog.skills], [previousDirectory], []
           )
+          if (next.catalog.skills.some(other => other.id !== skillId &&
+            other.publishedFolders?.some(folder => folder.projectPath === path &&
+              inside(previousDirectory, join(path, deploymentPath(folder)))))) {
+            throw new Error(`A pasta publicada tambem pertence a outra skill: ${previousDirectory}`)
+          }
           try {
             await fs.lstat(nextDirectory)
             throw new Error(`O diretorio de destino ja existe: ${nextDirectory}`)
@@ -407,6 +487,7 @@ export async function saveProjectSkills(
         rememberFolder(skill, { projectId: project.id, projectPath: path, directory: name, owned, marker, ...agentMetadata })
         const sourceContent = await readContained(canonicalRoot, join(canonicalRoot, skill.filePath))
         const content = markdown(skill, name, sourceContent)
+        const executionName = skillMarkdownMetadata(content.toString('utf8')).name
         if (existing) {
           if (name === existing.directory && hash(content) === existing.sourceHash) {
             deployedSkills.push(existing)
@@ -421,7 +502,7 @@ export async function saveProjectSkills(
                 await readContained(canonicalRoot, join(canonicalRoot, previousSkill.filePath)))
               : undefined
             const bodyChanged = !previousSource || markdownBody(previousSource) !== markdownBody(content)
-            const renamed = bodyChanged ? content : updateFrontmatter(current, skill, name)
+            const renamed = bodyChanged ? content : updateFrontmatter(current, skill, executionName ?? name)
             if (!renamed.equals(current)) {
               await remove(destination, current)
               await write(destination, renamed)
@@ -439,7 +520,7 @@ export async function saveProjectSkills(
               deployedSkills.push(existing)
               continue
             }
-            const renamed = updateFrontmatter(current, skill, name)
+            const renamed = updateFrontmatter(current, skill, executionName ?? name)
             if (!renamed.equals(current)) {
               await remove(destination, current)
               await write(destination, renamed)
@@ -474,7 +555,7 @@ export async function saveProjectSkills(
             const metadata = skillMarkdownMetadata(published.toString('utf8'))
             if (!metadata.name || !metadata.description) {
               published = markdown(skill, name, published.toString('utf8'))
-            } else if (metadata.name !== name || metadata.description.length > 1024) {
+            } else if (metadata.name !== executionName || metadata.description.length > 1024) {
               throw new Error(`A copia arquivada de ${skill.name} nao segue o padrao Agent Skills. Revise name e description antes de restaurar.`)
             }
           }
@@ -484,7 +565,7 @@ export async function saveProjectSkills(
           }
           if (shared && current) {
             const metadata = skillMarkdownMetadata(current.toString('utf8'))
-            if (metadata.name !== name || !metadata.description || metadata.description.length > 1024) {
+            if (metadata.name !== executionName || !metadata.description || metadata.description.length > 1024) {
               throw new Error(`O arquivo existente nao segue o padrao Agent Skills: ${destination}. O original foi preservado; revise-o ou publique com outro nome.`)
             }
           }

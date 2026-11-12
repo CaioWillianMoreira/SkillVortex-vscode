@@ -2,9 +2,9 @@ import { createHash, randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { createVaultBackup } from './backup'
-import { deploymentAgent, deploymentRoot, hasErrorCode, validateVault, type SkillAgent, type VaultData } from './model'
+import { deploymentAgent, deploymentPath, hasErrorCode, validateVault, type SkillAgent, type VaultData } from './model'
 import { assertImportedOriginsPreserved } from './skill-deletion'
-import { skillPublicationMarkdown } from './project-skills'
+import { deployedSkillMarkdown } from './project-skills'
 import { readVault, saveVaultData } from './vault'
 
 const hash = (content: string) => createHash('sha256').update(content).digest('hex')
@@ -15,6 +15,7 @@ export interface SkillVersion {
   projectId?: string
   agent?: SkillAgent
   directory?: string
+  relativePath?: string
   changed: boolean
   error?: string
 }
@@ -71,18 +72,19 @@ export async function inspectSkillVersions(root: string, data: VaultData, skillI
         if (!hasErrorCode(error, 'ENOENT')) throw error
         projectRoot = resolve(project.sourcePath)
         publications.push({
-          root: projectRoot, path: join(projectRoot, deploymentRoot(deployed), 'skills', deployed.directory, 'SKILL.md'),
+          root: projectRoot, path: join(projectRoot, deploymentPath(deployed)),
           content: null, projectId: project.id, agent: deploymentAgent(deployed), directory: deployed.directory,
+          ...(deployed.relativePath ? { relativePath: deployed.relativePath } : {}),
           changed: true, error: `Pasta de projeto indisponivel: ${projectRoot}`
         })
         continue
       }
-      const path = join(projectRoot, deploymentRoot(deployed), 'skills', deployed.directory, 'SKILL.md')
+      const path = join(projectRoot, deploymentPath(deployed))
       const content = await safeFile(projectRoot, path)
       if (library.content === null) library.changed = true
       else {
         try {
-          if (hash(skillPublicationMarkdown(skill, deployed.directory, library.content).toString('utf8')) !== deployed.sourceHash) {
+          if (hash(deployedSkillMarkdown(skill, deployed, library.content).toString('utf8')) !== deployed.sourceHash) {
             library.changed = true
           }
         } catch (error) {
@@ -92,7 +94,8 @@ export async function inspectSkillVersions(root: string, data: VaultData, skillI
       }
       publications.push({
         root: projectRoot, path, content, projectId: project.id, agent: deploymentAgent(deployed),
-        directory: deployed.directory, changed: content === null || hash(content) !== deployed.hash
+        directory: deployed.directory, changed: content === null || hash(content) !== deployed.hash,
+        ...(deployed.relativePath ? { relativePath: deployed.relativePath } : {})
       })
     }
   }
@@ -145,7 +148,7 @@ export async function resolveExternalChange(
     return {
       version,
       content: version.directory
-        ? skillPublicationMarkdown(skill, version.directory, chosenContent).toString('utf8') : chosenContent
+        ? deployedSkillMarkdown(skill, { directory: version.directory, relativePath: version.relativePath }, chosenContent).toString('utf8') : chosenContent
     }
   }).filter(item => item.version.content !== item.content)
   if (writes.some(item => Buffer.byteLength(item.content) > 2 * 1024 * 1024)) {
@@ -191,7 +194,7 @@ export async function resolveExternalChange(
       const deployed = project?.deployedSkills?.find(item =>
         item.skillId === skill.id && deploymentAgent(item) === version.agent)
       if (!deployed || !version.directory) throw new Error('Publicacao nao encontrada.')
-      deployed.sourceHash = hash(skillPublicationMarkdown(skill, version.directory, source.content).toString('utf8'))
+      deployed.sourceHash = hash(deployedSkillMarkdown(skill, deployed, source.content).toString('utf8'))
       deployed.hash = deployed.sourceHash
     }
     saving = true

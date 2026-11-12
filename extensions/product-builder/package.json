@@ -2,7 +2,7 @@
   "name": "product-builder",
   "displayName": "ProductBuilder",
   "description": "Transforma notas do MindCards em rascunhos revisaveis de skills.",
-  "version": "0.1.3",
+  "version": "2.0.0",
   "publisher": "skillvortex",
   "engines": {
     "vscode": "^1.95.0"

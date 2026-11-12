@@ -1,13 +1,8 @@
 import * as vscode from 'vscode'
 import { promises as fs } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
-import { agentDirectories } from './project-scan'
-
-const agentFolders = new Set<string>([
-  ...agentDirectories.map(agent => agent.directory),
-  '.copilot', '.claude', '.cursor', '.codex', '.gemini', '.windsurf',
-  '.roo', '.kilocode', '.continue', '.opencode'
-])
+import { basename, dirname, join, resolve, sep } from 'node:path'
+import { homedir } from 'node:os'
+import { skillDirectoriesForRoot } from './project-scan'
 
 type FolderChoice = vscode.QuickPickItem & (
   { action: 'folder'; path: string } |
@@ -16,18 +11,26 @@ type FolderChoice = vscode.QuickPickItem & (
 
 export async function chooseMarkdownFiles(initialDirectory: string): Promise<string[] | undefined> {
   let directory = await fs.realpath(initialDirectory)
+  const home = await fs.realpath(homedir())
   while (true) {
-    const insideAgentFolder = directory.split(/[\\/]/).some(part => agentFolders.has(part.toLowerCase()))
+    const insideAgentFolder = directory.split(sep).some((part, index, parts) =>
+      parts[index + 1]?.toLowerCase() === 'skills' &&
+      skillDirectoriesForRoot(parts.slice(0, index).join(sep) || sep, home)
+        .some(agent => agent.directory === part.toLowerCase()))
     const entries = await fs.readdir(directory, { withFileTypes: true })
     const files = entries.filter(entry => entry.isFile() && /\.md$/i.test(entry.name))
       .sort((left, right) => left.name.localeCompare(right.name))
+    const agentFolder = skillDirectoriesForRoot(dirname(directory), home)
+      .some(agent => agent.directory === basename(directory).toLowerCase())
+    const agentFolders = new Set<string>(skillDirectoriesForRoot(directory, home).map(agent => agent.directory))
     const folders = entries.filter(entry =>
-      entry.isDirectory() && (insideAgentFolder || agentFolders.has(entry.name.toLowerCase())))
+      entry.isDirectory() && (insideAgentFolder || (agentFolder ? entry.name.toLowerCase() === 'skills'
+        : agentFolders.has(entry.name.toLowerCase()))))
       .sort((left, right) => left.name.localeCompare(right.name))
     const choices: FolderChoice[] = [
       { label: '$(edit) Digitar caminho de outra pasta...', action: 'path' }
     ]
-    if (files.length) choices.push({
+    if (insideAgentFolder && files.length) choices.push({
       label: `$(files) Selecionar arquivos .md desta pasta (${files.length})`,
       description: 'Escolha um ou varios arquivos para importar',
       action: 'files'
@@ -46,7 +49,7 @@ export async function chooseMarkdownFiles(initialDirectory: string): Promise<str
       title: `Importar .md - ${directory}`,
       placeHolder: insideAgentFolder
         ? 'Navegue pelas subpastas do agente ou selecione arquivos .md'
-        : 'Somente pastas de agentes: .github, .copilot, .agents, .claude e outros',
+        : 'Skills: .github/skills, .agents/skills, .claude/skills, ~/.copilot/skills e ~/.claude/skills',
       matchOnDescription: true
     })
     if (!selected) return undefined

@@ -23,7 +23,8 @@ de skill, usando IA local opcional.
 
 > [!IMPORTANT]
 > **O que esta extensão faz:** mantém uma biblioteca local e publica as skills
-> selecionadas como `SKILL.md` nas pastas dos agentes do projeto.
+> selecionadas nas pastas dos agentes do projeto, como `SKILL.md` por padrão
+> ou mantendo o caminho e o nome do Markdown importado.
 > GitHub Copilot usa `.github/skills/`; Antigravity usa `.agents/skills/`.
 > **Usar no chat** prepara o comando da skill no chat do Copilot; você ainda
 > revisa a solicitação e envia. A extensão não executa demandas nem gera skills
@@ -141,6 +142,9 @@ arquivos recém-gerados para usar a experiência integrada. Se o build falhar,
 corrija a falha antes de instalar; não use pacotes antigos como se contivessem
 as alterações atuais.
 
+Na release **2.0.0**, os pacotes são `skillvortex-extension-2.0.0.vsix`,
+`mindcards-2.0.0.vsix` e `product-builder-2.0.0.vsix`.
+
 ## 🚀 Primeiros passos
 
 Ao abrir a Webview, escolha a área desejada. **Início** retorna ao seletor;
@@ -180,6 +184,18 @@ automaticamente. Os exemplos podem ser editados.
 ## 📚 Guia de uso
 
 ### Conceitos
+
+O editor preenche **Nome de execucao (name)** e **Descricao (description)** a partir
+do frontmatter YAML. Se faltarem, sugere valores; ao salvar, cria os campos no
+Markdown da biblioteca, preservando o corpo e as demais propriedades YAML.
+Os arquivos de origem importados nao sao alterados. O play le o `name` da copia
+publicada e prepara `/<name>` no Copilot, sem enviar a mensagem automaticamente.
+Nome ausente ou invalido impede a execucao e exige correcao no editor.
+Editar esses campos nao renomeia a pasta de publicacao.
+
+A descoberta automatica fica limitada a `.agents/skills/`, `.github/skills/` e
+`.claude/skills/` nos projetos, alem de `~/.copilot/skills/` e `~/.claude/skills/`.
+Referencias, instrucoes gerais e prompts nao sao importados como skills nessa busca.
 
 | Conceito | Significado |
 | --- | --- |
@@ -270,27 +286,42 @@ retirando-a dos conjuntos sem excluir os conjuntos.
 o original. Arquivos acima de **2 MB**, YAML inválido e títulos duplicados são recusados.
 Os rascunhos usam nomes livres, como **Nova Skill 2**.
 
+No editor, **Caminho do arquivo no agente** mostra o destino a partir da pasta
+do agente, por exemplo `.agents/skills/pasta/11-teste-de-carga.md`, sem o prefixo
+absoluto do projeto ou da biblioteca. O campo é editável enquanto a skill está
+desativada e seu valor é salvo no cadastro. Alterá-lo define o destino de
+publicação; não move nem renomeia o original importado.
+
+Ao ativar, o caminho e o nome do Markdown importado são reutilizados, sem criar
+outra pasta baseada no título ou converter o nome em `SKILL.md`. Arquivos
+existentes são preservados; conflitos com outros arquivos ou skills são
+recusados. Caminhos absolutos, `..` e links simbólicos não são aceitos.
+A biblioteca continua mantendo sua própria cópia gerenciada em `skills/`.
+Imports antigos sem destino salvo também reconhecem o caminho da pasta do agente;
+publicações já ativas mantêm seu destino até serem desativadas.
+
 O botão **Importar skills existentes no projeto**, disponível mesmo com a
 biblioteca vazia, procura em:
 
 ```text
 .github/skills/
 .agents/skills/
-.agent/skills/
+.claude/skills/
+~/.copilot/skills/
+~/.claude/skills/
 ```
 
-A busca considera a pasta associada e as pastas locais abertas no workspace.
+A busca considera as três raízes locais na pasta associada e nos workspaces abertos,
+além das duas raízes globais no diretório pessoal.
 Mostra os resultados para seleção antes de importar; não percorre todo o disco.
 Aceita Markdown solto ou em subpastas, sem exigir o nome `SKILL.md`.
 Por exemplo: `.github/skills/pasta/teste-pasta/11-teste-de-carga.md`.
 As pastas ocultas dos agentes são incluídas automaticamente nessa busca.
-Para importar um arquivo de qualquer outro local, use **Importar .md**.
-Na raiz selecionada, seu navegador de pastas no VS Code mostra somente diretórios
-conhecidos de agentes: `.github`, `.agents`, `.agent`, `.copilot`, `.claude`,
-`.cursor`, `.codex`, `.gemini`, `.windsurf`, `.roo`, `.kilocode`, `.continue` e
-`.opencode`. Pastas comuns como `src`, `docs`, `.git` e `node_modules` ficam
-ocultas nessa lista. Dentro de uma pasta de agente, as subpastas são exibidas
-normalmente, sem exigir que também tenham nomes de agentes. Entre na
+O navegador de **Importar .md** usa as mesmas raízes autorizadas: mostra
+`.github`, `.agents` e `.claude` nos projetos, ou `.copilot` e `.claude` no
+diretório pessoal. Dentro de cada agente, somente `skills/` dá acesso aos
+Markdown; outras pastas de agentes e arquivos fora dessas raízes não são oferecidos.
+Dentro de `skills/`, as subpastas são exibidas normalmente. Entre na
 pasta desejada e escolha **Selecionar arquivos .md desta pasta** para marcar
 um ou vários arquivos. Use **..** para voltar ou **Digitar caminho de outra
 pasta...** para abrir outro local.
@@ -497,7 +528,7 @@ licença e condições de uso.
 ### Metadados e salvamento
 
 O editor apresenta título, categoria, etiquetas, status, agentes, descrição,
-cor e caminho do arquivo. O caminho é informativo, somente leitura.
+cor e caminho do arquivo no agente. O destino é editável com a skill desativada.
 Título, categoria, ao menos uma etiqueta, status, descrição e conteúdo são
 obrigatórios ao salvar. Cor e vínculos com projetos são opcionais.
 
@@ -508,6 +539,13 @@ skills independentes começam com os dois destinos compatíveis.
 Use **Salvar** ou `Ctrl+S` / `Cmd+S`. O indicador **Não salvo** identifica alterações
 pendentes. **Voltar ao Dashboard** solicita confirmação quando há alterações
 para descartar; apenas abrir o editor não altera o arquivo.
+
+Com o editor aberto, `Ctrl+F` (ou `Cmd+F` no macOS) abre a busca no painel ativo,
+**Texto** ou **Markdown**. No Texto, as ocorrências são destacadas; use
+**Anterior/Próxima**, `Enter` e `Shift+Enter` para navegar e `Esc` para fechar.
+No Markdown, a busca usa a ferramenta nativa do Monaco. A busca não altera o
+arquivo nem inclui o cabeçalho YAML protegido. O editor de notas do MindCards
+também oferece a busca no Texto.
 
 <details>
 <summary><strong>Ver exemplo de rascunho com alterações não salvas</strong></summary>
@@ -565,9 +603,10 @@ O painel Texto não renderiza o YAML como conteúdo.
 
 Essa proteção vale para o **editor integrado**, não para editores externos:
 a extensão não muda as permissões do `.md` no disco.
-Na publicação, `name` e `description` são definidos a partir do cadastro;
+Na publicação padrão, `name` e `description` são definidos a partir do cadastro;
 outros campos YAML existentes são preservados. Não é necessário seguir o
-template de corpo usado nos exemplos.
+template de corpo usado nos exemplos. Destinos personalizados preservam o Markdown
+sem acrescentar ou reescrever o frontmatter.
 
 ### Projetos e Governança
 
@@ -601,7 +640,7 @@ meu-projeto/
 └── .agents/skills/revisar-alteracoes/SKILL.md   # Antigravity
 ```
 
-Nomes de novos arquivos e pastas derivam do título em kebab-case,
+Sem um destino personalizado, nomes de novos arquivos e pastas derivam do título em kebab-case,
 com sufixos numéricos quando necessários para evitar colisões.
 IDs permanecem nos metadados, sem arquivos de identificação no projeto.
 
@@ -613,6 +652,10 @@ O switch reflete os destinos visíveis, não simplesmente qualquer publicação 
 
 As labels do card valem para seus membros. Labels personalizadas não publicam
 arquivos; é necessário selecionar GitHub Copilot ou Antigravity.
+Um destino personalizado pode usar outra pasta oculta de agente, como `.claude`;
+isso não adiciona um novo agente ao switch nem garante descoberta automática.
+Ao publicar para ambos os agentes, o sufixo do caminho é mantido e a pasta raiz
+é adaptada para o outro agente (`.github` ou `.agents`).
 Ativações e desativações do conjunto são transacionais, com tentativa de
 restauração dos arquivos em caso de falha.
 
@@ -627,20 +670,23 @@ Publicações antigas não são movidas automaticamente ao abrir a biblioteca.
 
 ### Desativar e reativar
 
-Desativar retira o `SKILL.md` da descoberta pelo caminho publicado e arquiva
+Desativar retira o Markdown da descoberta pelo caminho publicado e arquiva
 seu conteúdo em `.skillvortex/disabled-skills/` na biblioteca, preservando
 alterações feitas no projeto. Ao reativar, a cópia arquivada é restaurada.
 Divergências entre cópias bloqueiam a operação para revisão, sem descartar conteúdo.
 
 Pastas vazias gerenciadas são removidas. Se houver arquivos adicionais, a pasta
 é preservada e registrada para eventual exclusão confirmada. O mesmo arquivamento
-vale quando o `SKILL.md` publicado foi a origem importada; seu caminho continua
-registrado como referência.
+vale quando o Markdown publicado foi a origem importada; seu caminho continua
+registrado como referência. Em destinos personalizados, apenas o arquivo é
+arquivado: as pastas e seus outros arquivos não são excluídos.
 
 ### Usar no chat
 
 **Usar no chat** exige skill liberada e publicada para GitHub Copilot no projeto
 selecionado, com a pasta associada aberta no workspace.
+Markdown com nome ou estrutura personalizados pode ser referenciado no chat,
+mas não é executado automaticamente como `/skill` fora da estrutura Agent Skills.
 Para um conjunto com vários membros, uma modal permite escolher a skill;
 membros indisponíveis permanecem desabilitados.
 
@@ -687,7 +733,8 @@ Não há merge automático.
 > **Criar backup e sincronizar** atualiza o original e **todas as publicações
 > ativas da skill**, inclusive outros projetos e agentes, independentemente do
 > filtro do dashboard. Revise a origem antes de confirmar.
-> Nome e descrição de publicação continuam sendo definidos pelo cadastro.
+> Na publicação padrão, nome e descrição continuam sendo definidos pelo cadastro;
+> destinos personalizados preservam o conteúdo selecionado.
 
 Antes de substituir, a extensão cria backup e snapshots das publicações em
 `.skillvortex/backups/<backup>/external-changes/`, com um `manifest.json`

@@ -1048,6 +1048,35 @@ main {
   font-size: 12px;
 }
 
+.editor-find-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid #404040;
+}
+
+.editor-find-bar .ant-input-affix-wrapper {
+  flex: 1;
+  min-width: 140px;
+}
+
+.editor-find-count {
+  color: #b8b8b8;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.visual-markdown-editor .tiptap .editor-find-match {
+  color: #181818;
+  background: #fadb14;
+}
+
+.visual-markdown-editor .tiptap .editor-find-current {
+  outline: 2px solid #ff7875;
+}
+
 .visual-editor-toolbar {
   display: flex;
   flex-wrap: wrap;

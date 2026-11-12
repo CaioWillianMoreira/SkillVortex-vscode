@@ -1,5 +1,5 @@
 export function splitMarkdown(content: string): { metadata: string; body: string } {
-  const metadata = content.match(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/)?.[0] ?? ''
+  const metadata = content.match(/^\uFEFF?---\r?\n(?:[\s\S]*?\r?\n)?---(?:\r?\n|$)/)?.[0] ?? ''
   return { metadata, body: content.slice(metadata.length) }
 }
 

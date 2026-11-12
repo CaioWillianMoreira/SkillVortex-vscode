@@ -1,7 +1,8 @@
 import { promises as fs } from 'node:fs'
 import { tmpdir } from 'node:os'
+import os from 'node:os'
 import { dirname, join } from 'node:path'
-import { afterEach, beforeEach, expect, test } from '@jest/globals'
+import { afterEach, beforeEach, expect, jest, test } from '@jest/globals'
 import { isProjectMarkdown, projectMarkdownAgent, readProjectMarkdown, scanProjectMarkdown } from '../src/project-scan'
 
 let temporary: string
@@ -14,6 +15,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  jest.restoreAllMocks()
   await fs.rm(temporary, { recursive: true, force: true })
 })
 
@@ -28,12 +30,13 @@ test('finds custom Markdown names only in agent skill folders', async () => {
     '.github/skills/pasta/teste-pasta/11-teste-de-carga.md',
     '.agents/skills/exemplo/SKILL.md',
     '.agents/skills/exemplo/1-skill-de-teste.md',
-    '.agent/SKILLS/exemplo/ANALISE-SEO.md'
+    '.claude/skills/exemplo/ANALISE-SEO.md'
   ]
   const ignored = [
     'README.md', 'AGENTS.md', 'GEMINI.md', 'docs/guide.md', 'skills/SKILL.md',
     '.github/copilot-instructions.md', '.github/prompts/review.prompt.md',
-    '.agent/workflows/deploy.md', '.vscode/notes.md', '.git/SKILL.md',
+    '.agent/workflows/deploy.md', '.agent/skills/legacy/SKILL.md',
+    '.copilot/skills/local/SKILL.md', '.vscode/notes.md', '.git/SKILL.md',
     'nested/.github/skills/x/SKILL.md', '.github/skills/exemplo/notes.txt',
     '.github/skills/exemplo/README.md', '.github/skills/exemplo/readme.pt-BR.MD',
     '.github/skills/exemplo/CONTRIBUTING.md', '.github/skills/exemplo/CHANGELOG.en.md',
@@ -70,12 +73,28 @@ test('finds custom Markdown names only in agent skill folders', async () => {
     .rejects.toThrow('dentro do projeto')
   expect(projectMarkdownAgent('.github/skills/html/SKILL.md')).toBe('Copilot')
   expect(projectMarkdownAgent('.agents/skills/html/SKILL.md')).toBe('Antigravity')
-  expect(projectMarkdownAgent('.agent/SKILLS/exemplo/ANALISE-SEO.md')).toBe('Antigravity')
+  expect(projectMarkdownAgent('.claude/skills/exemplo/ANALISE-SEO.md')).toBe('Claude')
+  expect(projectMarkdownAgent('.agent/SKILLS/exemplo/ANALISE-SEO.md')).toBeUndefined()
   expect(projectMarkdownAgent('.agent/rules/style.md')).toBeUndefined()
   expect(projectMarkdownAgent('.github/skills/exemplo/docs/ANALISE-SEO.md')).toBeUndefined()
   expect(projectMarkdownAgent('.github/skills/exemplo/README.md')).toBeUndefined()
   expect(projectMarkdownAgent('AGENTS.md')).toBeUndefined()
   expect(projectMarkdownAgent('docs/guide.md')).toBeUndefined()
+})
+
+test('the global scan only accepts Copilot and Claude skill roots', async () => {
+  const home = await fs.realpath(temporary)
+  jest.spyOn(os, 'homedir').mockReturnValue(home)
+  const accepted = ['.copilot/skills/review/SKILL.md', '.claude/skills/write/SKILL.md']
+  for (const path of [...accepted, '.agents/skills/ignored/SKILL.md', '.github/skills/ignored/SKILL.md']) {
+    await fs.mkdir(dirname(join(home, path)), { recursive: true })
+    await fs.writeFile(join(home, path), '# Skill')
+  }
+  expect(await scanProjectMarkdown(home)).toEqual(accepted.map(path => join(home, path)).sort((a, b) => a.localeCompare(b)))
+  for (const path of accepted) expect(await readProjectMarkdown(home, join(home, path))).toBe('# Skill')
+  for (const path of ['.agents/skills/ignored/SKILL.md', '.github/skills/ignored/SKILL.md']) {
+    await expect(readProjectMarkdown(home, join(home, path))).rejects.toThrow('dentro do projeto')
+  }
 })
 
 test('scans multiple roots and deduplicates the same physical agent folder', async () => {

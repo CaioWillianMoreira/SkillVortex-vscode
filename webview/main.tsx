@@ -7,7 +7,8 @@ import {
 import { ActionButton, ActionIcon } from './Actions'
 import MindCards from './MindCards'
 import type { Catalog, Projects, Skill, SkillCard, SkillAgent } from '../src/model'
-import { isAgentLinked, isCollectionLinked, selectedSkillIds, skillCards, skillRegistrationSchema } from '../src/model'
+import { agentRoot, isAgentLinked, isCollectionLinked, selectedSkillIds, skillCards, skillRegistrationSchema, skillPublicationPath, skillSlug } from '../src/model'
+import { skillMarkdownMetadata, suggestedExecutionName } from '../src/skill-metadata'
 import {
   categoryColor, isSkillCardColor, SKILL_CARD_COLOR_LABELS, SKILL_CARD_COLORS, skillCardTextColor
 } from '../src/skill-colors'
@@ -44,7 +45,7 @@ type AppState = {
   creating?: boolean
   externalChanges?: Array<{ skillId: string; name: string; libraryChanged: boolean; publications: number }>
 }
-type Draft = Skill & { content: string; projectIds: string[] }
+type Draft = Skill & { content: string; projectIds: string[]; executionName: string; metadataMissing: boolean }
 
 const emptyState: AppState = {
   root: null, catalog: null, projects: null, editingSkillId: null, content: ''
@@ -167,8 +168,19 @@ function App(): React.JSX.Element {
       baseline.current = ''
       return
     }
+    let metadata: ReturnType<typeof skillMarkdownMetadata>
+    try {
+      metadata = skillMarkdownMetadata(state.content)
+    } catch (error) {
+      setError(error instanceof Error ? error.message : String(error))
+      setDraft(null)
+      return
+    }
     const next: Draft = {
       ...skill,
+      executionName: metadata.name ?? suggestedExecutionName(skill),
+      description: metadata.description ?? skill.description,
+      metadataMissing: !metadata.name || !metadata.description,
       content: state.content,
       projectIds: state.projects.projects
         .filter(project => project.skillIds.includes(skill.id))
@@ -178,7 +190,7 @@ function App(): React.JSX.Element {
     baseline.current = JSON.stringify(next)
   }, [state.editingSkillId, state.content, state.catalog, state.projects])
 
-  const dirty = Boolean(draft && (state.creating || JSON.stringify(draft) !== baseline.current))
+  const dirty = Boolean(draft && (state.creating || draft.metadataMissing || JSON.stringify(draft) !== baseline.current))
   const cards = useMemo(() => allCards.filter(item => {
     const matchesText = [
       item.name, item.description, item.category, ...item.tags, ...item.agents,
@@ -251,11 +263,13 @@ function App(): React.JSX.Element {
       type: 'saveSkill',
       id: draft.id,
       name: draft.name,
+      executionName: draft.executionName,
       category: draft.category,
       description: draft.description,
       tags: draft.tags,
       agents: draft.agents,
       status: draft.status,
+      publicationPath: draft.publicationPath,
       cardColor: draft.cardColor ?? null,
       content: draft.content,
       projectIds: draft.status === 'blocked' ? [] : draft.projectIds
@@ -356,7 +370,7 @@ function App(): React.JSX.Element {
               <ActionButton action="folder" onClick={() => api.postMessage({ type: 'setProjectFolder' })}>
                 {activeProject?.sourcePath ? 'Alterar pasta do projeto' : 'Associar projeto'}
               </ActionButton>
-              <Tooltip title="Busca arquivos .md nas pastas ocultas .github/skills, .agents/skills e .agent/skills, incluindo subpastas e nomes diferentes de SKILL.md. Selecione os arquivos para importar; os originais sao preservados.">
+              <Tooltip title="Busca skills em .github/skills, .agents/skills, .claude/skills, ~/.copilot/skills e ~/.claude/skills. Os originais sao preservados.">
                 <ActionButton action="search" onClick={() => api.postMessage({ type: 'scanProject' })}>
                   Importar skills existentes no projeto
                 </ActionButton>
@@ -824,6 +838,12 @@ function App(): React.JSX.Element {
                   <Input id="skill-name" required value={draft.name} maxLength={100} disabled={saving} onChange={event => updateDraft('name', event.target.value)} />
                 </Col>
                 <Col xs={24} md={12} xl={8}>
+                  <label htmlFor="skill-execution-name">Nome de execucao (name) *</label>
+                  <Input id="skill-execution-name" required prefix="/" value={draft.executionName} maxLength={64}
+                    disabled={saving} onChange={event => updateDraft('executionName', event.target.value)} />
+                  <Typography.Text type="secondary">O play usa este nome. Salvar atualiza o YAML sem renomear a pasta.</Typography.Text>
+                </Col>
+                <Col xs={24} md={12} xl={8}>
                   <label htmlFor="skill-category">Categoria *</label>
                   <Select
                     id="skill-category"
@@ -868,7 +888,7 @@ function App(): React.JSX.Element {
                   />
                 </Col>
                 <Col span={24}>
-                  <label htmlFor="skill-description">Descricao *</label>
+                  <label htmlFor="skill-description">Descricao (description) *</label>
                   <Input.TextArea id="skill-description" rows={2} maxLength={1000} required value={draft.description} disabled={saving}
                     onChange={event => updateDraft('description', event.target.value)} />
                 </Col>
@@ -889,8 +909,14 @@ function App(): React.JSX.Element {
                   />
                 </Col>
                 <Col xs={24} md={12} xl={16}>
-                  <label>Caminho do arquivo</label>
-                  <Input readOnly value={`${state.root}/${draft.filePath}`} />
+                  <label htmlFor="skill-publication-path">Caminho do arquivo no agente</label>
+                  <Input id="skill-publication-path" disabled={saving}
+                    value={skillPublicationPath(draft) ??
+                      `${agentRoot(draft.agents.includes('Antigravity') && !draft.agents.includes('GitHub Copilot') ? 'Antigravity' : 'GitHub Copilot')}/skills/${skillSlug(draft.name)}/SKILL.md`}
+                    onChange={event => updateDraft('publicationPath', event.target.value)} />
+                  <Typography.Text type="secondary">
+                    Destino relativo ao projeto, a partir da pasta do agente. Alterar este campo nao move o original importado.
+                  </Typography.Text>
                 </Col>
               </Row>
             </Card>

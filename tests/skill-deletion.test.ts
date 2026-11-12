@@ -53,6 +53,24 @@ async function disabledSkill(): Promise<VaultData> {
 const persist = async (path: string, data: VaultData) =>
   saveProjectSkills(path, await readVault(path), data)
 
+test('deletion preserves another custom publication nested inside a legacy owned folder', async () => {
+  const data = await disabledSkill()
+  const first = data.catalog.skills[0]
+  const folder = first.publishedFolders![0]
+  const other = {
+    ...first, id: 'custom', name: 'Custom nested', filePath: 'skills/custom.md',
+    originPath: undefined, publishedFolders: undefined,
+    publicationPath: `.github/skills/${folder.directory}/instructions/11-carga.md`
+  }
+  data.catalog.skills.push(other)
+  await writeSkillFile(root, other.filePath, '# Nested custom publication')
+  const enabled = structuredClone(data)
+  enabled.projects.projects[0].skillIds = [other.id]
+  await saveProjectSkills(root, await readVault(root), enabled)
+  await expect(planSkillDeletion(root, enabled, enabled.catalog.skills[0])).rejects.toThrow('outra skill')
+  expect(await fs.readFile(join(projects[0], other.publicationPath), 'utf8')).toBe('# Nested custom publication')
+})
+
 test('deleting a card preserves skills exclusive to other cards without generating standalone cards', async () => {
   const first = initial.catalog.skills[0]
   const shared = { ...first, id: 'shared', name: 'Shared', filePath: 'skills/shared.md' }

@@ -34,12 +34,56 @@ export const agentRoot = (agent: SkillAgent): '.github' | '.agents' =>
   agent === 'Antigravity' ? '.agents' : '.github'
 export const deploymentAgent = (item: { agent?: SkillAgent }): SkillAgent =>
   item.agent ?? 'GitHub Copilot'
-export function deploymentRoot(item: { agent?: SkillAgent; agentDirectory?: '.github' | '.agents' | '.agent' }): '.github' | '.agents' | '.agent' {
-  const root = item.agentDirectory ?? agentRoot(deploymentAgent(item))
-  if ((deploymentAgent(item) === 'GitHub Copilot') !== (root === '.github')) {
+export const agentFolderNames = [
+  '.github', '.agents', '.agent', '.copilot', '.claude', '.cursor', '.codex', '.gemini',
+  '.windsurf', '.roo', '.kilocode', '.continue', '.opencode'
+]
+const agentDirectorySchema = z.string().regex(/^\.[a-zA-Z0-9_-]+$/)
+  .refine(value => !['.git', '.skillvortex', '.vscode'].includes(value.toLowerCase()))
+export const publicationPathSchema = z.string().trim().max(1000).refine(value => {
+  const parts = value.split('/')
+  return parts.length >= 2 && /^\.[a-zA-Z0-9_-]+$/.test(parts[0]) &&
+    !['.git', '.skillvortex', '.vscode'].includes(parts[0].toLowerCase()) &&
+    parts.every(part => Boolean(part) && part !== '.' && part !== '..' && !/[\\:\x00-\x1f\x7f]/.test(part)) &&
+    /\.md$/i.test(parts[parts.length - 1])
+}, 'Informe um caminho .md relativo a pasta do agente, como .agents/skills/teste/11-teste.md, sem .. ou caminho absoluto.')
+
+export function importedPublicationPath(originPath?: string): string | undefined {
+  if (!originPath) return undefined
+  const parts = originPath.replace(/\\/g, '/').split('/')
+  let index = parts.findIndex(part => agentFolderNames.includes(part.toLowerCase()))
+  if (index < 0) {
+    index = parts.map((part, position) => position < parts.length - 1 &&
+      /^\.[a-zA-Z0-9_-]+$/.test(part) && !['.git', '.skillvortex', '.vscode'].includes(part.toLowerCase())).lastIndexOf(true)
+  }
+  if (index < 0) return undefined
+  return publicationPathSchema.parse(parts.slice(index).join('/'))
+}
+type DeploymentLocation = {
+  agent?: SkillAgent; agentDirectory?: string; relativePath?: string; directory: string
+}
+export function deploymentRoot(item: Omit<DeploymentLocation, 'directory'>): string {
+  const root = item.relativePath ? publicationPathSchema.parse(item.relativePath).split('/')[0]
+    : item.agentDirectory ? agentDirectorySchema.parse(item.agentDirectory) : agentRoot(deploymentAgent(item))
+  if (['.github', '.agents', '.agent'].includes(root) &&
+      (deploymentAgent(item) === 'GitHub Copilot') !== (root === '.github')) {
     throw new Error('Pasta de publicacao incompativel com o agente da skill.')
   }
   return root
+}
+export const deploymentPath = (item: DeploymentLocation): string =>
+  item.relativePath ? publicationPathSchema.parse(item.relativePath)
+    : `${deploymentRoot(item)}/skills/${item.directory}/SKILL.md`
+export const skillPublicationPath = (skill: { publicationPath?: string; originPath?: string }): string | undefined =>
+  skill.publicationPath ?? importedPublicationPath(skill.originPath)
+export function publicationPathForAgent(skill: Skill, agent: SkillAgent): string | undefined {
+  const path = skillPublicationPath(skill)
+  if (!path) return undefined
+  const [root, ...parts] = publicationPathSchema.parse(path).split('/')
+  const owner: SkillAgent = root === '.agents' || root === '.agent' ? 'Antigravity'
+    : root === '.github' ? 'GitHub Copilot'
+      : skill.agents.includes('Antigravity') && !skill.agents.includes('GitHub Copilot') ? 'Antigravity' : 'GitHub Copilot'
+  return [agent === owner ? root : agentRoot(agent), ...parts].join('/')
 }
 export const agentSkillKey = (skillId: string, agent: SkillAgent): string => `${agent}:${skillId}`
 const statusSchema = z.preprocess(value => value === 'pending' || value === 'validated' ? 'allowed' : value,
@@ -56,20 +100,24 @@ export const skillSchema = z.object({
   cardColor: z.enum(SKILL_CARD_COLORS).optional(),
   archived: z.boolean().optional(),
   originPath: z.string().optional(),
+  publicationPath: publicationPathSchema.optional(),
   publishedFolders: z.array(z.object({
     projectId: z.string().min(1),
     projectPath: z.string().min(1),
     directory: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
     owned: z.boolean(),
     agent: skillAgentSchema.optional(),
-    agentDirectory: z.enum(['.github', '.agents', '.agent']).optional(),
+    agentDirectory: agentDirectorySchema.optional(),
+    relativePath: publicationPathSchema.optional(),
     marker: z.string().regex(/^[a-f0-9]{32}$/).optional()
   })).max(10000).optional()
 })
 export type Skill = z.infer<typeof skillSchema>
 export const skillRegistrationSchema = skillSchema.pick({
-  name: true, category: true, description: true, status: true
+  name: true, category: true, description: true, status: true, publicationPath: true
 }).extend({
+  executionName: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+    'Use letras minusculas, numeros e hifens no nome de execucao, sem /.').max(64).optional(),
   name: z.string().trim().min(1, 'Informe o titulo da skill.').max(100),
   category: z.string().trim().min(1, 'Informe a categoria da skill.').max(60),
   description: z.string().trim().min(1, 'Informe a descricao da skill.').max(1000),
@@ -148,12 +196,16 @@ export const projectsSchema = z.object({
     deployedSkills: z.array(z.object({
       skillId: z.string(),
       agent: skillAgentSchema.optional(),
-      agentDirectory: z.enum(['.github', '.agents', '.agent']).optional(),
+      agentDirectory: agentDirectorySchema.optional(),
+      relativePath: publicationPathSchema.optional(),
       directory: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
       hash: z.string().regex(/^[a-f0-9]{64}$/),
       sourceHash: z.string().regex(/^[a-f0-9]{64}$/)
     })).refine(items => unique(items.map(item => agentSkillKey(item.skillId, deploymentAgent(item)))) &&
-      unique(items.map(item => `${deploymentRoot(item)}:${item.directory}`))).optional()
+      unique(items.map(item => {
+        deploymentRoot(item)
+        return deploymentPath(item)
+      }))).optional()
   })).max(10000)
 }).superRefine((data, context) => {
   if (!unique(data.projects.map(project => project.id)) ||

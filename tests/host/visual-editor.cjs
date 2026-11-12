@@ -1,7 +1,9 @@
 const assert = require('node:assert/strict')
+const { join } = require('node:path')
 const vscode = require('vscode')
 
 module.exports = async function testVisualEditor(extension) {
+  const { skillMarkdownMetadata, withSkillMetadata } = require(join(extension.extensionPath, 'dist/skill-metadata.js'))
   const panel = vscode.window.createWebviewPanel('visualEditorTest', 'Visual editor test', vscode.ViewColumn.One, {
     enableScripts: true,
     localResourceRoots: [vscode.Uri.joinPath(extension.extensionUri, 'dist/webview')]
@@ -17,24 +19,62 @@ module.exports = async function testVisualEditor(extension) {
     type: 'state', root: '/test-vault',
     catalog: { version: 1, categories: ['Geral'], skills: [{
       id: 'visual-test', name: 'Visual test', category: 'Geral', description: 'Descricao',
-      filePath: 'skills/visual-test.md', agents: ['GitHub Copilot'], status: 'allowed', tags: ['teste']
+      filePath: 'skills/visual-test.md', agents: ['GitHub Copilot'], status: 'allowed', tags: ['teste'],
+      publicationPath: '.github/skills/code-review/SKILL.md'
     }] },
     projects: { version: 1, activeProject: null, projects: [] },
     editingSkillId: 'visual-test', content
   }
   let listener
   let timeout
-  let stage = 'protection'
+  let stage = 'metadata-edit'
   const result = new Promise((resolve, reject) => {
-    timeout = setTimeout(() => reject(new Error('Timed out testing visual Markdown editor')), 40000)
+    timeout = setTimeout(() => reject(new Error('Timed out testing visual Markdown editor')), 60000)
     listener = webview.onDidReceiveMessage(async message => {
       try {
         if (message.type === 'ready') {
           assert.ok(await webview.postMessage(state))
+          assert.ok(await webview.postMessage({ type: 'test-editable-metadata' }))
+        } else if (message.type === 'metadata-fields-complete') {
+          assert.equal(stage, 'metadata-saved')
+          stage = 'metadata-missing'
+          assert.ok(await webview.postMessage({ ...state, content: '# Sem metadados\n', saved: true }))
+          assert.ok(await webview.postMessage({ type: 'test-missing-metadata' }))
+        } else if (message.type === 'missing-metadata-complete') {
+          assert.equal(stage, 'metadata-created')
+          console.log('SkillVortex: editable YAML fields, metadata creation and stable publication paths passed')
+          stage = 'search'
+          assert.ok(await webview.postMessage({ ...state, saved: true }))
+          assert.ok(await webview.postMessage({ type: 'test-editor-search' }))
+        } else if (message.type === 'editor-search-complete') {
+          assert.equal(stage, 'search')
+          assert.equal(message.dirty, false, 'Searching must not modify the document')
+          stage = 'protection'
           assert.ok(await webview.postMessage({ type: 'test-metadata-protection' }))
         } else if (message.type === 'visual-roundtrip') {
           assert.equal(message.dirty, false, 'Switching modes must not modify the source')
         } else if (message.type === 'saveSkill') {
+          if (stage === 'metadata-edit' || stage === 'metadata-missing') {
+            const editing = stage === 'metadata-edit'
+            assert.equal(message.executionName, editing ? 'review' : 'code-review')
+            assert.equal(message.description, editing ? 'Descricao editada.' : 'Descricao')
+            assert.equal(message.publicationPath, '.github/skills/code-review/SKILL.md')
+            const updated = withSkillMetadata(message.content, message.executionName, message.description)
+            assert.deepEqual(skillMarkdownMetadata(updated), {
+              name: message.executionName, description: message.description
+            })
+            assert.ok(updated.endsWith(editing ? content.slice(metadata.length) : '# Sem metadados\n'))
+            if (editing) {
+              assert.match(updated, /custom: \[\s*a,\s*b\s*\]/)
+              assert.match(updated, /# Preservar comentario/)
+            }
+            stage = editing ? 'metadata-saved' : 'metadata-created'
+            assert.ok(await webview.postMessage({ ...state, content: updated, saved: true }))
+            assert.ok(await webview.postMessage({
+              type: editing ? 'test-metadata-saved' : 'test-missing-metadata-saved'
+            }))
+            return
+          }
           if (stage === 'protection') {
             assert.equal(message.content, metadata + 'Corpo substituido', 'Replacing all editable text must leave the entire YAML unchanged')
             stage = 'roundtrip'
@@ -81,6 +121,19 @@ module.exports = async function testVisualEditor(extension) {
       const mode = label => Array.from(document.querySelectorAll('.editor-pane-heading'))
         .find(item => item.textContent === label).click();
       const save = () => document.querySelector('.editor-top-actions .action-save');
+      const setInput = (input, value) => {
+        if (!input) throw new Error('Search input unavailable');
+        input.focus();
+        const prototype = input instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, value);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      const key = (target, name, modifiers = {}) => target.dispatchEvent(new KeyboardEvent('keydown', {
+        key: name, code: name.length === 1 ? 'Key' + name.toUpperCase() : name,
+        keyCode: { f: 70, Enter: 13, Escape: 27 }[name],
+        which: { f: 70, Enter: 13, Escape: 27 }[name],
+        bubbles: true, cancelable: true, ...modifiers
+      }));
       const select = text => {
         const editor = document.querySelector('.tiptap');
         editor.focus();
@@ -102,7 +155,93 @@ module.exports = async function testVisualEditor(extension) {
       };
       window.addEventListener('message', async event => {
         try {
-          if (event.data.type === 'test-metadata-protection') {
+          if (event.data.type === 'test-editable-metadata') {
+            await wait('editable execution fields from YAML', () =>
+              document.getElementById('skill-execution-name')?.value === 'visual-test' &&
+              document.getElementById('skill-description')?.value === 'teste');
+            const name = document.getElementById('skill-execution-name');
+            const description = document.getElementById('skill-description');
+            if (name.readOnly || name.disabled || description.readOnly || description.disabled) {
+              throw new Error('Both YAML execution fields must be editable');
+            }
+            setInput(name, 'review');
+            setInput(description, 'Descricao editada.');
+            await wait('metadata edit enables saving', () => !save().disabled);
+            save().click();
+          } else if (event.data.type === 'test-metadata-saved' || event.data.type === 'test-missing-metadata-saved') {
+            const editing = event.data.type === 'test-metadata-saved';
+            await wait('saved metadata fields', () => save()?.disabled &&
+              document.getElementById('skill-execution-name')?.value === (editing ? 'review' : 'code-review') &&
+              document.getElementById('skill-description')?.value === (editing ? 'Descricao editada.' : 'Descricao'));
+            if (document.getElementById('skill-publication-path').value !== '.github/skills/code-review/SKILL.md') {
+              throw new Error('Editing YAML fields must not change the publication folder');
+            }
+            bridge.postMessage({ type: editing ? 'metadata-fields-complete' : 'missing-metadata-complete' });
+          } else if (event.data.type === 'test-missing-metadata') {
+            await wait('missing YAML enables save with a suggested name', () =>
+              document.getElementById('skill-execution-name')?.value === 'code-review' &&
+              document.getElementById('skill-description')?.value === 'Descricao' && !save().disabled);
+            save().click();
+          } else if (event.data.type === 'test-editor-search') {
+            mode('Texto');
+            await wait('text editor for search', () => document.querySelector('.tiptap'));
+            const text = document.querySelector('.tiptap');
+            text.focus();
+            key(text, 'f', { ctrlKey: true });
+            await wait('Ctrl+F text search', () => document.querySelector('input[aria-label="Buscar no editor Texto"]'));
+            if (!save().disabled) throw new Error('Opening text search changed the source');
+            const search = document.querySelector('input[aria-label="Buscar no editor Texto"]');
+            setInput(search, 'preserv');
+            await wait('two highlighted text matches', () =>
+              document.querySelector('.editor-find-count')?.textContent === '1 de 2' &&
+              document.querySelectorAll('.tiptap .editor-find-match').length === 2);
+            if (!save().disabled) throw new Error('Text highlights changed the source');
+            key(search, 'Enter');
+            await wait('next text match', () => document.querySelector('.editor-find-count').textContent === '2 de 2');
+            key(search, 'Enter', { shiftKey: true });
+            await wait('previous text match', () => document.querySelector('.editor-find-count').textContent === '1 de 2');
+            document.querySelector('[aria-label="Ocorrencia anterior"]').click();
+            await wait('previous wraps', () => document.querySelector('.editor-find-count').textContent === '2 de 2');
+            document.querySelector('[aria-label="Proxima ocorrencia"]').click();
+            await wait('next wraps', () => document.querySelector('.editor-find-count').textContent === '1 de 2');
+            if (!save().disabled) throw new Error('Text navigation changed the source');
+            setInput(search, 'custom:');
+            await wait('YAML excluded from text search', () =>
+              document.querySelector('.editor-find-count').textContent === 'Nenhum resultado' &&
+              !document.querySelector('.tiptap .editor-find-match') &&
+              document.querySelector('[aria-label="Proxima ocorrencia"]').disabled);
+            key(search, 'Escape');
+            await wait('text search closes', () => !document.querySelector('.editor-find-bar'));
+            if (!save().disabled) throw new Error('Closing text search changed the source');
+            key(text, 'f', { metaKey: true });
+            await wait('Cmd+F text search', () => document.querySelector('.editor-find-bar'));
+            key(document.querySelector('input[aria-label="Buscar no editor Texto"]'), 'Escape');
+            mode('Markdown');
+            await wait('Markdown editor for search', () => document.querySelector('.monaco-editor textarea.inputarea'));
+            const markdown = document.querySelector('.monaco-editor textarea.inputarea');
+            markdown.focus();
+            key(markdown, 'f', { metaKey: true });
+            await wait('Cmd+F native find widget', () => document.querySelector('.monaco-editor .find-widget.visible'));
+            if (!save().disabled) throw new Error('Opening native search changed the source');
+            const nativeInput = () => document.querySelector('.find-widget .find-part textarea, .find-widget .find-part input');
+            setInput(nativeInput(), 'preserv');
+            await wait('native find counts body matches', () =>
+              /of 2$/.test(document.querySelector('.find-widget .matchesCount')?.textContent));
+            if (!save().disabled) throw new Error('Native search query changed the source');
+            nativeInput().focus();
+            key(nativeInput(), 'Escape');
+            await wait('native search closes', () => !document.querySelector('.find-widget.visible'));
+            markdown.focus();
+            key(markdown, 'f', { ctrlKey: true });
+            await wait('Ctrl+F native find widget', () => document.querySelector('.find-widget.visible'));
+            setInput(nativeInput(), 'custom:');
+            await wait('YAML excluded from Markdown search', () =>
+              document.querySelector('.find-widget .matchesCount')?.textContent === 'No results');
+            nativeInput().focus();
+            key(nativeInput(), 'Escape');
+            await wait('native search closed again', () => !document.querySelector('.find-widget.visible'));
+            bridge.postMessage({ type: 'editor-search-complete', dirty: !save().disabled });
+          } else if (event.data.type === 'test-metadata-protection') {
             await wait('editable Markdown', () => document.querySelector('.monaco-editor textarea.inputarea'));
             const metadata = document.querySelector('textarea[aria-label="Cabecalho YAML protegido"]');
             if (!metadata?.readOnly || !metadata.value.includes('custom: [a, b]')) {
@@ -262,7 +401,7 @@ module.exports = async function testVisualEditor(extension) {
     </script><script type="module" nonce="visualTest" src="${asset('app.js')}"></script></body></html>`
   try {
     await result
-    console.log('SkillVortex: visual formatting, mode switching, YAML, GFM, CRLF and HTML preservation passed')
+    console.log('SkillVortex: editable YAML metadata, missing metadata, Ctrl/Cmd+F, visual formatting and body preservation passed')
   } finally {
     clearTimeout(timeout)
     listener.dispose()

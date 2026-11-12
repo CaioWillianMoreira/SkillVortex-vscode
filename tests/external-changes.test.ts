@@ -47,6 +47,28 @@ test('unchanged publications do not report false external edits', async () => {
   expect(await detectExternalChanges(root, data)).toEqual([])
 })
 
+test('custom Markdown paths are monitored and synchronized without adding frontmatter or SKILL.md files', async () => {
+  const disabled = structuredClone(data)
+  setProjectBindings(disabled.projects.projects[0], [])
+  await saveProjectSkills(root, data, disabled)
+  disabled.catalog.skills[0].publicationPath = '.agents/instructions/nested/11-carga.md'
+  await saveVaultData(root, disabled)
+  const enabled = structuredClone(disabled)
+  setSharedSkillPublication(enabled.projects.projects[0], skillId, true)
+  await saveProjectSkills(root, disabled, enabled)
+  const files = ['.github', '.agents'].map(folder =>
+    join(project, folder, 'instructions/nested/11-carga.md'))
+  expect(await detectExternalChanges(root, enabled)).toEqual([])
+  await fs.writeFile(files[0], '# Custom edit\n\nChosen instructions.\r\n')
+  const [change] = await detectExternalChanges(root, enabled)
+  expect(change.publications.map(version => version.path).sort()).toEqual([...files].sort())
+  await resolveExternalChange(root, change, files[0])
+  for (const file of [library, ...files]) {
+    expect(await fs.readFile(file, 'utf8')).toBe('# Custom edit\n\nChosen instructions.\r\n')
+  }
+  expect(await detectExternalChanges(root, await readVault(root))).toEqual([])
+})
+
 test('detects independent library and publication edits, then restores with complete recovery snapshots', async () => {
   await fs.appendFile(library, '\nLibrary edit')
   await fs.appendFile(copilot, '\nCopilot edit')

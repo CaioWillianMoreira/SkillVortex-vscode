@@ -2,7 +2,7 @@
   "name": "skillvortex-extension",
   "displayName": "SkillVortex Extension",
   "description": "Biblioteca local e portatil de skills Markdown para projetos e agentes de IA.",
-  "version": "0.1.3",
+  "version": "2.0.0",
   "publisher": "skillvortex",
   "repository": {
     "type": "git",

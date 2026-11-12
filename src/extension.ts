@@ -1,12 +1,13 @@
 import * as vscode from 'vscode'
 import { promises as fs } from 'node:fs'
 import { randomBytes } from 'node:crypto'
+import { homedir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
 import { createVault, readVault, readContained, saveVaultData, writeSkillFile } from './vault'
 import { initializeSql, migrateDesktop, rebuildIndex } from './database'
 import {
-  agentSkillKey, deploymentAgent, deploymentRoot, hasErrorCode, isAgentLinked, projectBindings,
+  agentSkillKey, deploymentAgent, deploymentPath, importedPublicationPath, hasErrorCode, isAgentLinked, projectBindings,
   collectionSchema, removeSkillFromCollections, setProjectBindings, setSharedSkillPublication, skillCards,
   assertUniqueTitle, titleKey, skillAgentSchema, skillRegistrationSchema, skillSchema, uniqueSkillFilePath,
   isCollectionLinked, selectedSkillIds, setCollectionLinked, isSkillArchived, setCardArchived
@@ -17,6 +18,7 @@ import { chooseMarkdownFiles } from './markdown-picker'
 import { createVaultBackup, listVaultBackups, restoreVaultBackup } from './backup'
 import { createCardExamples } from './documented-examples'
 import { saveProjectSkills, skillMarkdownMetadata } from './project-skills'
+import { skillExecutionCommand, withSkillMetadata } from './skill-metadata'
 import { assertSkillInactive, deleteCollectionFiles, deleteSkillFiles, planSkillDeletion } from './skill-deletion'
 import type { SkillCardColor } from './skill-colors'
 import { detectExternalChanges, inspectSkillVersions, resolveExternalChange } from './external-changes'
@@ -278,7 +280,7 @@ export function activate(context: vscode.ExtensionContext): void {
         throw error
       }
       for (const deployed of project.deployedSkills) {
-        const markdown = join(projectPath, deploymentRoot(deployed), 'skills', deployed.directory, 'SKILL.md')
+        const markdown = join(projectPath, deploymentPath(deployed))
         try {
           const stat = await fs.lstat(markdown)
           if (stat.isFile() && !stat.isSymbolicLink()) {
@@ -366,7 +368,7 @@ export function activate(context: vscode.ExtensionContext): void {
     await panel?.webview.postMessage({
       type: 'state', root: canonical, ...data, editingSkillId, content, creating,
       features: featureAvailability(),
-      hasProjectMarkdown: (await scanProjectMarkdown(existingProjectPaths)).length > 0,
+      hasProjectMarkdown: (await scanProjectMarkdown([...existingProjectPaths, homedir()])).length > 0,
       publishedMarkdown: await publishedMarkdownSkills(data), saved,
       externalChanges: changes.map(item => ({
         skillId: item.skillId, name: item.name, libraryChanged: item.library.changed,
@@ -554,7 +556,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const description = metadata.description?.slice(0, 1000) || body.split(/\r?\n/).map(line => line.trim())
         .find(line => line && !line.startsWith('#'))?.slice(0, 1000) ||
         `Instrucoes para ${title.slice(0, 100)}.`
-      const agentPath = filePath.replace(/\\/g, '/').match(/(?:^|\/)(\.(?:github|agents|agent)\/skills\/.+)$/)?.[1]
+      const agentPath = filePath.replace(/\\/g, '/').match(/(?:^|\/)(\.(?:github|agents|claude|copilot)\/skills\/.+)$/)?.[1]
       const importedAgent = agentPath ? projectMarkdownAgent(agentPath) : undefined
       imported.push({
         skill: {
@@ -565,6 +567,7 @@ export function activate(context: vscode.ExtensionContext): void {
             ...imported.map(item => item.skill.filePath)
           ]),
           originPath: filePath,
+          publicationPath: importedPublicationPath(filePath),
           agents: importedAgent ? [importedAgent === 'Antigravity' ? 'Antigravity' : 'GitHub Copilot'] : [],
           status: 'allowed', tags: []
         },
@@ -666,7 +669,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const workspaceRoots = (vscode.workspace.workspaceFolders ?? [])
       .filter(folder => folder.uri.scheme === 'file')
       .map(folder => folder.uri.fsPath)
-    const projectRoots = [...new Set([projectRoot, ...workspaceRoots])]
+    const projectRoots = [...new Set([projectRoot, ...workspaceRoots, homedir()])]
     const canonicalRoots = [...new Set(await Promise.all(projectRoots.map(path => fs.realpath(path))))]
     const files = await scanProjectMarkdown(canonicalRoots)
     if (!files.length) {
@@ -679,7 +682,7 @@ export function activate(context: vscode.ExtensionContext): void {
       .filter((path): path is string => Boolean(path))
       .map(path => resolve(path)))
     const published = new Set((project.deployedSkills ?? []).map(item =>
-      resolve(projectRoot, deploymentRoot(item), 'skills', item.directory, 'SKILL.md')))
+      resolve(projectRoot, deploymentPath(item))))
     const selected = await vscode.window.showQuickPick(files.map(file => {
       const sourceRoot = canonicalRoots.find(root => {
         const path = relative(root, file)
@@ -1142,8 +1145,13 @@ export function activate(context: vscode.ExtensionContext): void {
         if (!workspaceContainsProject.includes(true)) {
           throw new Error('Abra no VS Code a pasta associada ao projeto antes de executar a skill.')
         }
+        if (deployed.relativePath && !['.github', '.agents', '.claude', '.copilot'].some(folder =>
+          deploymentPath(deployed) === `${folder}/skills/${deployed.directory}/SKILL.md`)) {
+          throw new Error('Este Markdown usa um caminho personalizado e nao pode ser executado como /skill no Copilot. Referencie o arquivo no chat.')
+        }
+        const content = await readProjectMarkdown([projectPath], join(projectPath, deploymentPath(deployed)))
         await vscode.commands.executeCommand('workbench.action.chat.open', {
-          query: `/${deployed.directory} `,
+          query: `${skillExecutionCommand(content)} `,
           isPartialQuery: true
         })
       }
@@ -1185,6 +1193,7 @@ export function activate(context: vscode.ExtensionContext): void {
           tags: [...new Set(message.tags.map(tag => tag.trim()).filter(Boolean))],
           agents: [...new Set(message.agents.map(agent => agent.trim()).filter(Boolean))],
           status: message.status,
+          publicationPath: message.publicationPath ?? current.publicationPath,
           cardColor: message.cardColor === null ? undefined : message.cardColor ?? current.cardColor
         })
         data.catalog.skills[index] = updated
@@ -1219,7 +1228,9 @@ export function activate(context: vscode.ExtensionContext): void {
           creating ? undefined : previousFilePath
         )
         updated.filePath = nextFilePath
-        await writeSkillFile(root, nextFilePath, message.content)
+        const content = message.executionName === undefined ? message.content
+          : withSkillMetadata(message.content, message.executionName, message.description)
+        await writeSkillFile(root, nextFilePath, content)
         try {
           await persist(root, data)
         } catch (error) {

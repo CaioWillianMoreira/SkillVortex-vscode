@@ -6,7 +6,7 @@ import { createVault, readVault, saveVaultData, writeSkillFile } from '../src/va
 import { saveProjectSkills, skillMarkdownMetadata } from '../src/project-skills'
 import { createDocumentedExamples } from '../src/documented-examples'
 import { createVaultBackup, restoreVaultBackup } from '../src/backup'
-import { isAgentLinked, projectBindings, setProjectBindings, setSharedSkillPublication, type VaultData } from '../src/model'
+import { deploymentPath, isAgentLinked, projectBindings, setProjectBindings, setSharedSkillPublication, type VaultData } from '../src/model'
 
 let temporary: string
 let root: string
@@ -49,6 +49,118 @@ test('the released Vitest example is published as a discoverable Copilot skill',
   expect(await readVault(root)).toEqual(data)
 })
 
+test.each(['.agents', '.github', '.claude', '.algumacoisa'])(
+  'reuses a nested imported filename in %s and restores external edits at that exact path',
+  async folder => {
+    const skill = original.catalog.skills[0]
+    skill.agents = folder === '.agents' ? ['Antigravity'] : ['GitHub Copilot']
+    skill.publicationPath = `${folder}/skills/pasta/teste-pasta/11-teste-de-carga.md`
+    const file = join(projectPath, skill.publicationPath)
+    await fs.mkdir(join(file, '..'), { recursive: true })
+    const content = '# Imported load test\r\n\nDo not change this.\r\n'
+    await fs.writeFile(file, content)
+    skill.originPath = file
+    await saveVaultData(root, original)
+    const enabled = structuredClone(original)
+    setProjectBindings(enabled.projects.projects[0], [{ skillId: skill.id,
+      agent: folder === '.agents' ? 'Antigravity' : 'GitHub Copilot' }])
+    await saveProjectSkills(root, original, enabled)
+    expect(await fs.readFile(file, 'utf8')).toBe(content)
+    expect(enabled.projects.projects[0].deployedSkills![0].relativePath).toBe(skill.publicationPath)
+    expect(await fs.readdir(join(projectPath, folder, 'skills'))).toEqual(['pasta'])
+    await fs.appendFile(file, '\nExternal edit')
+    const disabled = structuredClone(enabled)
+    setProjectBindings(disabled.projects.projects[0], [])
+    await saveProjectSkills(root, enabled, disabled)
+    await expect(fs.stat(file)).rejects.toMatchObject({ code: 'ENOENT' })
+    const restored = structuredClone(disabled)
+    setProjectBindings(restored.projects.projects[0], [{ skillId: skill.id,
+      agent: folder === '.agents' ? 'Antigravity' : 'GitHub Copilot' }])
+    await saveProjectSkills(root, disabled, restored)
+    expect(await fs.readFile(file, 'utf8')).toBe(`${content}\nExternal edit`)
+    expect(await readVault(root)).toEqual(restored)
+  }
+)
+
+test('custom destinations publish and synchronize the same suffix independently for both agents', async () => {
+  const skill = original.catalog.skills[0]
+  skill.publicationPath = '.agents/instructions/carga/11-carga.md'
+  await saveVaultData(root, original)
+  const enabled = structuredClone(original)
+  setSharedSkillPublication(enabled.projects.projects[0], skill.id, true)
+  await saveProjectSkills(root, original, enabled)
+  const files = ['.github', '.agents'].map(folder =>
+    join(projectPath, folder, 'instructions/carga/11-carga.md'))
+  for (const file of files) {
+    expect(await fs.readFile(file)).toEqual(await fs.readFile(join(root, skill.filePath)))
+  }
+  const updated = structuredClone(enabled)
+  await writeSkillFile(root, skill.filePath, '# Changed\n\nNew instructions.')
+  await saveProjectSkills(root, enabled, updated)
+  for (const file of files) expect(await fs.readFile(file, 'utf8')).toBe('# Changed\n\nNew instructions.')
+})
+
+test('custom destination conflicts and metadata failures preserve files and roll back new parent folders', async () => {
+  original.catalog.skills[0].publicationPath = '.github/instructions/nested/11-carga.md'
+  await saveVaultData(root, original)
+  const enabled = structuredClone(original)
+  enabled.projects.projects[0].skillIds = [enabled.catalog.skills[0].id]
+  await expect(saveProjectSkills(root, original, enabled, async () => {
+    throw new Error('Metadata failed')
+  })).rejects.toThrow('Metadata failed')
+  await expect(fs.stat(join(projectPath, '.github'))).rejects.toMatchObject({ code: 'ENOENT' })
+  const file = join(projectPath, original.catalog.skills[0].publicationPath!)
+  await fs.mkdir(join(file, '..'), { recursive: true })
+  await fs.writeFile(file, '# Someone else')
+  await expect(saveProjectSkills(root, original, structuredClone(enabled))).rejects.toThrow('Ja existe outro Markdown')
+  expect(await fs.readFile(file, 'utf8')).toBe('# Someone else')
+  expect(await readVault(root)).toEqual(original)
+})
+
+test('custom destinations reject symbolic parent folders without writing outside the project', async () => {
+  original.catalog.skills[0].publicationPath = '.github/instructions/11-carga.md'
+  await fs.symlink(root, join(projectPath, '.github'), 'dir')
+  const enabled = structuredClone(original)
+  enabled.projects.projects[0].skillIds = [enabled.catalog.skills[0].id]
+  await expect(saveProjectSkills(root, original, enabled)).rejects.toThrow('simbolico')
+  await expect(fs.stat(join(root, 'instructions'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+test('shared custom publication refuses divergent imported originals and rolls back the new peer', async () => {
+  const skill = original.catalog.skills[0]
+  skill.publicationPath = '.github/instructions/11-carga.md'
+  const file = join(projectPath, skill.publicationPath)
+  await fs.mkdir(join(file, '..'), { recursive: true })
+  await fs.writeFile(file, '# Original changed after import')
+  skill.originPath = file
+  await saveVaultData(root, original)
+  const enabled = structuredClone(original)
+  setSharedSkillPublication(enabled.projects.projects[0], skill.id, true)
+  await expect(saveProjectSkills(root, original, enabled)).rejects.toThrow('divergem')
+  expect(await fs.readFile(file, 'utf8')).toBe('# Original changed after import')
+  await expect(fs.stat(join(projectPath, '.agents'))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await readVault(root)).toEqual(original)
+})
+
+test('renaming a legacy folder cannot move another custom publication nested inside it', async () => {
+  const { data } = await activateSkill()
+  const first = data.catalog.skills[0]
+  const directory = data.projects.projects[0].deployedSkills![0].directory
+  const other = {
+    ...first, id: 'custom-nested', name: 'Custom nested', filePath: 'skills/custom-nested.md',
+    publishedFolders: undefined, publicationPath: `.github/skills/${directory}/nested/11-carga.md`
+  }
+  data.catalog.skills.push(other)
+  await writeSkillFile(root, other.filePath, '# Preserve nested file')
+  data.projects.projects[0].skillIds.push(other.id)
+  await saveProjectSkills(root, await readVault(root), data)
+  const renamed = structuredClone(data)
+  renamed.catalog.skills[0].name = 'Changed title'
+  await expect(saveProjectSkills(root, data, renamed)).rejects.toThrow('outra skill')
+  expect(await fs.readFile(join(projectPath, other.publicationPath), 'utf8')).toBe('# Preserve nested file')
+  expect(await readVault(root)).toEqual(data)
+})
+
 test('archived standalone skills and collection members cannot be published', async () => {
   const data = structuredClone(original)
   const skill = data.catalog.skills[0]
@@ -70,8 +182,9 @@ test('shared publication preserves optional YAML fields and avoids nested frontm
   await saveProjectSkills(root, original, data)
   const published = await fs.readFile(join(projectPath, '.agents/skills/testes-unitarios-com-vitest/SKILL.md'), 'utf8')
   expect(skillMarkdownMetadata(published)).toEqual({
-    name: 'testes-unitarios-com-vitest', description: skill.description
+    name: 'old-name', description: skill.description
   })
+
   expect(published).toContain('license: MIT')
   expect(published).toContain('author: example')
   expect(published).not.toContain('Old multiline description.')
@@ -79,6 +192,42 @@ test('shared publication preserves optional YAML fields and avoids nested frontm
   expect(published).toContain('# Procedure')
   expect(await fs.readFile(join(root, skill.filePath), 'utf8')).toBe(content)
 })
+
+test.each([undefined, '.github/skills/code-review/SKILL.md'])(
+  'restoring edited execution metadata preserves the published path and archived body (%s)',
+  async publicationPath => {
+    const skill = original.catalog.skills[0]
+    skill.publicationPath = publicationPath
+    skill.description = 'Original description.'
+    const source = '---\nname: original-command\ndescription: Original description.\nlicense: MIT\n---\n\n# Review\n'
+    await writeSkillFile(root, skill.filePath, source)
+    await saveVaultData(root, original)
+    const enabled = structuredClone(original)
+    setSharedSkillPublication(enabled.projects.projects[0], skill.id, true)
+    await saveProjectSkills(root, original, enabled)
+    const paths = enabled.projects.projects[0].deployedSkills!.map(deploymentPath)
+    for (const path of paths) await fs.appendFile(join(projectPath, path), '\nLocal edit.\n')
+    const disabled = structuredClone(enabled)
+    setSharedSkillPublication(disabled.projects.projects[0], skill.id, false)
+    await saveProjectSkills(root, enabled, disabled)
+    const edited = structuredClone(disabled)
+    edited.catalog.skills[0].description = 'Edited description.'
+    await writeSkillFile(root, skill.filePath, source
+      .replace('name: original-command', 'name: review')
+      .replace('description: Original description.', 'description: Edited description.'))
+    await saveProjectSkills(root, disabled, edited)
+    const restored = structuredClone(edited)
+    setSharedSkillPublication(restored.projects.projects[0], skill.id, true)
+    await saveProjectSkills(root, edited, restored)
+    expect(restored.projects.projects[0].deployedSkills!.map(deploymentPath)).toEqual(paths)
+    for (const path of paths) {
+      const content = await fs.readFile(join(projectPath, path), 'utf8')
+      expect(skillMarkdownMetadata(content)).toEqual({ name: 'review', description: 'Edited description.' })
+      expect(content).toContain('license: MIT')
+      expect(content.endsWith('\n# Review\n\nLocal edit.\n')).toBe(true)
+    }
+  }
+)
 
 test('invalid YAML reports an error and leaves shared publication inactive', async () => {
   const skill = original.catalog.skills[0]

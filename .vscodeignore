@@ -1,5 +1,6 @@
 src/**
 webview/**
+extensions/**
 tests/**
 node_modules/**
 scripts/**

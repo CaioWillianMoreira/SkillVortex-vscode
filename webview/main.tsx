@@ -33,6 +33,7 @@ function HelpTip({ label, children }: { label: string; children: React.ReactNode
 type Status = typeof statusNames[number]
 type AppState = {
   root: string | null
+  features?: { mindCards: boolean; productBuilder: boolean }
   catalog: Catalog | null
   projects: Projects | null
   publishedMarkdown?: string[]
@@ -64,6 +65,7 @@ const cardColorOptions = [
 
 function App(): React.JSX.Element {
   const [area, setArea] = useState<'home' | 'skills' | 'mindcards' | 'builder'>('home')
+  const [requestedArea, setRequestedArea] = useState<'home' | 'skills' | 'mindcards' | 'builder' | null>(null)
   const [builderDirty, setBuilderDirty] = useState(false)
   const [builderBusy, setBuilderBusy] = useState(false)
   const openBuilderSkill = useCallback(() => {
@@ -109,6 +111,10 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      if (event.data.type === 'requestArea' &&
+          ['home', 'skills', 'mindcards', 'builder'].includes(event.data.area)) {
+        setRequestedArea(event.data.area)
+      }
       if (event.data.type === 'state') {
         setState(event.data as AppState)
         setError('')
@@ -134,6 +140,10 @@ function App(): React.JSX.Element {
   }, [])
 
   const activeProject = state.projects?.projects.find(project => project.id === state.projects?.activeProject)
+  useEffect(() => {
+    if (area === 'mindcards' && state.features && !state.features.mindCards) setArea('home')
+    if (area === 'builder' && state.features && !state.features.productBuilder) setArea('home')
+  }, [area, state.features])
   const allCards = useMemo(() => state.catalog ? skillCards(state.catalog) : [], [state.catalog])
   const agentLabels = useMemo(() => [...new Set(allCards.flatMap(item => item.agents))]
     .sort((a, b) => a.localeCompare(b)), [allCards])
@@ -274,6 +284,12 @@ function App(): React.JSX.Element {
     setBuilderDirty(false)
     setArea(next)
   }
+  useEffect(() => {
+    if (requestedArea) {
+      void navigate(requestedArea)
+      setRequestedArea(null)
+    }
+  }, [requestedArea])
 
   return (
     <ConfigProvider theme={{
@@ -291,8 +307,8 @@ function App(): React.JSX.Element {
         <nav className="workspace-navigation" aria-label="Areas de trabalho">
           <ActionButton action="home" aria-label="Escolher tela inicial" onClick={() => void navigate('home')} disabled={saving || mindBusy || builderBusy}>Inicio</ActionButton>
           <ActionButton action="library" aria-pressed={area === 'skills'} onClick={() => void navigate('skills')} disabled={saving || mindBusy || builderBusy}>SkillVortex</ActionButton>
-          <ActionButton action="mindcards" aria-pressed={area === 'mindcards'} onClick={() => void navigate('mindcards')} disabled={saving || mindBusy || builderBusy}>MindCards</ActionButton>
-          <ActionButton action="build" aria-pressed={area === 'builder'} onClick={() => void navigate('builder')} disabled={saving || mindBusy || builderBusy}>Product Builder</ActionButton>
+          {state.features?.mindCards && <ActionButton action="mindcards" aria-pressed={area === 'mindcards'} onClick={() => void navigate('mindcards')} disabled={saving || mindBusy || builderBusy}>MindCards</ActionButton>}
+          {state.features?.productBuilder && <ActionButton action="build" aria-pressed={area === 'builder'} onClick={() => void navigate('builder')} disabled={saving || mindBusy || builderBusy}>Product Builder</ActionButton>}
         </nav>
         {area === 'home' && <section className="area-chooser">
           <Typography.Text className="welcome-eyebrow">SEU ESPACO DE TRABALHO</Typography.Text>
@@ -305,18 +321,18 @@ function App(): React.JSX.Element {
               <Typography.Paragraph type="secondary">Organize skills e controle sua publicacao nos projetos e agentes.</Typography.Paragraph>
               <ActionButton action="library" type="primary" onClick={() => void navigate('skills')}>Abrir SkillVortex</ActionButton>
             </Card>
-            <Card className="area-choice mind-choice">
+            {state.features?.mindCards && <Card className="area-choice mind-choice">
               <ActionIcon action="mindcards" />
               <Typography.Title level={2}>MindCards</Typography.Title>
               <Typography.Paragraph type="secondary">Conecte ideias e regras de negocio em notas locais, com pastas coloridas.</Typography.Paragraph>
               <ActionButton action="mindcards" type="primary" onClick={() => void navigate('mindcards')}>Abrir MindCards</ActionButton>
-            </Card>
-            <Card className="area-choice">
+            </Card>}
+            {state.features?.productBuilder && <Card className="area-choice">
               <ActionIcon action="build" />
               <Typography.Title level={2}>Product Builder</Typography.Title>
               <Typography.Paragraph type="secondary">Monte uma skill preservando os cards originais, com sugestoes separadas da IA local.</Typography.Paragraph>
               <ActionButton action="build" type="primary" onClick={() => void navigate('builder')}>Abrir Product Builder</ActionButton>
-            </Card>
+            </Card>}
           </div>
         </section>}
         {area === 'mindcards' && <MindCards key={state.root} root={state.root} api={api} onDirtyChange={setMindDirty} onBusyChange={setMindBusy} />}
@@ -337,14 +353,14 @@ function App(): React.JSX.Element {
                 placeholder="Nenhum projeto associado"
                 title={activeProject?.sourcePath}
               />
-              {activeProject && <Dropdown trigger={['click']} menu={{ items: [
-                { key: 'folder', label: activeProject.sourcePath ? 'Alterar pasta' : 'Associar pasta',
-                  icon: <ActionIcon action="folder" />, onClick: () => api.postMessage({ type: 'setProjectFolder' }) },
-                { key: 'scan', label: 'Buscar skills no projeto', icon: <ActionIcon action="search" />,
-                  disabled: !activeProject.sourcePath, onClick: () => api.postMessage({ type: 'scanProject' }) }
-              ] }}>
-                <ActionButton action="folder">Projeto</ActionButton>
-              </Dropdown>}
+              <ActionButton action="folder" onClick={() => api.postMessage({ type: 'setProjectFolder' })}>
+                {activeProject?.sourcePath ? 'Alterar pasta do projeto' : 'Associar projeto'}
+              </ActionButton>
+              <Tooltip title="Busca arquivos .md nas pastas ocultas .github/skills, .agents/skills e .agent/skills, incluindo subpastas e nomes diferentes de SKILL.md. Selecione os arquivos para importar; os originais sao preservados.">
+                <ActionButton action="search" onClick={() => api.postMessage({ type: 'scanProject' })}>
+                  Importar skills existentes no projeto
+                </ActionButton>
+              </Tooltip>
             </>
           )}
           {!state.editingSkillId && (
@@ -360,7 +376,9 @@ function App(): React.JSX.Element {
           {!state.editingSkillId && <div className="toolbar-spacer" />}
           {!state.editingSkillId && (
             <Space wrap size={12}>
-              <ActionButton action="import" className="import-markdown-button" onClick={() => api.postMessage({ type: 'importMarkdown' })} disabled={!state.root}>Importar .md</ActionButton>
+              <Tooltip title="O navegador mostra somente pastas de agentes, como .github, .copilot, .agents e .claude. Dentro delas, navegue pelas subpastas e selecione arquivos .md; os originais sao preservados.">
+                <ActionButton action="import" className="import-markdown-button" onClick={() => api.postMessage({ type: 'importMarkdown' })} disabled={!state.root}>Importar .md</ActionButton>
+              </Tooltip>
               <Dropdown trigger={['click']} disabled={!state.root} menu={{ items: [
                 { key: 'card', label: <div className="menu-description"><span>Novo card</span><small>Organize uma ou varias skills em um conjunto</small></div>,
                   icon: <ActionIcon action="add" />, onClick: () => editCollection() },
@@ -430,9 +448,10 @@ function App(): React.JSX.Element {
           <>
             <div className="vault-path">
               <Typography.Text type="secondary" title={`Pasta da biblioteca: ${state.root}`}>Pasta da biblioteca: {state.root}</Typography.Text>
-              <ActionButton action="refresh" className="sync-library-button" size="small"
-                title="Verificar arquivos e escolher qual versao sincronizar entre projeto e biblioteca, com backup."
-                onClick={() => api.postMessage({ type: 'reviewExternalChanges' })}>Sincronizar</ActionButton>
+              <Tooltip trigger={['hover', 'focus']} title="Compara alteracoes entre a biblioteca e as skills publicadas nos projetos. Permite comparar, mesclar ou escolher a versao que atualizara a biblioteca e todas as publicacoes ativas da skill, com confirmacao e backup. Nao importa novas skills.">
+                <ActionButton action="refresh" className="sync-library-button" size="small"
+                  onClick={() => api.postMessage({ type: 'reviewExternalChanges' })}>Sincronizar</ActionButton>
+              </Tooltip>
               <Dropdown trigger={['click']} menu={{ items: [
                 { key: 'refresh', label: 'Atualizar', icon: <ActionIcon action="refresh" />, onClick: () => api.postMessage({ type: 'refresh' }) },
                 { key: 'backup', label: <span className="vault-menu-backup">Criar backup</span>, icon: <ActionIcon action="backup" />, onClick: () => api.postMessage({ type: 'createBackup' }) },
@@ -450,7 +469,7 @@ function App(): React.JSX.Element {
                   <Typography.Title level={2}>Gerenciador de Skills</Typography.Title>
                   <HelpTip label="Sobre o gerenciador">
                     Gerencie as skills disponiveis para os agentes do projeto.
-                    {activeProject ? ` Projeto ativo: ${activeProject.name}.` : ' Ative Usar no Projeto para associar uma pasta.'}
+                    {activeProject ? ` Projeto ativo: ${activeProject.name}.` : ' Clique em Associar projeto para escolher uma pasta, mesmo com a biblioteca vazia.'}
                     O switch controla somente os agentes exibidos no card, com o mesmo Markdown da biblioteca.
                     Publicacoes antigas permanecem no local original ate desativar e reativar.
                     {activeProject?.sourcePath && ` Pasta: ${activeProject.sourcePath}`}

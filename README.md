@@ -110,13 +110,17 @@ Outras telas e estados estão ilustrados nas seções correspondentes abaixo.
 Requisitos: **VS Code 1.95 ou superior**, ambiente local e workspace confiável.
 Você não precisa de Node.js para instalar um VSIX já gerado.
 
-1. Obtenha o VSIX de uma origem confiável.
-2. No VS Code, execute **Extensions: Install from VSIX...**.
-3. Selecione o pacote do SkillVortex.
-4. Execute **Developer: Reload Window**.
-5. Clique em **SkillVortex** na barra de status inferior ou execute
-   **SkillVortex: Abrir biblioteca** na Paleta de Comandos.
-6. Escolha **SkillVortex** ou **MindCards** na tela inicial.
+1. Obtenha os VSIX de uma origem confiável.
+2. No VS Code, execute **Extensions: Install from VSIX...** e instale os três
+   pacotes: `skillvortex-extension`, `mindcards` e `product-builder`.
+3. Execute **Developer: Reload Window**.
+4. Abra **SkillVortex: Abrir biblioteca**. Com os complementos instalados,
+   SkillVortex, MindCards e ProductBuilder aparecem na mesma tela e usam a
+   biblioteca compartilhada. Se instalado sem SkillVortex, cada complemento
+   abre sua própria tela.
+
+No Marketplace, SkillVortex declara os dois complementos como um extension pack,
+para que sejam instalados junto com ele.
 
 Não é necessário instalar ou executar o aplicativo desktop.
 O empacotamento local não significa que exista uma versão publicada no Marketplace.
@@ -130,10 +134,12 @@ npm ci
 npm run package
 ```
 
-O comando compila o código atual e gera o VSIX em `builds/`, com nome e versão
-definidos em [package.json](./package.json). Instale o arquivo recém-gerado.
-Se o build falhar, corrija a falha antes de instalar; não use um pacote antigo
-como se contivesse as alterações atuais.
+O comando compila o código atual e gera três VSIX em `builds/`: SkillVortex,
+MindCards e ProductBuilder. Os nomes e versões vêm dos respectivos manifestos
+em [package.json](./package.json) e nas pastas `extensions/`. Instale os três
+arquivos recém-gerados para usar a experiência integrada. Se o build falhar,
+corrija a falha antes de instalar; não use pacotes antigos como se contivessem
+as alterações atuais.
 
 ## 🚀 Primeiros passos
 
@@ -264,7 +270,8 @@ retirando-a dos conjuntos sem excluir os conjuntos.
 o original. Arquivos acima de **2 MB**, YAML inválido e títulos duplicados são recusados.
 Os rascunhos usam nomes livres, como **Nova Skill 2**.
 
-No menu **Projeto**, **Buscar skills no projeto** procura em:
+O botão **Importar skills existentes no projeto**, disponível mesmo com a
+biblioteca vazia, procura em:
 
 ```text
 .github/skills/
@@ -275,6 +282,18 @@ No menu **Projeto**, **Buscar skills no projeto** procura em:
 A busca considera a pasta associada e as pastas locais abertas no workspace.
 Mostra os resultados para seleção antes de importar; não percorre todo o disco.
 Aceita Markdown solto ou em subpastas, sem exigir o nome `SKILL.md`.
+Por exemplo: `.github/skills/pasta/teste-pasta/11-teste-de-carga.md`.
+As pastas ocultas dos agentes são incluídas automaticamente nessa busca.
+Para importar um arquivo de qualquer outro local, use **Importar .md**.
+Na raiz selecionada, seu navegador de pastas no VS Code mostra somente diretórios
+conhecidos de agentes: `.github`, `.agents`, `.agent`, `.copilot`, `.claude`,
+`.cursor`, `.codex`, `.gemini`, `.windsurf`, `.roo`, `.kilocode`, `.continue` e
+`.opencode`. Pastas comuns como `src`, `docs`, `.git` e `node_modules` ficam
+ocultas nessa lista. Dentro de uma pasta de agente, as subpastas são exibidas
+normalmente, sem exigir que também tenham nomes de agentes. Entre na
+pasta desejada e escolha **Selecionar arquivos .md desta pasta** para marcar
+um ou vários arquivos. Use **..** para voltar ou **Digitar caminho de outra
+pasta...** para abrir outro local.
 
 Ignora links simbólicos, diretórios gerados e nomes convencionais de documentação,
 como `README.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `SECURITY.md` e `CONFIG.md`.
@@ -563,10 +582,15 @@ template de corpo usado nos exemplos.
 
 ### Associar um projeto
 
+Use **Associar projeto** no topo do gerenciador para escolher a pasta mesmo
+antes de criar ou importar a primeira skill. Isso cadastra o projeto sem publicar
+arquivos. **Importar skills existentes no projeto** também solicita a associação
+quando necessário; cancelar mantém os dados intactos.
+
 Ao ativar **Usar no Projeto**, a extensão usa a única pasta local aberta
 ou solicita uma pasta quando necessário, criando o cadastro do projeto.
-O campo **Projeto** mostra o projeto ativo. Seu menu concentra associação
-de pasta e busca de skills.
+O campo **Projeto** mostra o projeto ativo; **Alterar pasta do projeto** permite
+trocar a pasta associada.
 
 Mantenha a biblioteca **fora da pasta do projeto**. O Markdown original é único;
 as publicações são cópias gerenciadas:
@@ -791,7 +815,9 @@ code --extensionDevelopmentPath=/caminho/SkillVortex-vscode
 | `npm test` | Executa os testes unitários/regressão com Jest |
 | `npm run build` | Compila extensão, WASM e interface |
 | `npm run test:host` | Compila e testa em um perfil isolado do VS Code |
-| `npm run package` | Compila e gera o VSIX em `builds/` |
+| `npm run build:mindcards` | Compila o complemento MindCards |
+| `npm run build:product-builder` | Compila o complemento ProductBuilder |
+| `npm run package` | Compila e gera os três VSIX em `builds/` |
 
 Os testes cobrem biblioteca, importação/rollback, títulos, seleção individual,
 publicação isolada, backups, conflitos, merge manual, metadados protegidos,

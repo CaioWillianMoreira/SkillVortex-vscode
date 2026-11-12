@@ -13,6 +13,7 @@ import {
 } from './model'
 import type { SkillAgent } from './model'
 import { projectMarkdownAgent, readProjectMarkdown, scanProjectMarkdown } from './project-scan'
+import { chooseMarkdownFiles } from './markdown-picker'
 import { createVaultBackup, listVaultBackups, restoreVaultBackup } from './backup'
 import { createCardExamples } from './documented-examples'
 import { saveProjectSkills, skillMarkdownMetadata } from './project-skills'
@@ -109,6 +110,17 @@ async function availableSkillFilePath(
 
 export function activate(context: vscode.ExtensionContext): void {
   const output = vscode.window.createOutputChannel('SkillVortex')
+  const vaultConfiguration = vscode.workspace.getConfiguration('skillVortex')
+  const featureAvailability = () => ({
+    mindCards: Boolean(vscode.extensions.getExtension('skillvortex.mindcards')),
+    productBuilder: Boolean(vscode.extensions.getExtension('skillvortex.product-builder'))
+  })
+  const selectedVaultPath = (): string | undefined =>
+    vaultConfiguration.get<string>('vaultPath') || context.globalState.get<string>('vaultPath')
+  const setVaultPath = async (path: string | undefined): Promise<void> => {
+    await vaultConfiguration.update('vaultPath', path, vscode.ConfigurationTarget.Global)
+    await context.globalState.update('vaultPath', path)
+  }
   context.subscriptions.push(output)
   const openButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100)
   openButton.text = '$(book) SkillVortex'
@@ -190,7 +202,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     for (const location of new Set(locations)) {
       const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(location,
-        location === root ? 'skills/*.md' : '{.github,.agents,.agent}/skills/**/SKILL.md'))
+        location === root ? 'skills/*.md' : '{.github,.agents,.agent}/skills/**/*.[mM][dD]'))
       watchers.push(watcher, watcher.onDidChange(changed), watcher.onDidCreate(changed), watcher.onDidDelete(changed))
     }
   }
@@ -281,11 +293,11 @@ export function activate(context: vscode.ExtensionContext): void {
     return [...skillIds]
   }
   async function refresh(saved = false): Promise<void> {
-    const root = context.globalState.get<string>('vaultPath')
+    const root = selectedVaultPath()
     if (!root) {
       await panel?.webview.postMessage({
         type: 'state', root: null, catalog: null, projects: null,
-        editingSkillId: null, content: '', saved
+        editingSkillId: null, content: '', saved, features: featureAvailability()
       })
       return
     }
@@ -294,11 +306,11 @@ export function activate(context: vscode.ExtensionContext): void {
       canonical = await fs.realpath(root)
     } catch (error) {
       if (!hasErrorCode(error, 'ENOENT')) throw error
-      await context.globalState.update('vaultPath', undefined)
+      await setVaultPath(undefined)
       editingSkillId = null
       await panel?.webview.postMessage({
         type: 'state', root: null, catalog: null, projects: null,
-        editingSkillId: null, content: '', saved
+        editingSkillId: null, content: '', saved, features: featureAvailability()
       })
       const message = 'A pasta da biblioteca salva nao foi encontrada. Use “Abrir biblioteca” para escolher outra pasta ou “Criar biblioteca” para iniciar.'
       output.appendLine(`${message} Caminho anterior: ${root}`)
@@ -310,11 +322,11 @@ export function activate(context: vscode.ExtensionContext): void {
       data = await readVault(canonical)
     } catch (error) {
       if (!hasErrorCode(error, 'ENOENT')) throw error
-      await context.globalState.update('vaultPath', undefined)
+      await setVaultPath(undefined)
       editingSkillId = null
       await panel?.webview.postMessage({
         type: 'state', root: null, catalog: null, projects: null,
-        editingSkillId: null, content: '', saved
+        editingSkillId: null, content: '', saved, features: featureAvailability()
       })
       const message = 'A pasta selecionada nao contem os arquivos de biblioteca esperados (.skillvortex/catalogo.json e projetos.json). Use “Abrir biblioteca” para escolher uma biblioteca valida ou “Criar biblioteca” para iniciar.'
       output.appendLine(`${message} Caminho: ${canonical}`)
@@ -353,6 +365,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     await panel?.webview.postMessage({
       type: 'state', root: canonical, ...data, editingSkillId, content, creating,
+      features: featureAvailability(),
       hasProjectMarkdown: (await scanProjectMarkdown(existingProjectPaths)).length > 0,
       publishedMarkdown: await publishedMarkdownSkills(data), saved,
       externalChanges: changes.map(item => ({
@@ -362,7 +375,7 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   }
   async function currentVault(): Promise<{ root: string; data: Awaited<ReturnType<typeof readVault>> }> {
-    const selected = context.globalState.get<string>('vaultPath')
+    const selected = selectedVaultPath()
     if (!selected) throw new Error('Crie ou abra uma biblioteca primeiro.')
     const root = await fs.realpath(selected)
     return { root, data: await readVault(root) }
@@ -490,12 +503,13 @@ export function activate(context: vscode.ExtensionContext): void {
     void vscode.window.showInformationMessage('SkillVortex: 4 cards criados: Acessibilidade (2), HTML e CSS (3), SEO (1) e Testes (1).')
   }
   async function importMarkdown(): Promise<void> {
-    const selected = await vscode.window.showOpenDialog({
-      canSelectFiles: true, canSelectFolders: false, canSelectMany: true,
-      filters: { Markdown: ['md'] }, openLabel: 'Importar Markdown'
-    })
+    const { root, data } = await currentVault()
+    const project = data.projects.projects.find(item => item.id === data.projects.activeProject)
+    const initialDirectory = project?.sourcePath ??
+      vscode.workspace.workspaceFolders?.find(folder => folder.uri.scheme === 'file')?.uri.fsPath ?? root
+    const selected = await chooseMarkdownFiles(initialDirectory)
     if (!selected?.length) return
-    await importFiles(selected.map(file => file.fsPath))
+    await importFiles(selected)
   }
   async function importFiles(filePaths: string[], projectRoots?: string[]): Promise<void> {
     const { root, data } = await currentVault()
@@ -598,20 +612,20 @@ export function activate(context: vscode.ExtensionContext): void {
   }
   async function setProjectFolder(): Promise<void> {
     const { root, data } = await currentVault()
-    const project = data.projects.projects.find(item => item.id === data.projects.activeProject)
-    if (!project) throw new Error('Crie ou selecione um projeto antes de associar uma pasta.')
+    let project = data.projects.projects.find(item => item.id === data.projects.activeProject)
     const selected = await vscode.window.showOpenDialog({
       canSelectFiles: false,
       canSelectFolders: true,
       canSelectMany: false,
-      defaultUri: project.sourcePath ? vscode.Uri.file(project.sourcePath) : undefined,
+      defaultUri: project?.sourcePath ? vscode.Uri.file(project.sourcePath) : vscode.workspace.workspaceFolders?.[0]?.uri,
       openLabel: 'Associar pasta ao projeto'
     })
     if (!selected?.[0]) return
     const sourcePath = await fs.realpath(selected[0].fsPath)
+    if (!(await fs.stat(sourcePath)).isDirectory()) throw new Error('Selecione uma pasta de projeto valida.')
     let duplicate: typeof project | undefined
     for (const item of data.projects.projects) {
-      if (item.id === project.id || !item.sourcePath) continue
+      if (item.id === project?.id || !item.sourcePath) continue
       try {
         if (await fs.realpath(item.sourcePath) === sourcePath) {
           duplicate = item
@@ -621,16 +635,33 @@ export function activate(context: vscode.ExtensionContext): void {
         if (!hasErrorCode(error, 'ENOENT')) throw error
       }
     }
-    if (duplicate) throw new Error(`Esta pasta ja esta associada ao projeto ${duplicate.name}.`)
+    if (duplicate && project) throw new Error(`Esta pasta ja esta associada ao projeto ${duplicate.name}.`)
+    if (!project) {
+      project = duplicate
+      if (!project) {
+        let name = basename(sourcePath).slice(0, 60) || 'Projeto'
+        let suffix = 1
+        while (data.projects.projects.some(item => item.name.toLocaleLowerCase() === name.toLocaleLowerCase())) {
+          name = `${basename(sourcePath).slice(0, 50)} (${suffix++})`
+        }
+        project = { id: randomBytes(16).toString('hex'), name, sourcePath, skillIds: [] }
+        data.projects.projects.push(project)
+      }
+      data.projects.activeProject = project.id
+    }
     project.sourcePath = sourcePath
     await persist(root, data)
     await refresh()
   }
   async function scanActiveProject(): Promise<void> {
-    const { root, data } = await currentVault()
-    const project = data.projects.projects.find(item => item.id === data.projects.activeProject)
-    if (!project) throw new Error('Crie ou selecione um projeto antes de buscar Markdown.')
-    if (!project.sourcePath) throw new Error('Associe uma pasta ao projeto antes de buscar Markdown.')
+    let { data } = await currentVault()
+    let project = data.projects.projects.find(item => item.id === data.projects.activeProject)
+    if (!project?.sourcePath) {
+      await setProjectFolder()
+      data = (await currentVault()).data
+      project = data.projects.projects.find(item => item.id === data.projects.activeProject)
+      if (!project?.sourcePath) return
+    }
     const projectRoot = await fs.realpath(project.sourcePath)
     const workspaceRoots = (vscode.workspace.workspaceFolders ?? [])
       .filter(folder => folder.uri.scheme === 'file')
@@ -695,7 +726,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const destination = await chooseDestination()
     if (!destination) return
     await createVault(destination)
-    await context.globalState.update('vaultPath', destination)
+    await setVaultPath(destination)
     await refresh()
     void vscode.window.showInformationMessage('Biblioteca criada. Abra o gerenciador para visualizar.')
   }
@@ -705,7 +736,7 @@ export function activate(context: vscode.ExtensionContext): void {
     })
     if (!selected?.[0]) return
     await readVault(selected[0].fsPath)
-    await context.globalState.update('vaultPath', selected[0].fsPath)
+    await setVaultPath(selected[0].fsPath)
     await refresh()
   }
   async function migrate(): Promise<void> {
@@ -729,7 +760,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const destination = await chooseDestination()
     if (!destination) return
     await createVault(destination, imported.data, imported.contents)
-    await context.globalState.update('vaultPath', destination)
+    await setVaultPath(destination)
     await refresh()
     void vscode.window.showInformationMessage('Migracao concluida. Arquivos e banco originais preservados.')
   }
@@ -1287,4 +1318,18 @@ export function activate(context: vscode.ExtensionContext): void {
       await action()
     })))
   }
+  context.subscriptions.push(vscode.commands.registerCommand('skillVortex.getVaultRoot', async () => {
+    if (!vscode.workspace.isTrusted || vscode.env.remoteName) throw new Error('Use um workspace local e confiavel.')
+    return (await currentVault()).root
+  }))
+  context.subscriptions.push(vscode.commands.registerCommand('skillVortex.openArea', (area: unknown) => run(async () => {
+    if (!vscode.workspace.isTrusted || vscode.env.remoteName) throw new Error('Use um workspace local e confiavel.')
+    if (area !== 'home' && area !== 'skills' && area !== 'mindcards' && area !== 'builder') {
+      throw new Error('Area do SkillVortex invalida.')
+    }
+    if (area === 'mindcards' && !featureAvailability().mindCards) throw new Error('Instale o complemento MindCards para continuar.')
+    if (area === 'builder' && !featureAvailability().productBuilder) throw new Error('Instale o complemento ProductBuilder para continuar.')
+    await show()
+    await panel?.webview.postMessage({ type: 'requestArea', area })
+  })))
 }

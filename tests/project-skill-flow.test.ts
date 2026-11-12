@@ -6,6 +6,7 @@ import { Uri, type ExtensionContext } from 'vscode'
 import { activate } from '../src/extension'
 import { createVault, readVault, saveVaultData, writeSkillFile } from '../src/vault'
 import * as vault from '../src/vault'
+import * as markdownPicker from '../src/markdown-picker'
 import { createDocumentedExamples } from '../src/documented-examples'
 import { SKILL_CARD_COLORS } from '../src/skill-colors'
 import { isAgentLinked, isCollectionLinked, selectedSkillIds, skillCards } from '../src/model'
@@ -33,6 +34,7 @@ jest.mock('vscode', () => {
   const quickPick = jest.fn(async (items: Array<{ picked: boolean }>) => items.filter(item => item.picked))
   const fileListeners = new Set<() => void>()
   const workspace = { isTrusted: true, workspaceFolders: [],
+    getConfiguration: () => ({ get: () => '', update: async () => {} }),
     registerTextDocumentContentProvider: () => disposable,
     createFileSystemWatcher: () => ({ ...disposable,
       onDidChange: (listener: () => void) => {
@@ -42,6 +44,8 @@ jest.mock('vscode', () => {
   const uri = (path: string) => ({ fsPath: path, scheme: 'file', toString: () => path })
   return {
     workspace,
+    extensions: { getExtension: () => undefined },
+    ConfigurationTarget: { Global: 1 },
     env: {},
     StatusBarAlignment: { Left: 1 },
     ViewColumn: { One: 1 },
@@ -451,8 +455,8 @@ test.each(['existing', 'batch'])('import rejects duplicate titles atomically: %s
   const second = join(temporary, 'second.md')
   await fs.writeFile(first, `# ${title}\n\nFirst.`)
   await fs.writeFile(second, `# ${title.toUpperCase()}\n\nSecond.`)
-  mock.testing.dialog.mockImplementationOnce(async () =>
-    scenario === 'existing' ? [Uri.file(first)] : [Uri.file(first), Uri.file(second)])
+  jest.spyOn(markdownPicker, 'chooseMarkdownFiles').mockResolvedValueOnce(
+    scenario === 'existing' ? [first] : [first, second])
   await mock.testing.dispatch({ type: 'importMarkdown' })
   expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Use um titulo unico'))
   expect(await readVault(root)).toEqual(data)
@@ -539,7 +543,7 @@ test('importing multiple files is atomic when one Markdown has invalid YAML', as
   await fs.writeFile(invalid, '---\nname: [broken\n---\n')
   const original = await readVault(root)
   const files = await fs.readdir(join(root, 'skills'))
-  mock.testing.dialog.mockImplementationOnce(async () => [Uri.file(valid), Uri.file(invalid)])
+  jest.spyOn(markdownPicker, 'chooseMarkdownFiles').mockResolvedValueOnce([valid, invalid])
   await mock.testing.dispatch({ type: 'importMarkdown' })
   expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('YAML invalido'))
   expect(await readVault(root)).toEqual(original)
@@ -553,13 +557,13 @@ test('a failed import metadata save removes its new Markdown and permits a clean
   const original = await readVault(root)
   const files = await fs.readdir(join(root, 'skills'))
   const save = jest.spyOn(vault, 'saveVaultData').mockRejectedValueOnce(new Error('Import metadata failure'))
-  mock.testing.dialog.mockImplementationOnce(async () => [Uri.file(source)])
+  const picker = jest.spyOn(markdownPicker, 'chooseMarkdownFiles').mockResolvedValueOnce([source])
   await mock.testing.dispatch({ type: 'importMarkdown' })
   expect(mock.testing.errors).toHaveBeenCalledWith(expect.stringContaining('Import metadata failure'))
   expect(await readVault(root)).toEqual(original)
   expect(await fs.readdir(join(root, 'skills'))).toEqual(files)
   save.mockRestore()
-  mock.testing.dialog.mockImplementationOnce(async () => [Uri.file(source)])
+  picker.mockResolvedValueOnce([source])
   await mock.testing.dispatch({ type: 'importMarkdown' })
   const canonicalSource = await fs.realpath(source)
   const imported = (await readVault(root)).catalog.skills.find(skill => skill.originPath === canonicalSource)!
@@ -575,7 +579,7 @@ test('an import whose metadata commit succeeds before reporting an error preserv
     await originalSave(path, data)
     throw new Error('Failure after import commit')
   })
-  mock.testing.dialog.mockImplementationOnce(async () => [Uri.file(source)])
+  jest.spyOn(markdownPicker, 'chooseMarkdownFiles').mockResolvedValueOnce([source])
   await mock.testing.dispatch({ type: 'importMarkdown' })
   const imported = (await readVault(root)).catalog.skills.find(skill => skill.name === 'Committed')!
   expect(imported).toBeDefined()
@@ -1431,6 +1435,57 @@ test('project search offers custom skill files and excludes documentation withou
     ]))
   }
   expect((await readVault(root)).catalog.skills).toHaveLength(4)
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('associates a project with an empty library without loading examples or publishing skills', async () => {
+  const data = await readVault(root)
+  data.catalog.skills = []
+  await saveVaultData(root, data)
+  mock.testing.dialog.mockResolvedValueOnce([Uri.file(projectPath)])
+
+  await mock.testing.dispatch({ type: 'setProjectFolder' })
+
+  const saved = await readVault(root)
+  expect(saved.catalog.skills).toEqual([])
+  expect(saved.projects.projects).toEqual([
+    expect.objectContaining({ sourcePath: await fs.realpath(projectPath), skillIds: [] })
+  ])
+  expect(saved.projects.activeProject).toBe(saved.projects.projects[0].id)
+  await expect(fs.stat(join(projectPath, '.github'))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('project import associates an empty library and finds custom Markdown in hidden agent folders', async () => {
+  const data = await readVault(root)
+  data.catalog.skills = []
+  await saveVaultData(root, data)
+  const source = join(projectPath, '.github/skills/pasta/teste-pasta/11-teste-de-carga.md')
+  await fs.mkdir(join(source, '..'), { recursive: true })
+  await fs.writeFile(source, '# Teste de carga\n\nVerifique os limites.')
+  mock.testing.dialog.mockResolvedValueOnce([Uri.file(projectPath)])
+
+  await mock.testing.dispatch({ type: 'scanProject' })
+
+  const saved = await readVault(root)
+  expect(saved.catalog.skills).toHaveLength(1)
+  expect(saved.catalog.skills[0].originPath).toBe(await fs.realpath(source))
+  expect(saved.catalog.skills[0].agents).toEqual(['GitHub Copilot'])
+  expect(saved.projects.projects[0].skillIds).toEqual([])
+  expect(await fs.readFile(source, 'utf8')).toBe('# Teste de carga\n\nVerifique os limites.')
+  expect(mock.testing.errors).not.toHaveBeenCalled()
+})
+
+test('cancelling project association from import preserves the empty library', async () => {
+  const data = await readVault(root)
+  data.catalog.skills = []
+  await saveVaultData(root, data)
+  mock.testing.dialog.mockResolvedValueOnce(undefined)
+
+  await mock.testing.dispatch({ type: 'scanProject' })
+
+  expect(await readVault(root)).toEqual(data)
+  expect(mock.testing.quickPick).not.toHaveBeenCalled()
   expect(mock.testing.errors).not.toHaveBeenCalled()
 })
 

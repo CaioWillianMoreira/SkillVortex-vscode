@@ -2,12 +2,16 @@
   "name": "skillvortex-extension",
   "displayName": "SkillVortex Extension",
   "description": "Biblioteca local e portatil de skills Markdown para projetos e agentes de IA.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "skillvortex",
   "repository": {
     "type": "git",
     "url": "https://github.com/CaioWillianMoreira/SkillVortex-vscode.git"
   },
+  "extensionPack": [
+    "skillvortex.mindcards",
+    "skillvortex.product-builder"
+  ],
   "private": true,
   "license": "UNLICENSED",
   "engines": {
@@ -31,6 +35,17 @@
     }
   },
   "contributes": {
+    "configuration": {
+      "title": "SkillVortex",
+      "properties": {
+        "skillVortex.vaultPath": {
+          "type": "string",
+          "default": "",
+          "scope": "application",
+          "description": "Caminho compartilhado da biblioteca SkillVortex para os complementos."
+        }
+      }
+    },
     "commands": [
       {
         "command": "skillVortex.open",
@@ -51,11 +66,16 @@
     ]
   },
   "scripts": {
-    "typecheck": "tsc --noEmit && tsc --noEmit -p webview/tsconfig.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p webview/tsconfig.json && tsc --noEmit -p extensions/tsconfig.json && tsc --noEmit -p extensions/tsconfig.webview.json",
     "build": "tsc && esbuild src/extension.ts --bundle --platform=node --target=node20 --external:vscode --outfile=dist/extension.js && node scripts/build-assets.cjs && vite build --config webview/vite.config.ts",
+    "build:mindcards": "esbuild extensions/mindcards/src/extension.ts --bundle --platform=node --target=node20 --external:vscode --outfile=extensions/mindcards/dist/extension.js && vite build --config extensions/mindcards/vite.config.ts",
+    "build:product-builder": "esbuild extensions/product-builder/src/extension.ts --bundle --platform=node --target=node20 --external:vscode --outfile=extensions/product-builder/dist/extension.js && vite build --config extensions/product-builder/vite.config.ts",
     "test": "jest --runInBand",
-    "test:host": "npm run build && node scripts/test-host.cjs",
-    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license --out builds/"
+    "test:host": "npm run build && npm run build:mindcards && npm run build:product-builder && node scripts/test-host.cjs",
+    "package:skillvortex": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license --out builds/",
+    "package:mindcards": "npm run build:mindcards && cd extensions/mindcards && ../../node_modules/.bin/vsce package --no-dependencies --allow-missing-repository --skip-license --out ../../builds/",
+    "package:product-builder": "npm run build:product-builder && cd extensions/product-builder && ../../node_modules/.bin/vsce package --no-dependencies --allow-missing-repository --skip-license --out ../../builds/",
+    "package": "npm run package:skillvortex && npm run package:mindcards && npm run package:product-builder"
   },
   "dependencies": {
     "@huggingface/transformers": "3.8.1",

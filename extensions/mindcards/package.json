@@ -1,0 +1,28 @@
+{
+  "name": "mindcards",
+  "displayName": "MindCards",
+  "description": "Notas locais de ideias e regras de negocio integradas ao SkillVortex.",
+  "version": "0.1.3",
+  "publisher": "skillvortex",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onCommand:mindCards.open"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "mindCards.open",
+        "title": "MindCards: Abrir notas"
+      }
+    ]
+  },
+  "files": [
+    "dist/**"
+  ]
+}

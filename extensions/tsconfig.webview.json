@@ -1,0 +1,10 @@
+{
+  "extends": "../webview/tsconfig.json",
+  "include": [
+    "mindcards/webview/**/*.tsx",
+    "product-builder/webview/**/*.tsx",
+    "../webview/**/*.tsx",
+    "../webview/**/*.ts",
+    "../src/model.ts"
+  ]
+}

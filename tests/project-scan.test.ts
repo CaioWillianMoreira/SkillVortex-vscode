@@ -25,6 +25,7 @@ test('finds custom Markdown names only in agent skill folders', async () => {
     '.github/skills/exemplo/SKILL.md',
     '.github/skills/exemplo/setup-database.md',
     '.github/skills/exemplo/nested/other.MD',
+    '.github/skills/pasta/teste-pasta/11-teste-de-carga.md',
     '.agents/skills/exemplo/SKILL.md',
     '.agents/skills/exemplo/1-skill-de-teste.md',
     '.agent/SKILLS/exemplo/ANALISE-SEO.md'

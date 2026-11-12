@@ -25,14 +25,14 @@ module.exports = async function testCardColors(extension) {
     type: 'state', root: '/test-vault',
     catalog: { version: 1, categories: ['Geral'], collections, skills: skill ? [skill] : [] },
     projects: {
-      version: 1, activeProject: 'color-project',
-      projects: [{
+      version: 1, activeProject: skill ? 'color-project' : null,
+      projects: skill ? [{
         id: 'color-project', name: 'Color project', sourcePath: '/test-project',
         skillIds: projectLinked ? [skill.id] : []
       }, {
         id: 'other-project', name: 'Other project', sourcePath: '/other-project',
         skillIds: otherProjectLinked ? [skill.id] : []
-      }]
+      }] : []
     },
     editingSkillId, content: editingSkillId ? '# Nova Skill\n\n' : '', saved,
     hasProjectMarkdown: true
@@ -49,6 +49,11 @@ module.exports = async function testCardColors(extension) {
           assert.ok(await webview.postMessage({ type: 'color-test-create' }))
         } else if (message.type === 'first-use-examples-visible') {
           assert.equal(message.visible, true)
+          assert.equal(message.associateVisible, true)
+          assert.equal(message.importProjectVisible, true)
+        } else if (message.type === 'sync-tooltip') {
+          assert.match(message.text, /todas as publicacoes ativas/)
+          assert.match(message.text, /confirmacao e backup/)
         } else if (message.type === 'manager-chrome') {
           assert.equal(message.heading, 'Gerenciador de Skills')
           assert.equal(message.backupColor, 'rgb(56, 158, 13)')
@@ -601,10 +606,33 @@ module.exports = async function testCardColors(extension) {
             return true;
           });
         } else if (event.data.type === 'color-test-create') {
+          waitFor('sync button on empty library', () => {
+            const sync = button('Sincronizar');
+            if (!sync) return false;
+            sync.focus();
+            waitFor('sync explanation tooltip', () => {
+              const tooltip = document.querySelector('.ant-tooltip:not(.ant-tooltip-hidden)');
+              if (!tooltip?.textContent.includes('Nao importa novas skills')) return false;
+              bridge.postMessage({ type: 'sync-tooltip', text: tooltip.textContent });
+              sync.blur();
+              waitFor('closed sync explanation', () => {
+                if (document.querySelector('.ant-tooltip:not(.ant-tooltip-hidden)')) return false;
+                window.dispatchEvent(new MessageEvent('message', { data: { type: 'color-test-chrome' } }));
+                return true;
+              });
+              return true;
+            });
+            return true;
+          });
+        } else if (event.data.type === 'color-test-chrome') {
           waitFor('new skill button', () => {
             const create = button('Novo');
             if (!create) return false;
-            bridge.postMessage({ type: 'first-use-examples-visible', visible: Boolean(button('Carregar exemplos')) });
+            bridge.postMessage({
+              type: 'first-use-examples-visible', visible: Boolean(button('Carregar exemplos')),
+              associateVisible: Boolean(button('Associar projeto')),
+              importProjectVisible: Boolean(button('Importar skills existentes no projeto'))
+            });
             const help = document.querySelector('[aria-label="Sobre o gerenciador"]');
             help.focus();
             waitFor('manager help tooltip', () => {

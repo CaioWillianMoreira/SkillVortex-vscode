@@ -1,0 +1,28 @@
+{
+  "name": "product-builder",
+  "displayName": "ProductBuilder",
+  "description": "Transforma notas do MindCards em rascunhos revisaveis de skills.",
+  "version": "0.1.3",
+  "publisher": "skillvortex",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onCommand:productBuilder.open"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "productBuilder.open",
+        "title": "ProductBuilder: Criar skill a partir dos cards"
+      }
+    ]
+  },
+  "files": [
+    "dist/**"
+  ]
+}

@@ -21,7 +21,8 @@ module.exports = async function testProductBuilder(extension) {
   })
   const asset = name => panel.webview.asWebviewUri(vscode.Uri.joinPath(extension.extensionUri, 'dist/webview', name))
   const state = { type: 'state', root, catalog: { version: 1, categories: ['Geral'], skills: [] },
-    projects: { version: 1, activeProject: null, projects: [] }, editingSkillId: null, content: '' }
+    projects: { version: 1, activeProject: null, projects: [] }, editingSkillId: null, content: '',
+    features: { mindCards: true, productBuilder: true } }
   let listener, timer
   let opened = false
   try {

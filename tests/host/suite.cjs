@@ -9,7 +9,7 @@ exports.run = async function run() {
   assert.ok(extension, 'Extension must be discoverable in isolated VS Code host')
   await extension.activate()
   const commands = await vscode.commands.getCommands()
-  for (const name of ['open', 'createVault', 'openVault', 'migrateDesktop']) {
+  for (const name of ['open', 'createVault', 'openVault', 'migrateDesktop', 'openArea', 'getVaultRoot']) {
     assert.ok(commands.includes(`skillVortex.${name}`), `Missing command ${name}`)
   }
   const webviewAssets = await readdir(join(extension.extensionPath, 'dist/webview/assets'))
@@ -34,6 +34,9 @@ exports.run = async function run() {
     })
   }
   assert.ok(hasTab())
+  await vscode.commands.executeCommand('mindCards.open')
+  await vscode.commands.executeCommand('productBuilder.open')
+  assert.ok(hasTab(), 'Companion commands must route into the integrated SkillVortex tab')
   await require('./mindcards.cjs')(extension)
   await require('./clipboard.cjs')(extension)
   await require('./visual-editor.cjs')(extension)

@@ -29,7 +29,10 @@ module.exports = async function testMindCards(extension) {
       listener = webview.onDidReceiveMessage(async message => {
         try {
           if (message.type === 'ready') {
-            await webview.postMessage({ type: 'state', root, ...originalSkills, editingSkillId: null, content: '' })
+            await webview.postMessage({
+              type: 'state', root, ...originalSkills, editingSkillId: null, content: '',
+              features: { mindCards: true, productBuilder: true }
+            })
             await webview.postMessage({ type: 'mindcards-test-start' })
           } else if (message.type === 'loadMindCards') {
             await webview.postMessage({ type: 'mindCards', root, state: await readMindCards(root) })

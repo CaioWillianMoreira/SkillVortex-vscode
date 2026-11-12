@@ -8,8 +8,9 @@ import { readW3cExcerpts } from './w3c-references'
 import { ActionButton } from './Actions'
 
 type Bridge = { postMessage(message: unknown): void }
-export default function ProductBuilder({ root, api, onDirtyChange, onBusyChange, onOpenSkill }: {
+export default function ProductBuilder({ root, api, onDirtyChange, onBusyChange, onOpenSkill, openSkillLabel = 'Revisar no SkillVortex' }: {
   root: string | null; api: Bridge; onDirtyChange(value: boolean): void; onBusyChange(value: boolean): void; onOpenSkill(): void
+  openSkillLabel?: string
 }): React.JSX.Element {
   const [modal, context] = Modal.useModal()
   const [state, setState] = useState<MindCardsState>()
@@ -221,7 +222,7 @@ export default function ProductBuilder({ root, api, onDirtyChange, onBusyChange,
           setBusy(true)
           pending.current = 'open'
           api.postMessage({ type: 'openBuilderSkill', title, content })
-        }}>Revisar no SkillVortex</ActionButton>
+        }}>{openSkillLabel}</ActionButton>
       </Card>}
       {suggestions && <Card title="Sugestoes da IA — nao verificadas">
         <Alert type="warning" showIcon message="Podem estar incorretas, genericas ou incompletas. Nao fazem parte da skill salva. Copie apenas o que verificar contra as fontes." />

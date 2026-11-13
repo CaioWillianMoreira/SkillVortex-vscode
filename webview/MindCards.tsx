@@ -1,9 +1,11 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Alert, Button, Card, Empty, Input, Modal, Select, Space, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Empty, Input, Modal, Pagination, Select, Space, Tag, Typography } from 'antd'
+import ptBR from 'antd/locale/pt_BR'
 import type { MindCardsState, MindFolder, MindNote, MindNoteDocument, MindNoteInput } from '../src/mindcards-model'
 import { mindNoteInputSchema } from '../src/mindcards-model'
 import { SKILL_CARD_COLORS, SKILL_CARD_COLOR_LABELS } from '../src/skill-colors'
 import { ActionButton, ActionIcon } from './Actions'
+import { useCardPagination } from './useCardPagination'
 
 const VisualMarkdownEditor = lazy(() => import('./VisualMarkdownEditor'))
 const empty: MindCardsState = { folders: [], notes: [], revision: null }
@@ -158,6 +160,9 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
     (!folderFilter || note.folderId === folderFilter) &&
     (!tagFilter || note.tags.includes(tagFilter)) &&
     `${note.title} ${note.tags.join(' ')} ${state.folders.find(folder => folder.id === note.folderId)?.name ?? ''}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  const { pageItems: pageNotes, pagination } = useCardPagination(filtered,
+    JSON.stringify([root, search, folderFilter, tagFilter, showArchived]))
   const backlinks = draft?.id ? state.notes.filter(note => note.links.includes(draft.id!)) : []
   const noteLinks = draft ? draft.links.map(id => state.notes.find(note => note.id === id)).filter((note): note is MindNote => Boolean(note)) : []
   const reload = async () => {
@@ -249,7 +254,7 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
             </Empty></Card> : !filtered.length ? <Card><Empty description="Nenhuma nota encontrada.">
               {!showArchived && <ActionButton action="add" onClick={() => void createNote()}>Criar nota</ActionButton>}
             </Empty></Card> : <div className="mind-note-grid">
-              {[...filtered].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(note => {
+              {pageNotes.map(note => {
                 const parent = state.folders.find(item => item.id === note.folderId)!
                 return <Card className="mind-note-card" key={note.id} style={{ borderTopColor: parent.color }}>
                   <div className="card-top-row">
@@ -270,6 +275,8 @@ export default function MindCards({ root, api, onDirtyChange, onBusyChange }: {
                 </Card>
               })}
             </div>}
+            <Pagination {...pagination} className="cards-pagination" aria-label="Paginas do MindCards"
+              locale={ptBR.Pagination} />
           </> : <section className="mind-note-editor" aria-label="Editor de nota">
             <div className="mind-dashboard-heading">
               <div><Typography.Title level={3}>{reading ? draft.title || 'Leitura da nota' : draft.id ? 'Editando nota' : 'Nova nota'}</Typography.Title>

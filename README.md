@@ -152,6 +152,11 @@ os botões **SkillVortex**, **MindCards** e **Product Builder** permitem trocar 
 Alterações não salvas exigem confirmação antes da troca.
 O fluxo abaixo corresponde à área de skills.
 
+SkillVortex e MindCards exibem até **6 cards por página**, com paginação
+independente quando os resultados passam de seis. A busca e os filtros consideram
+todos os cards e voltam à primeira página ao mudar; a paginação também funciona
+nos arquivados.
+
 1. **Crie ou abra uma biblioteca.** Escolha uma pasta local para os dados.
    Mantenha a biblioteca fora das pastas dos projetos onde publicará skills.
 2. **Adicione conteúdo.** Crie um card, importe Markdown ou carregue exemplos.

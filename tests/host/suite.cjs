@@ -37,6 +37,7 @@ exports.run = async function run() {
   await vscode.commands.executeCommand('mindCards.open')
   await vscode.commands.executeCommand('productBuilder.open')
   assert.ok(hasTab(), 'Companion commands must route into the integrated SkillVortex tab')
+  await require('./pagination.cjs')(extension)
   await require('./mindcards.cjs')(extension)
   await require('./clipboard.cjs')(extension)
   await require('./visual-editor.cjs')(extension)

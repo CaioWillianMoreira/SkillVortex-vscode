@@ -657,6 +657,14 @@ main {
   grid-auto-rows: 1fr;
 }
 
+.cards-pagination.ant-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  row-gap: 8px;
+  margin-top: 24px;
+}
+
 .skill-grid-item {
   min-width: 0;
   container-type: inline-size;

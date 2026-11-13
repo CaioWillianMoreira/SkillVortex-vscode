@@ -1,11 +1,13 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
-  Alert, Button, Card, Checkbox, Col, ConfigProvider, Dropdown, Empty, Input, Modal, Row,
+  Alert, Button, Card, Checkbox, Col, ConfigProvider, Dropdown, Empty, Input, Modal, Pagination, Row,
   Select, Space, Switch, Tabs, Tag, Tooltip, Typography, theme
 } from 'antd'
+import ptBR from 'antd/locale/pt_BR'
 import { ActionButton, ActionIcon } from './Actions'
 import MindCards from './MindCards'
+import { useCardPagination } from './useCardPagination'
 import type { Catalog, Projects, Skill, SkillCard, SkillAgent } from '../src/model'
 import { agentRoot, isAgentLinked, isCollectionLinked, selectedSkillIds, skillCards, skillRegistrationSchema, skillPublicationPath, skillSlug } from '../src/model'
 import { skillMarkdownMetadata, suggestedExecutionName } from '../src/skill-metadata'
@@ -203,6 +205,8 @@ function App(): React.JSX.Element {
       (!collectionFilter || item.id === collectionFilter)
   }), [allCards, state.catalog, search, statusFilter, categoryFilter, agentFilter, collectionFilter, showArchived])
   const cardCount = cards.length
+  const { pageItems: pageCards, pagination } = useCardPagination(cards,
+    JSON.stringify([state.root, search, showArchived, statusFilter, categoryFilter, agentFilter, collectionFilter]))
   const editCollection = (existing?: SkillCard) => {
     setCollectionId(existing?.id)
     setCollectionName(existing?.name ?? '')
@@ -666,7 +670,7 @@ function App(): React.JSX.Element {
             </Modal>
             {showArchived && <Typography.Title level={3}>Cards arquivados</Typography.Title>}
             <div className="skills-grid">
-              {cards.map(item => {
+              {pageCards.map(item => {
                 const members = state.catalog!.skills.filter(skill => item.skillIds.includes(skill.id))
                 const selectedMembers = members.filter(skill => selectedSkillIds(item).includes(skill.id))
                 const visibleAgents = agentFilter ? item.agents.filter(agent => agent === agentFilter) : item.agents
@@ -792,6 +796,8 @@ function App(): React.JSX.Element {
                 )
               })}
             </div>
+            <Pagination {...pagination} className="cards-pagination" aria-label="Paginas do SkillVortex"
+              locale={ptBR.Pagination} />
             {!cards.length && (
               <Empty className="empty-library" description={
                 allCards.length ? 'Nenhum card corresponde aos filtros.' : 'Sua biblioteca esta vazia. Crie um card, carregue os exemplos ou importe um Markdown.'

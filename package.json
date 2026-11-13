@@ -13,7 +13,7 @@
     "skillvortex.product-builder"
   ],
   "private": true,
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.95.0"
   },
